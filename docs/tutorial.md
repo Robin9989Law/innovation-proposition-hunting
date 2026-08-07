@@ -1,11 +1,17 @@
-# Innovation Proposition Hunting 详细使用教程
+# 创新命题狩猎（Innovation Proposition Hunting）详细使用教程
 
-本教程面向第一次使用该 skill 的研究者、导师和 AI agent 操作者。它不重复
+本教程面向第一次使用该技能（skill）的研究者、导师和人工智能智能体
+（AI agent）操作者。它不重复
 `SKILL.md` 的全部规范，而是解释如何把规范落实为一个可运行、可中断、可恢复的
 研究流程。
 
 示例日期为 2026 年，因此近三年窗口写作 2024–2026。实际运行时永远使用
 `current_year-2 .. current_year`。
+
+术语约定：正文以中文术语为主，英文原名在首次出现时放在括号中。文件名、JSON
+字段、状态枚举、错误码和命令参数必须保留英文原值，否则校验器无法识别。例如：
+范围锁定（`SCOPE_LOCK`）、门禁（gate）、原文定位符（locator）、开发数据集
+（development dataset）和封存确认数据集（sealed confirmation dataset）。
 
 ## 目录
 
@@ -13,8 +19,8 @@
 2. [开始前的准备](#2-开始前的准备)
 3. [先理解四个研究层级](#3-先理解四个研究层级)
 4. [成果类型怎么选](#4-成果类型怎么选)
-5. [第一次调用 agent](#5-第一次调用-agent)
-6. [`workflow_state.json` 怎么用](#6-workflow_statejson-怎么用)
+5. [第一次调用智能体](#5-第一次调用智能体agent)
+6. [工作流状态文件怎么用](#6-工作流状态文件workflow_statejson怎么用)
 7. [状态机逐步教程](#7-状态机逐步教程)
 8. [博士论文完整路径](#8-博士论文完整路径)
 9. [一般期刊论文完整路径](#9-一般期刊论文完整路径)
@@ -33,7 +39,7 @@
 
 ## 1. 使用后应该得到什么
 
-这个 skill 的目标不是输出一串“可能的创新点”，而是逐层得到：
+这个技能（skill）的目标不是输出一串“可能的创新点”，而是逐层得到：
 
 1. 一个冻结的 L1 研究工作；
 2. 一个位于 L1 内、能够执行的 L2 可行创新域；
@@ -44,14 +50,14 @@
 5. 从输出结论回到原文位置和官方入口的完整证据链；
 6. 一个明确状态：继续、阻塞、关闭、锁定或进入经授权的计算验证。
 
-如果最终结果是“候选被正式出版近邻覆盖，因此关闭”，流程仍然成功。这个 skill
+如果最终结果是“候选被正式出版近邻覆盖，因此关闭”，流程仍然成功。这个技能
 把及时关闭错误方向视为有效研究产出。
 
 ---
 
 ## 2. 开始前的准备
 
-### 2.1 安装 skill
+### 2.1 安装技能（skill）
 
 ```bash
 git clone \
@@ -59,15 +65,15 @@ git clone \
   /path/to/agent/skills/innovation-proposition-hunting
 ```
 
-确认你的 agent 能发现仓库根目录下的 `SKILL.md`。不同 agent 的 skills 根目录和
-显式调用语法不同，但执行协议相同。
+确认你的智能体（agent）能发现仓库根目录下的 `SKILL.md`。不同智能体的技能目录
+（skills directory）和显式调用语法不同，但执行协议相同。
 
 ### 2.2 环境要求
 
 - Python 3.10 或更高版本；
 - Git；
 - 一个独立的研究目录；
-- agent 对研究目录具有读写权限；
+- 智能体（agent）对研究目录具有读写权限；
 - 可验证的学术检索能力；
 - 合法的全文访问方式。
 
@@ -103,7 +109,7 @@ research-topic/
 - 已有文献库、论文草稿、实验资产和关闭记录；
 - 当前希望裁决的层级。
 
-成果类型不清楚时，agent 只能盘点材料和询问，不得自行选择博士或期刊合同。
+成果类型不清楚时，智能体只能盘点材料和询问，不得自行选择博士或期刊合同。
 
 ---
 
@@ -166,7 +172,7 @@ L2
 L3 是真正接受 N0 新颖性审计的单位。合格形式包括：
 
 - 充分条件和失效条件；
-- 必要性、converse 或 sharpness；
+- 必要性、逆命题（converse）或紧致性（sharpness）；
 - 排序保持与排序反转边界；
 - 可识别和不可识别边界；
 - 可实现像和严格不可实现像；
@@ -214,7 +220,7 @@ L3 是真正接受 N0 新颖性审计的单位。合格形式包括：
 
 ---
 
-## 5. 第一次调用 agent
+## 5. 第一次调用智能体（agent）
 
 建议使用下面的启动提示词：
 
@@ -231,7 +237,7 @@ L3 是真正接受 N0 新颖性审计的单位。合格形式包括：
 
 请先完整读取 SKILL.md，并按需读取 templates.md 和 evidence-pipeline.md。
 第一步只创建并验证 workflow_state.json，随后创建 scope_lock.md。
-一次只推进一个 active_state；每完成一步先落盘产物、更新 gate，再改变状态。
+一次只推进一个 active_state；每完成一步先落盘产物、更新门禁（gate），再改变状态。
 不要开始实验、模型调用或无界检索。
 ```
 
@@ -239,7 +245,7 @@ L3 是真正接受 N0 新颖性审计的单位。合格形式包括：
 
 ---
 
-## 6. `workflow_state.json` 怎么用
+## 6. 工作流状态文件（`workflow_state.json`）怎么用
 
 从 [`templates.md`](../templates.md) 复制完整模板。首次启动使用：
 
@@ -259,7 +265,7 @@ collision_round = 1
 |---|---|
 | `active_state` | 当前唯一允许执行的状态 |
 | `next_required_action` | 下一项原子动作；只能写一件事，例如“核验成果类型”，不能写“搜索、下载并综合文献” |
-| `gates` | 已经通过的机器门；只有对应产物真实存在且检查完成时才能设为 `true` |
+| `gates` | 已经通过的机器门禁（gate）；只有对应产物真实存在且检查完成时才能设为 `true` |
 
 ### 6.2 更新顺序
 
@@ -269,14 +275,14 @@ collision_round = 1
 执行当前状态动作
   → 保存产物
   → 运行当前状态需要的校验
-  → 更新 gate
+  → 更新门禁（gate）
   → 更新 last_completed_state
   → 更新 active_state 和 resume_state
   → 写唯一 next_required_action
   → 追加 decision_log
 ```
 
-不要先把 gate 改成 `true`，再补文件。
+不要先把门禁（gate）改成 `true`，再补文件。
 
 ### 6.3 `BLOCKED` 的使用
 
@@ -304,7 +310,7 @@ next_required_action = "Provide a lawful author manuscript or institutional acce
 
 ## 7. 状态机逐步教程
 
-### 7.1 `BOOT`
+### 7.1 启动（`BOOT`）
 
 输入：
 
@@ -332,7 +338,7 @@ workflow_state_errors=0
 
 下一状态：`SCOPE_LOCK`。
 
-### 7.2 `SCOPE_LOCK`
+### 7.2 范围锁定（`SCOPE_LOCK`）
 
 使用 [`templates.md`](../templates.md) 的 Scope Lock 模板，冻结：
 
@@ -342,7 +348,7 @@ workflow_state_errors=0
 - 允许对象和禁止旧主题；
 - 主线锚点；
 - 关键比较基线；
-- 改变 scope 的授权条件。
+- 改变研究范围（scope）的授权条件。
 
 建议提示词：
 
@@ -363,7 +369,7 @@ active_contribution = NONE
 
 下一状态：`PRIOR_CLAIM_DRAIN`。
 
-### 7.3 `PRIOR_CLAIM_DRAIN`
+### 7.3 旧观点耗尽（`PRIOR_CLAIM_DRAIN`）
 
 首轮通常没有旧观点，可以直接记录：
 
@@ -391,7 +397,7 @@ prior_claims_drained = true
 
 下一状态：`RECENT_FRONTIER`。
 
-### 7.4 `RECENT_FRONTIER`
+### 7.4 近期前沿（`RECENT_FRONTIER`）
 
 先搜索当前年份和前两年。2026 年运行时窗口为：
 
@@ -415,7 +421,7 @@ prior_claims_drained = true
 
 只有以下全部不变才可复用：
 
-- scope；
+- 研究范围（scope）；
 - 当前年份；
 - 查询覆盖；
 - 版本链状态。
@@ -436,18 +442,19 @@ snapshot_mode = NEW_SEARCH
 
 下一状态：`LITERATURE_REGISTER`。
 
-### 7.5 `LITERATURE_REGISTER`
+### 7.5 文献注册（`LITERATURE_REGISTER`）
 
 每个实质相关命中立即写入 `near_neighbor_registry.json`。不要先积累一批链接，
 准备“以后统一录入”。
 
-一篇 canonical work 只建一条记录：
+一篇规范文献实体（canonical work）只建一条记录：
 
 ```text
 W-0001
 ```
 
-预印本、会议版、期刊版和镜像链接通过版本关系和 alias URL 连接，不重复建 work。
+预印本、会议版、期刊版和镜像链接通过版本关系和别名链接（alias URL）连接，
+不重复建立文献实体（work）。
 
 必须核验：
 
@@ -472,7 +479,7 @@ W-0001
 
 下一状态：`IMPORTANT_FULLTEXT`。
 
-### 7.6 `IMPORTANT_FULLTEXT`
+### 7.6 重要全文归档（`IMPORTANT_FULLTEXT`）
 
 对全部 `CRITICAL/IMPORTANT` 文献：
 
@@ -494,7 +501,7 @@ shasum -a 256 /path/to/research/literature_archive/W-0001.pdf
 
 下一状态：`SOURCE_CLAIM_REGISTER`。
 
-### 7.7 `SOURCE_CLAIM_REGISTER`
+### 7.7 来源观点注册（`SOURCE_CLAIM_REGISTER`）
 
 在 `literature_claim_registry.json` 中，一条记录只保存一个可判断观点：
 
@@ -506,10 +513,10 @@ LC-0001
 
 - 观点类型；
 - 准确释义；
-- 对象和 scope；
+- 对象和研究范围（scope）；
 - 条件和量词；
 - 证据等级；
-- 页、节、段、定理、表、图或算法 locator；
+- 页、节、段、定理、表、图或算法的原文定位符（locator）；
 - 支持、反驳、限定或方法角色；
 - 发现轮次；
 - 使用状态。
@@ -540,7 +547,7 @@ COUNTEREXAMPLE
 
 下一状态：`SYNTHESIZE_COLLISION`。
 
-### 7.8 `SYNTHESIZE_COLLISION`
+### 7.8 碰撞综合（`SYNTHESIZE_COLLISION`）
 
 先把文献组织成连续研究链，而不是逐篇写摘要：
 
@@ -592,7 +599,7 @@ U = K 内部尚未闭合的推理、边界、识别或性能责任
 2. T 的像是什么？
 3. T 的逆命题在哪里断裂？
 4. 边界、等号、空支撑或退化情形暴露什么？
-5. 关键引理的 maximal reach 是什么？
+5. 关键引理的最大可达边界（maximal reach）是什么？
 6. T 为什么停在这里？
 
 建议提示词：
@@ -607,7 +614,7 @@ U = K 内部尚未闭合的推理、边界、识别或性能责任
 
 下一状态：`OUTPUT_CLAIM_BIND`。
 
-### 7.9 `OUTPUT_CLAIM_BIND`
+### 7.9 输出结论绑定（`OUTPUT_CLAIM_BIND`）
 
 把每条实质研究结论登记为：
 
@@ -631,7 +638,7 @@ OC-0001
 OC-0001
   → LC-0001
     → W-0001
-      → locator
+      → 原文定位符（locator）
         → local fulltext + SHA-256
           → official identity URL
 ```
@@ -641,7 +648,7 @@ OC-0001
 
 下一状态：`EVIDENCE_VALIDATE`。
 
-### 7.10 `EVIDENCE_VALIDATE`
+### 7.10 证据校验（`EVIDENCE_VALIDATE`）
 
 运行：
 
@@ -664,7 +671,7 @@ validation_suite_failures=0
 
 下一状态：`LAYER_DECISION`。
 
-### 7.11 `LAYER_DECISION`
+### 7.11 层级裁决（`LAYER_DECISION`）
 
 一次只裁决 `active_layer`：
 
@@ -684,7 +691,7 @@ validation_suite_failures=0
 
 不要直接从 L1 PASS 跳到 L3。
 
-### 7.12 `N0_AUDIT`
+### 7.12 新颖性预审（`N0_AUDIT`）
 
 N0 只用于单个 L3：
 
@@ -832,7 +839,7 @@ M 必须回答：
 
 ## 10. 三种创新路径怎么选
 
-### 10.1 R1：寻找空白
+### 10.1 R1：空白发现（`GAP_OPENING`）
 
 适用：
 
@@ -843,18 +850,19 @@ M 必须回答：
 必须证明：
 
 - 不是因为检索词不对而“没搜到”；
-- 不是直接翻译 future work；
+- 不是直接翻译未来工作（future work）；
 - 不是换数据、换接口或换领域名；
 - Δ 对研究链本身必要。
 
 常见形式：R1+F1、R1+F3。
 
-### 10.2 R2：在成熟理论或技术上深挖
+### 10.2 R2：深度推进（`DEPTH_EXTENSION`）
 
 适用：
 
 - K 已成熟且可靠；
-- 仍有 maximal reach、像/逆、边界、瓶颈、sharpness 或性能前沿未闭合。
+- 仍有最大可达边界（maximal reach）、像/逆、边界、瓶颈、紧致性
+  （sharpness）或性能前沿未闭合。
 
 必须证明：
 
@@ -865,7 +873,7 @@ M 必须回答：
 
 常见形式：R2+F1、R2+F4。
 
-### 10.3 R3：用成熟理论或技术论证新问题
+### 10.3 R3：新问题论证（`NEW_PROBLEM_SUBSTANTIATION`）
 
 适用：
 
@@ -882,7 +890,16 @@ M 必须回答：
 
 最常见形式：R3+F2。
 
-### 10.4 快速选择表
+### 10.4 四种创新形式
+
+| 编号 | 中文术语（英文原名） | 最低交付物 |
+|---|---|---|
+| F1 | 新理论（`NEW_THEORY`） | 定义、命题、证明责任、见证或反例 |
+| F2 | 成熟理论的新领域应用（`MATURE_THEORY_NEW_DOMAIN`） | 语义映射、假设核验、新领域结论和边界 |
+| F3 | 新算法（`NEW_ALGORITHM`） | 新计算规则、复杂度、同预算强基线和消融 |
+| F4 | 既有算法深度改进（`ALGORITHM_DEEPENING`） | 原瓶颈、修改变量、收益机制、保护约束和退出门 |
+
+### 10.5 快速选择表
 
 | 问题 | 是 | 否 |
 |---|---|---|
@@ -903,7 +920,7 @@ M 必须回答：
 ```json
 {
   "registry_id": "W-0001",
-  "canonical_title": "<verified title>",
+  "canonical_title": "<已核验题名>",
   "identity_status": "VERIFIED",
   "importance": "IMPORTANT",
   "download": {
@@ -974,17 +991,17 @@ OC-0001 → LC-0001 → W-0001 → page 7/table 2
 - 改变 O/I/A/T/C/R/B；
 - 转入新的层级或贡献。
 
-只补页码、证据级、版本 alias 或措辞不增加轮次。
+只补页码、证据级、版本别名（alias）或措辞不增加轮次。
 
 ### 12.2 用户只说“继续”时
 
-agent 必须：
+智能体（agent）必须：
 
 1. 读取 `workflow_state.json`；
 2. 核对声明产物是否存在；
 3. 运行当前应到期的校验；
 4. 从 `next_required_action` 继续；
-5. 不重置 scope、层级、贡献编号或轮次。
+5. 不重置研究范围（scope）、层级、贡献编号或轮次。
 
 续跑提示词：
 
@@ -992,7 +1009,7 @@ agent 必须：
 继续当前 innovation-proposition-hunting 任务。
 先读取 workflow_state.json、scope_lock.md 和三个证据 JSON。
 报告 active_state、active_layer、active_contribution、collision_round、
-三个关键 gate 和 next_required_action。
+三个关键门禁（gate）和 next_required_action。
 只执行 next_required_action；不得重新启动检索或改变冻结上层。
 ```
 
@@ -1005,7 +1022,8 @@ agent 必须：
 3. `recent_window.status=INCOMPLETE`；
 4. `snapshot_mode=NOT_SET`；
 5. 重新执行有界近期检索；
-6. 将不再属于近期窗口的旧记录重新归入历史 backfill，并保留原检索历史；
+6. 将不再属于近期窗口的旧记录重新归入历史回填（foundational backfill），
+   并保留原检索历史；
 7. 验证通过后再恢复碰撞。
 
 年份刷新本身不必改变研究问题；只有 O/I/A/T/C/R/B 等实质范围变化才开启新碰撞。
@@ -1014,7 +1032,8 @@ agent 必须：
 
 ## 13. 100 篇综合锁
 
-同一主题达到 100 篇去重、实质相关、正式发表且同行评审的 canonical works 后：
+同一主题达到 100 篇去重、实质相关、正式发表且同行评审的规范文献实体
+（canonical works）后：
 
 ```text
 search_mode = SYNTHESIS_LOCK
@@ -1052,7 +1071,7 @@ n0_4_locked = true
 compute_authorized = true
 ```
 
-`compute_authorized=true` 必须来自用户或权威授权，agent 不能因为 N0-4 自行开启。
+`compute_authorized=true` 必须来自用户或权威授权，智能体不能因为 N0-4 自行开启。
 
 计算按 [`compute-funnel.md`](../compute-funnel.md) 执行：
 
@@ -1069,7 +1088,8 @@ compute_authorized = true
 ```text
 当前 L3 已达到 N0-4。先运行 validate_all.py。
 只有全部零错误且我明确授权后，才设置 compute_authorized=true。
-先填写 S0/S1 阶段卡、资源上限、最低效果、保护门、matched-budget 基线和
+先填写 S0/S1 阶段卡、资源上限、最低效果、保护门、同预算匹配
+（matched-budget）基线和
 无效性停止条件。不得直接进入 S4。
 ```
 
@@ -1077,17 +1097,17 @@ compute_authorized = true
 
 ## 15. 常见校验错误与恢复
 
-### `STATE_GATE`
+### 状态门禁错误（`STATE_GATE`）
 
-含义：当前状态依赖的 gate 还没有通过。
+含义：当前状态依赖的门禁（gate）还没有通过。
 
 处理：
 
-- 回到错误中指出的最早 gate；
+- 回到错误中指出的最早门禁（gate）；
 - 补产物并重新校验；
-- 不手工删除错误或强行把 gate 改为 `true`。
+- 不手工删除错误或强行把门禁改为 `true`。
 
-### `CONTRACT` 或 `CONTRIBUTION`
+### 成果合同或贡献错误（`CONTRACT` / `CONTRIBUTION`）
 
 含义：博士/期刊合同与 M/A/B/C 不匹配。
 
@@ -1097,7 +1117,7 @@ compute_authorized = true
 - 核对 `contribution_contract`；
 - 非 L3 阶段设置 `active_contribution=NONE`。
 
-### `DOWNLOAD`
+### 全文下载错误（`DOWNLOAD`）
 
 含义：重要全文缺失、路径越界、版本不匹配或 SHA-256 不一致。
 
@@ -1108,7 +1128,7 @@ compute_authorized = true
 - 重新计算哈希；
 - 无法访问时进入 BLOCKED，不得降级伪装。
 
-### `CLAIM` 或 `CLAIM_EXTRACTION`
+### 来源观点错误（`CLAIM` / `CLAIM_EXTRACTION`）
 
 含义：重要文献没有原子观点、证据等级不足或条件缺失。
 
@@ -1116,9 +1136,9 @@ compute_authorized = true
 
 - 深读正式定义、方法/定理、实验和结果；
 - 拆分复合观点；
-- 补 scope、conditions 和 locator。
+- 补研究范围（scope）、条件（conditions）和原文定位符（locator）。
 
-### `TRACE`
+### 引用追溯错误（`TRACE`）
 
 含义：OC、LC、W 或反向链接不完整。
 
@@ -1129,7 +1149,7 @@ compute_authorized = true
 - 在观点中补 `used_by_output_claim_ids`；
 - 核验本地全文和官方入口。
 
-### `COLLISION_GATE`
+### 碰撞门禁错误（`COLLISION_GATE`）
 
 含义：以前轮次仍有 `UNUSED` 观点。
 
@@ -1139,7 +1159,7 @@ compute_authorized = true
 - 使用或有理由排除每条旧观点；
 - 禁止用新搜索逃避旧证据。
 
-### `PUBLICATION_ERROR`
+### 出版资格错误（`PUBLICATION_ERROR`）
 
 含义：出版状态、同行评审状态、官方入口或终局资格不一致。
 
@@ -1150,15 +1170,16 @@ compute_authorized = true
 - 预印本保持 `PREPRINT_ONLY`；
 - 不能核验时使用 `STATUS_UNVERIFIED` 并保持开放。
 
-### `UNREGISTERED`
+### 未注册链接错误（`UNREGISTERED`）
 
-含义：研究文件出现了学术 URL，但没有映射到 canonical registry。
+含义：研究文件出现了学术链接（URL），但没有映射到规范文献注册表
+（canonical registry）。
 
 处理：
 
 - 找到对应 work；
 - 新建或链接已有 `registry_id`；
-- 保留 alias URL；
+- 保留别名链接（alias URL）；
 - 刷新 URL ledger。
 
 ---
@@ -1170,7 +1191,8 @@ compute_authorized = true
 ```text
 使用 innovation-proposition-hunting，只做状态审计，不推进。
 读取 workflow_state.json 和已声明产物。
-报告状态与产物不一致、未通过 gate、prior-round UNUSED 和唯一恢复动作。
+报告状态与产物不一致、未通过门禁（gate）、以前轮次未使用观点
+（prior-round UNUSED）和唯一恢复动作。
 不要修改文件、搜索文献或提出新候选。
 ```
 
@@ -1183,7 +1205,8 @@ compute_authorized = true
 2. 核对信息边界、方法/定理、实验臂、强基线、分母和结果表；
 3. 复算可复算指标；
 4. 提取原子观点、结论、方法、假设、限制和反例；
-5. 每条写 LC ID、conditions、scope、locator 和 support_role；
+5. 每条写来源观点编号（LC ID）、条件（conditions）、研究范围（scope）、
+   原文定位符（locator）和支持角色（support_role）；
 6. 不得把摘要宣传句当成完成度。
 ```
 
@@ -1211,7 +1234,7 @@ Q1 结构承诺；
 Q2 像；
 Q3 逆命题断裂；
 Q4 边界/退化情形；
-Q5 关键引理 maximal reach；
+Q5 关键引理的最大可达边界（maximal reach）；
 Q6 停止理由。
 只有产出 T 自身未回答的精确结构问题时，才建立新候选；
 六问闭合后才允许关闭。
@@ -1250,7 +1273,7 @@ BLOCKED 原因；
 
 ## 17. 最常见的错误用法
 
-1. 一开始就让 agent “列十个创新点”。
+1. 一开始就让智能体（agent）“列十个创新点”。
 2. 没有 `workflow_state.json` 就开始检索。
 3. 把 L1、L2 和 L3 混成一个“新不新”。
 4. 博士用三个标题冒充三个贡献。
@@ -1258,7 +1281,7 @@ BLOCKED 原因；
 6. 只保存论文列表，不保存原子观点。
 7. 输出只引用 DOI，不绑定 LC。
 8. 从摘要判断论文已经覆盖候选。
-9. 把 future work 直接翻译成自己的创新。
+9. 把未来工作（future work）直接翻译成自己的创新。
 10. 被覆盖后换场景逃跑，而不进入覆盖理论内部上钻。
 11. 当前轮次旧观点未处理就继续搜索。
 12. 用预印本做终局关闭。
@@ -1316,11 +1339,11 @@ BLOCKED 原因；
 
 1. 本教程；
 2. [`SKILL.md`](../SKILL.md)；
-3. [`templates.md`](../templates.md) 的 workflow state 和当前卡片；
+3. [`templates.md`](../templates.md) 的工作流状态（workflow state）和当前卡片；
 4. [`evidence-pipeline.md`](../evidence-pipeline.md)；
 5. 需要详细判据时查 [`reference.md`](../reference.md)；
 6. N0-4 且获授权后才读 [`compute-funnel.md`](../compute-funnel.md)；
 7. 遇到反模式时读 [`case-lessons.md`](../case-lessons.md)。
 
 熟练后每次运行只需读取主协议、当前状态和当前状态需要的参考部分，不必把全部
-文档一次性装入 agent 上下文。
+文档一次性装入智能体（agent）上下文。

@@ -1,16 +1,17 @@
-# Innovation Proposition Hunting
+# 创新命题狩猎（Innovation Proposition Hunting）
 
-一个面向博士论文和期刊论文的文献约束型创新命题发现 skill。它把“寻找创新点”
+一个面向博士论文和期刊论文的文献约束型创新命题发现技能（skill）。它把
+“寻找创新点”
 转化为可恢复、可验证的状态机：先冻结研究层级和成果合同，再用真实文献、原子
 观点和完整引用链支持每一次创新或关闭裁决。
 
-本项目适合需要以下能力的研究者和 AI agent：
+本项目适合需要以下能力的研究者和人工智能智能体（AI agent）：
 
 - 从研究工作 L1 收敛到可行创新域 L2，再形成可证伪的 L3 命题；
 - 区分博士论文的三个有机主贡献 A/B/C 与一般期刊论文的单一主贡献 M；
 - 在空白发现、成熟理论深挖和成熟方法论证新问题之间选择正确创新路径；
 - 管理近三年近邻文献、全文、重要观点和输出结论之间的可追溯证据链；
-- 阻止 agent 跳步、重复检索、伪造引用或在证据不足时过早宣布创新。
+- 阻止智能体跳步、重复检索、伪造引用或在证据不足时过早宣布创新。
 
 最后审阅：2026-08-08
 
@@ -29,16 +30,18 @@ L1、L2 或贡献架构通过并不代表创新成立。N0 新颖性评级只用
 
 路径说明新知识从哪里产生：
 
-- `R1 GAP_OPENING`：寻找研究链仍未承担的知识责任；
-- `R2 DEPTH_EXTENSION`：继续推进成熟理论或技术的边界、瓶颈或 maximal reach；
-- `R3 NEW_PROBLEM_SUBSTANTIATION`：用成熟理论或技术正确形式化、识别和论证新问题。
+- R1 空白发现（`GAP_OPENING`）：寻找研究链仍未承担的知识责任；
+- R2 深度推进（`DEPTH_EXTENSION`）：继续推进成熟理论或技术的边界、瓶颈或
+  最大可达边界（maximal reach）；
+- R3 新问题论证（`NEW_PROBLEM_SUBSTANTIATION`）：用成熟理论或技术正确形式化、
+  识别和论证新问题。
 
 形式说明最终交付什么：
 
-- `F1 NEW_THEORY`：新理论或数学命题；
-- `F2 MATURE_THEORY_NEW_DOMAIN`：成熟理论的新领域应用；
-- `F3 NEW_ALGORITHM`：新算法；
-- `F4 ALGORITHM_DEEPENING`：既有算法的深入优化与改进。
+- F1 新理论（`NEW_THEORY`）：新理论或数学命题；
+- F2 成熟理论的新领域应用（`MATURE_THEORY_NEW_DOMAIN`）；
+- F3 新算法（`NEW_ALGORITHM`）；
+- F4 既有算法深度改进（`ALGORITHM_DEEPENING`）。
 
 每个 L3 必须固定一个主路径和一个主形式。分类标签不能替代非机械性证据。
 
@@ -62,7 +65,8 @@ BOOT
        └─ COMPLETE / BLOCKED
 ```
 
-每个研究主题都必须维护 `workflow_state.json`。agent 一次只能执行一个
+每个研究主题都必须维护工作流状态文件（`workflow_state.json`）。智能体一次只能
+执行一个
 `active_state`，失败时停留在当前状态或进入 `BLOCKED`，用户要求“继续”时只能从
 `next_required_action` 恢复。
 
@@ -84,10 +88,10 @@ BOOT
 引用必须能够完成以下追溯：
 
 ```text
-output claim
-  → literature claim
-  → canonical work
-  → 原文 locator
+输出结论（output claim）
+  → 来源观点（literature claim）
+  → 规范文献实体（canonical work）
+  → 原文定位符（locator）
   → 本地全文与 SHA-256
   → DOI、出版社或官方 proceedings 入口
 ```
@@ -101,12 +105,12 @@ output claim
 
 - Python 3.10 或更高版本；
 - Git；
-- 能读取本地 Markdown/JSON 的 agent；
+- 能读取本地 Markdown/JSON 的智能体（agent）；
 - 若要执行真实研究流程，还需要可验证的学术检索和合法全文访问能力。
 
 脚本只使用 Python 标准库，不需要安装第三方依赖。
 
-将仓库克隆到 agent 能发现的 skills 目录：
+将仓库克隆到智能体能发现的技能目录（skills directory）：
 
 ```bash
 git clone \
@@ -114,12 +118,12 @@ git clone \
   /path/to/agent/skills/innovation-proposition-hunting
 ```
 
-不同 agent 的 skills 根目录和显式调用语法可能不同。安装后应确认 agent 能读取
+不同智能体的技能根目录和显式调用语法可能不同。安装后应确认智能体能读取
 仓库根目录下的 `SKILL.md`。
 
 ## 快速开始
 
-向 agent 提供成果类型、研究目录和当前目标。例如：
+向智能体（agent）提供成果类型、研究目录和当前目标。例如：
 
 ```text
 使用 innovation-proposition-hunting。
@@ -139,11 +143,11 @@ git clone \
 当前目标：在冻结 L2 内形成唯一主贡献 M，并对其主 L3 执行 K→U→Δ 和 N0 审计。
 ```
 
-首次启动时，agent 应当：
+首次启动时，智能体应当：
 
 1. 读取 [`SKILL.md`](SKILL.md)；
 2. 从 [`templates.md`](templates.md) 创建 `workflow_state.json`；
-3. 冻结成果类型、当前层级、scope 和关键比较基线；
+3. 冻结成果类型、当前层级、研究范围（scope）和关键比较基线；
 4. 按状态机逐步生成证据产物；
 5. 在裁决或新碰撞前运行总校验器。
 
@@ -168,7 +172,7 @@ python3 /path/to/innovation-proposition-hunting/scripts/validate_all.py \
 
 | 脚本 | 检查内容 |
 |---|---|
-| `validate_workflow_state.py` | 状态、成果合同、层级、gate、计算授权和产物存在性 |
+| `validate_workflow_state.py` | 状态、成果合同、层级、门禁（gate）、计算授权和产物存在性 |
 | `validate_literature_registry.py` | 文献身份、出版状态、URL 注册、去重和综合锁 |
 | `validate_evidence_chain.py` | 全文哈希、原子观点、输出支持、双向追溯和旧观点耗尽门 |
 
@@ -206,7 +210,7 @@ hierarchy_status.md
 
 ## 适用边界
 
-本 skill 约束的是研究发现、证据注册和创新裁决过程。它不能替代：
+本技能（skill）约束的是研究发现、证据注册和创新裁决过程。它不能替代：
 
 - 领域专家和导师的实质判断；
 - 合法的全文访问权限；
