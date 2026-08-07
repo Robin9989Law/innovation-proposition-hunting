@@ -147,6 +147,13 @@ git clone \
 4. 按状态机逐步生成证据产物；
 5. 在裁决或新碰撞前运行总校验器。
 
+## 详细使用教程
+
+完整的逐状态操作、博士/期刊路径、证据 JSON 示例、提示词库、错误恢复和完成
+判据见：
+
+- [Innovation Proposition Hunting 详细使用教程](docs/tutorial.md)
+
 ## 验证
 
 在研究目录中执行：
@@ -188,6 +195,7 @@ hierarchy_status.md
 
 | 文件 | 用途 |
 |---|---|
+| [`docs/tutorial.md`](docs/tutorial.md) | 从安装到 L3/计算的端到端详细教程与提示词 |
 | [`SKILL.md`](SKILL.md) | 强制执行协议、状态机和硬停止条件 |
 | [`evidence-pipeline.md`](evidence-pipeline.md) | 文献—观点—输出 JSON 数据合同 |
 | [`templates.md`](templates.md) | 状态文件、冻结卡、碰撞卡和审计模板 |
