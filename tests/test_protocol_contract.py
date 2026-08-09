@@ -149,6 +149,55 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertEqual(1, completed.returncode)
         self.assertIn("BASELINE_BUDGET_INCOMPLETE", completed.stdout)
 
+    def test_strong_comparison_risk_term_triggers_budget_contract(self) -> None:
+        project = self.make_project()
+        inventory = load_json(project / "claim_inventory.json")
+        algorithm_claim = inventory["claims"][1]
+        algorithm_claim["statement"] = "Algorithm 1 follows the frozen protocol."
+        algorithm_claim["risk_terms"] = ["strong comparison"]
+        write_json(project / "claim_inventory.json", inventory)
+        (project / BASELINES).unlink()
+
+        completed = self.run_protocol(project)
+
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("BASELINE_BUDGET_INCOMPLETE", completed.stdout)
+
+    def test_strong_comparison_statement_uses_ascii_word_boundary(self) -> None:
+        project = self.make_project()
+        inventory = load_json(project / "claim_inventory.json")
+        algorithm_claim = inventory["claims"][1]
+        algorithm_claim["statement"] = "Algorithm 1 makes a strong comparison."
+        algorithm_claim["risk_terms"] = ["protocol"]
+        write_json(project / "claim_inventory.json", inventory)
+        (project / BASELINES).unlink()
+
+        completed = self.run_protocol(project)
+
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("BASELINE_BUDGET_INCOMPLETE", completed.stdout)
+
+    def test_strongly_wording_does_not_trigger_budget_contract(self) -> None:
+        variants = (
+            ("Algorithm 1 is strongly regularized.", ["protocol"]),
+            ("Algorithm 1 follows the frozen protocol.", ["strongly comparative"]),
+        )
+        for statement, risk_terms in variants:
+            with self.subTest(statement=statement, risk_terms=risk_terms):
+                project = self.make_project()
+                inventory = load_json(project / "claim_inventory.json")
+                algorithm_claim = inventory["claims"][1]
+                algorithm_claim["statement"] = statement
+                algorithm_claim["risk_terms"] = risk_terms
+                write_json(project / "claim_inventory.json", inventory)
+                (project / BASELINES).unlink()
+
+                completed = self.run_protocol(project)
+
+                self.assertEqual(
+                    0, completed.returncode, completed.stdout + completed.stderr
+                )
+
     def test_no_budget_language_does_not_require_baseline_contract(self) -> None:
         project = self.make_project()
         inventory = load_json(project / "claim_inventory.json")
@@ -312,6 +361,77 @@ class ProtocolContractTests(unittest.TestCase):
                 self.assertEqual(
                     0, completed.returncode, completed.stdout + completed.stderr
                 )
+
+    def test_sequence_contract_accepts_only_frozen_predict_only_mode(self) -> None:
+        project = self.make_project()
+        protocol = load_json(project / PROTOCOL)
+        protocol.update(
+            {
+                "prediction_unit": "SEQUENCE",
+                "update_unit": "NONE",
+                "predict_update_order": "PREDICT_ONLY",
+                "label_availability": "NEVER",
+            }
+        )
+        protocol["update_semantics"].update(
+            {
+                "uses_test_labels": False,
+                "supervised_online_adaptation": False,
+                "operational_label_availability": False,
+            }
+        )
+        write_json(project / PROTOCOL, protocol)
+
+        completed = self.run_protocol(project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+
+    def test_sequence_contract_rejects_updates_labels_and_adaptation(self) -> None:
+        mutations: tuple[tuple[str, str, Any], ...] = (
+            ("protocol", "update_unit", "BLOCK"),
+            ("protocol", "update_unit", "BATCH"),
+            ("protocol", "update_unit", "SAMPLE"),
+            ("protocol", "predict_update_order", "BLOCK_PREDICT_THEN_UPDATE"),
+            ("protocol", "label_availability", "AFTER_BLOCK"),
+            ("protocol", "label_availability", "AFTER_BATCH"),
+            ("protocol", "label_availability", "AFTER_EACH_PREDICTION"),
+            ("semantics", "uses_test_labels", True),
+            ("semantics", "supervised_online_adaptation", True),
+            ("semantics", "operational_label_availability", True),
+        )
+        for target, field, value in mutations:
+            with self.subTest(target=target, field=field, value=value):
+                project = self.make_project()
+                protocol = load_json(project / PROTOCOL)
+                protocol.update(
+                    {
+                        "prediction_unit": "SEQUENCE",
+                        "update_unit": "NONE",
+                        "predict_update_order": "PREDICT_ONLY",
+                        "label_availability": "NEVER",
+                    }
+                )
+                protocol["update_semantics"].update(
+                    {
+                        "uses_test_labels": False,
+                        "supervised_online_adaptation": False,
+                        "operational_label_availability": False,
+                    }
+                )
+                if target == "protocol":
+                    protocol[field] = value
+                    if field == "label_availability":
+                        protocol["update_semantics"][
+                            "operational_label_availability"
+                        ] = True
+                else:
+                    protocol["update_semantics"][field] = value
+                write_json(project / PROTOCOL, protocol)
+
+                completed = self.run_protocol(project)
+
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("INVALID_PROTOCOL_MATRIX", completed.stdout)
 
     def test_protocol_unit_and_order_matrix_rejects_crossed_modes(self) -> None:
         variants = (

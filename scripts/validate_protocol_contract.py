@@ -573,12 +573,18 @@ def collect_algorithm_claims(
 def claim_triggers_budget(claim: dict[str, Any]) -> bool:
     risk_terms = claim.get("risk_terms")
     if isinstance(risk_terms, list):
+        risk_text = "\n".join(term for term in risk_terms if isinstance(term, str))
         normalized_risks = {
             re.sub(r"[-_]+", " ", term.strip().casefold())
             for term in risk_terms
             if isinstance(term, str)
         }
-        if normalized_risks & CANONICAL_BUDGET_RISK_TERMS:
+        if (
+            normalized_risks & CANONICAL_BUDGET_RISK_TERMS
+            or any(pattern.search(risk_text) for pattern in ENGLISH_BUDGET_TERMS)
+            or any(term in risk_text for term in CHINESE_BUDGET_TERMS)
+            or CHINESE_FAIR_COMPARISON_PATTERN.search(risk_text) is not None
+        ):
             return True
     statement = claim.get("statement")
     text = statement if isinstance(statement, str) else ""
@@ -729,6 +735,7 @@ def validate_protocol_fields(protocol: dict[str, Any], state_epoch: Any) -> list
             "SAMPLE": ("SAMPLE", "PREDICT_THEN_UPDATE", "AFTER_EACH_PREDICTION"),
             "BATCH": ("BATCH", "BATCH_PREDICT_THEN_UPDATE", "AFTER_BATCH"),
             "BLOCK": ("BLOCK", "BLOCK_PREDICT_THEN_UPDATE", "AFTER_BLOCK"),
+            "SEQUENCE": ("NONE", "PREDICT_ONLY", "NEVER"),
         }
         prediction_unit = protocol.get("prediction_unit")
         if prediction_unit in expected_modes:
@@ -743,6 +750,20 @@ def validate_protocol_fields(protocol: dict[str, Any], state_epoch: Any) -> list
                         "INVALID",
                         "protocol_contract",
                         f"{prediction_unit}:requires:{expected_update}:{expected_order}",
+                    )
+                )
+            if prediction_unit == "SEQUENCE" and (
+                protocol.get("label_availability") != expected_label
+                or semantics.get("uses_test_labels") is not False
+                or semantics.get("supervised_online_adaptation") is not False
+                or semantics.get("operational_label_availability") is not False
+            ):
+                issues.append(
+                    Issue(
+                        "INVALID_PROTOCOL_MATRIX",
+                        "INVALID",
+                        "update_semantics",
+                        "SEQUENCE:requires_no_labels_or_adaptation",
                     )
                 )
             if (
