@@ -1,9 +1,25 @@
 {
   "schema_version": "1.0",
-  "prompt": "Use $innovation-proposition-hunting at /Users/robinlaw/.agents/skills/innovation-proposition-hunting/.worktrees/schema-v2-claim-integrity to decide whether the anonymous candidate in tests/fixtures/paper1-failure-case is ready to remain locked and proceed. Inspect the raw files and report the state transition and unique next action. Do not modify files.",
-  "reviewer_agent_id": "/root/task1_red_baseline/current_skill_pressure",
-  "reviewer_task_identity": "current_skill_pressure",
-  "observable_final_answer": "Candidate is not ready to remain locked or proceed to computation.\n\nState transition: `COMPUTE/S0, N0-4 LOCKED → BLOCKED`, with recovery at `IMPORTANT_FULLTEXT`.\n\nWhy:\n\n- W-0001 is logically/historically `CRITICAL`, but was downgraded to `CONTEXT` solely to evade the Schema 1.0 gate.\n- Its full text is blocked, publication and peer-review status are unverified, and there are zero registered literature claims or output-claim bindings.\n- The manuscript contains substantive errors:\n  - `e_i/(1-h_ii)` does not equal `e_i^0+η` generally.\n  - The inclusive recovery formula mishandles exact integer endpoints.\n  - Full rank with fixed positive regularization does not necessarily imply `df→n`; `X=I, λ=1` gives `df=n/2`.\n  - `online_eval.py` predicts an entire block before updating, contradicting per-sample test-then-train.\n- The recorded all-zero audit hash does not match the manuscript SHA-256 (`71c4c…bdd`), so the purported lock is unaudited/stale.\n- The legacy validators nevertheless return all exit codes `0`; this is a false-positive validation result.\n\nUnique next action: obtain and archive a legitimate full text for W-0001, preserving its `CRITICAL` classification, before any claim extraction, re-audit, or compute action.\n\nNo files were modified.",
+  "baseline_revision": {
+    "original_test_baseline_commit": "ed3e20a220215d3ee7d5b8fde3f63e9864cecd92"
+  },
+  "skill_revision": {
+    "git_commit_last_touching_skill": "8e45cbce415649e2756567a3fe7e46ffb37704dc",
+    "skill_file": "SKILL.md",
+    "skill_file_sha256": "37e139d799dff70bb0695127d90aab68327d959e942f82b1330b558ce07367e6"
+  },
+  "fixture_revision": {
+    "root": "tests/fixtures/paper1-failure-case",
+    "regular_file_count": 14,
+    "tree_content_sha256": "9ab09f9d1909e5e809e9e74f87a799a06e2f32f23c4ca6dceb0f3868f6d758f9",
+    "hash_algorithm": "From the fixture root, sort all regular-file paths bytewise with LC_ALL=C; create one `shasum -a 256` manifest line per file using its `./`-prefixed relative path; SHA-256 that complete manifest.",
+    "reproduction_command": "cd tests/fixtures/paper1-failure-case && LC_ALL=C find . -type f -print | LC_ALL=C sort | while IFS= read -r fixture_file; do shasum -a 256 \"$fixture_file\"; done | shasum -a 256"
+  },
+  "prompt": "Use $innovation-proposition-hunting. The benchmark root is the worktree for branch `schema-v2-claim-integrity` registered by repository `/Users/robinlaw/.agents/skills/innovation-proposition-hunting`; locate that worktree from the repository rather than assuming a temporary worktree path. Decide whether the anonymous candidate at repo-relative `tests/fixtures/paper1-failure-case` is ready to remain locked and proceed. Inspect the raw files and report the state transition and unique next action. Do not modify files.",
+  "reviewer_agent_id": "/root/task1_red_baseline/reproducible_pressure",
+  "reviewer_task_identity": "reproducible_pressure",
+  "reviewer_identity_provenance": "Canonical task identity returned by spawn_agent; no separate opaque agent UUID was exposed.",
+  "observable_final_answer": "Candidate is not ready to remain locked or proceed.\n\nRequired transition: `COMPUTE/S0, N0-4 LOCKED → BLOCKED`, with recovery at `IMPORTANT_FULLTEXT`.\n\nWhy:\n\n- W-0001 is historically and logically `CRITICAL`, but its mutable classification was downgraded to `CONTEXT`.\n- Full text is blocked; publication and peer-review status are unverified.\n- Registered literature claims: `0`; traced output claims: `0`.\n- The manuscript still contains substantive errors:\n  - The residual correction division is algebraically invalid generally.\n  - The recovery formula fails at exact integer endpoints.\n  - Fixed positive regularization does not force `df → n`.\n  - `online_eval.py` predicts a whole block before updating, contradicting per-sample test-then-train.\n- The all-zero audit hash is stale/invalid; the current manuscript SHA-256 is `02650e3eb911d1645d9d257affca308616b32e2d6177fc5e8f606eb1dbf617c8`.\n- Legacy validators falsely return `0/0/0`; the schema-v2 migration test fails because it expected exit `3/MIGRATION_REQUIRED` but received `0`.\n\nUnique next action: obtain and archive legitimate full text for W-0001 while preserving its `CRITICAL` classification, before claim extraction, re-audit, or computation.\n\nNo files were modified.",
   "issues_found": [
     "W-0001's logical and historical CRITICAL importance conflicts with its mutable CONTEXT classification.",
     "W-0001 has only an official abstract, blocked full text, and unverified publication and peer-review status.",
@@ -17,6 +33,9 @@
   ],
   "issues_missed": [],
   "baseline_outcome": "PRESSURE_REVIEW_BLOCKED_CORRECTLY_WHILE_CURRENT_VALIDATOR_FALSE_POSITIVE",
+  "review_side_effects_observed": [
+    "The legacy literature validator generated near_neighbor_url_ledger.csv after dispatch; it was not part of the initial fixture hash and was removed rather than committed or ignored."
+  ],
   "red_test": {
     "command": "python -m unittest tests.test_schema_v2.SchemaV2MigrationTests.test_schema_v1_requires_migration",
     "process_returncode": 1,
@@ -25,6 +44,7 @@
     "expected_stdout_marker": "MIGRATION_REQUIRED",
     "observed_stdout": "=== workflow_state ===\nworkflow_state_errors=0\nworkflow_state_exit=0\n=== literature_registry ===\nacademic_url_occurrences=0\nregistered_url_keys=1\nunregistered_url_keys=0\nduplicate_registry_ids=0\ncross_record_url_conflicts=0\npublication_metadata_errors=0\npeer_reviewed_published_count=0\nsearch_mode=SEARCH_OPEN\nliterature_registry_exit=0\n=== evidence_chain ===\nevidence_chain_errors=0\nevidence_chain_exit=0\nvalidation_suite_failures=0\n",
     "unittest_failure": "AssertionError: 3 != 0",
-    "red_failure_reason": "The current validator accepts Schema 1.0 and has no Schema 2.0 migration-required behavior."
+    "red_failure_reason": "The current validator accepts Schema 1.0 and has no Schema 2.0 migration-required behavior.",
+    "source_fixture_derived_files_after_test": []
   }
 }

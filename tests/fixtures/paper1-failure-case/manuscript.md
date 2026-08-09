@@ -12,7 +12,11 @@ $$\frac{e_i}{1-h_{ii}} = e_i^0 + \eta.$$
 
 ## Recovery window
 
-When the initial residual is $r_1$, per-step correction is $c\tau$, and the endpoint is inclusive, the exact recovery window is
+Let the positive residual excess before any recovery update be $q_0=|r_1|>0$. Each completed update subtracts exactly $c\tau>0$, so
+
+$$q_{k+1}=q_k-c\tau.$$
+
+An update is performed whenever the pre-update excess satisfies $q_k\ge c\tau$. Recovery stops at the first post-update index $T$ satisfying the strict inequality $q_T<c\tau$. Thus $T^*$ counts the number of completed updates (equivalently, $q_{T^*}$ is the state after update $T^*$), not the initial time index. The exact recovery window is
 
 $$T^*=\left\lceil\frac{|r_1|}{c\tau}-1\right\rceil.$$
 
