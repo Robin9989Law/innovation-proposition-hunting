@@ -29,6 +29,17 @@ LITERATURE_REQUIRED_STATES = {
     "OUTPUT_CLAIM_BIND",
     *EVIDENCE_REQUIRED_STATES,
 }
+CLAIM_INVENTORY_REQUIRED_STATES = {
+    "CLAIM_FREEZE",
+    "VALIDITY_AUDIT",
+    "INDEPENDENT_REVIEW",
+    "DIRECTION_LOCK",
+    "COMPUTE",
+    "POSTCOMPUTE_CLAIM_FREEZE",
+    "FINAL_VALIDITY_AUDIT",
+    "FINAL_LOCK",
+    "COMPLETE",
+}
 
 
 def load_state(path: Path) -> dict[str, Any]:
@@ -76,6 +87,7 @@ def main() -> int:
     parser.add_argument("--literature-registry", type=Path)
     parser.add_argument("--claim-registry", type=Path)
     parser.add_argument("--output-support", type=Path)
+    parser.add_argument("--claim-inventory", type=Path)
     args = parser.parse_args()
 
     root = args.root.resolve()
@@ -96,6 +108,11 @@ def main() -> int:
         if args.output_support
         else (root / "output_claim_support.json").resolve()
     )
+    inventory = (
+        args.claim_inventory.resolve()
+        if args.claim_inventory
+        else (root / "claim_inventory.json").resolve()
+    )
 
     try:
         if not root.is_dir():
@@ -105,6 +122,7 @@ def main() -> int:
             ("literature_registry", literature),
             ("claim_registry", claims),
             ("output_support", outputs),
+            ("claim_inventory", inventory),
         ):
             require_within_root(root, path, label)
         state = load_state(state_path)
@@ -148,6 +166,41 @@ def main() -> int:
     )
     dispatch_state = effective_state if isinstance(effective_state, str) else ""
     gates = state.get("gates") if isinstance(state.get("gates"), dict) else {}
+
+    run_claim_inventory = (
+        inventory.exists() or dispatch_state in CLAIM_INVENTORY_REQUIRED_STATES
+    )
+    if run_claim_inventory:
+        if not inventory.is_file():
+            print(f"CLAIM_INVENTORY_REQUIRED\tmissing:{inventory}")
+            suite_issues.append(
+                Issue(
+                    "CLAIM_INVENTORY_REQUIRED",
+                    "INVALID",
+                    "claim_inventory",
+                    str(inventory),
+                )
+            )
+        else:
+            inventory_exit = run(
+                "claim_inventory",
+                [
+                    sys.executable,
+                    str(script_dir / "validate_claim_inventory.py"),
+                    "--root",
+                    str(root),
+                    "--state",
+                    str(state_path),
+                    "--inventory",
+                    str(inventory),
+                ],
+            )
+            inventory_issue = issue_for_exit("claim_inventory", inventory_exit)
+            if inventory_issue:
+                suite_issues.append(inventory_issue)
+    else:
+        print("=== claim_inventory ===")
+        print(f"SKIP\tnot_required_at_state:{effective_state}")
 
     run_literature = (
         literature.is_file()

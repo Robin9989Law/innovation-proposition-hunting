@@ -4,11 +4,13 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from shutil import copy2
 from tempfile import TemporaryDirectory
 from typing import Any, Sequence
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+MINIMAL_VALID_V2 = REPOSITORY_ROOT / "tests" / "fixtures" / "minimal-valid-v2"
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -23,6 +25,11 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+
+
+def append_text(path: Path, text: str) -> None:
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(text)
 
 
 def make_valid_project(
@@ -89,7 +96,31 @@ def make_valid_project(
         "decision_log": [],
     }
     write_json(project / "workflow_state.json", state)
+    for fixture_path in MINIMAL_VALID_V2.iterdir():
+        if fixture_path.is_file():
+            copy2(fixture_path, project / fixture_path.name)
     return temporary_directory, project
+
+
+def run_script(
+    script_name: str,
+    project: Path,
+    extra_args: Sequence[str] = (),
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            sys.executable,
+            str(REPOSITORY_ROOT / "scripts" / script_name),
+            "--root",
+            str(project),
+            "--state",
+            str(project / "workflow_state.json"),
+            *extra_args,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
 
 
 def run_schema_validator(project: Path) -> subprocess.CompletedProcess[str]:
@@ -128,3 +159,7 @@ def run_all_validator(
         capture_output=True,
         text=True,
     )
+
+
+def run_validator(project: Path) -> subprocess.CompletedProcess[str]:
+    return run_all_validator(project)
