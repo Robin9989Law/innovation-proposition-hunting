@@ -84,17 +84,17 @@ def main() -> int:
     literature = (
         args.literature_registry.resolve()
         if args.literature_registry
-        else root / "near_neighbor_registry.json"
+        else (root / "near_neighbor_registry.json").resolve()
     )
     claims = (
         args.claim_registry.resolve()
         if args.claim_registry
-        else root / "literature_claim_registry.json"
+        else (root / "literature_claim_registry.json").resolve()
     )
     outputs = (
         args.output_support.resolve()
         if args.output_support
-        else root / "output_claim_support.json"
+        else (root / "output_claim_support.json").resolve()
     )
 
     try:

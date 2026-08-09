@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import subprocess
 import sys
+import stat
 import unittest
 from pathlib import Path
 from shutil import copy2
@@ -192,6 +193,32 @@ class MigrationTests(unittest.TestCase):
             self.assertEqual(b"original\n", target.read_bytes())
             self.assertEqual([target], list(project.iterdir()))
 
+    def test_atomic_no_clobber_publish_rejects_racing_target(self) -> None:
+        module = load_migration_module()
+        atomic_publish_json = getattr(module, "atomic_publish_json", None)
+        self.assertIsNotNone(
+            atomic_publish_json, "atomic_publish_json helper is required"
+        )
+        if atomic_publish_json is None:
+            return
+        with TemporaryDirectory(prefix="schema-v2-race-") as directory:
+            project = Path(directory)
+            target = project / "state.v2.json"
+            original_link = module.os.link
+
+            def create_racing_target(source, destination):
+                Path(destination).write_bytes(b"concurrent writer\n")
+                return original_link(source, destination)
+
+            with mock.patch.object(
+                module.os, "link", side_effect=create_racing_target
+            ):
+                with self.assertRaises(FileExistsError):
+                    atomic_publish_json(target, {"schema_version": "2.0"}, 0o644)
+
+            self.assertEqual(b"concurrent writer\n", target.read_bytes())
+            self.assertEqual([target], list(project.iterdir()))
+
     def test_migration_rejects_non_schema_1_inputs(self) -> None:
         for schema_version in (None, "2.0", "3.0", 1):
             with self.subTest(schema_version=schema_version):
@@ -230,6 +257,53 @@ class MigrationTests(unittest.TestCase):
                     )
                     self.assertIn("n0_4_locked_not_boolean", completed.stdout)
                     self.assertFalse((project / "workflow_state.v2.json").exists())
+
+    def test_in_place_migration_preserves_source_permission_bits(self) -> None:
+        with TemporaryDirectory(prefix="schema-v2-migration-") as directory:
+            project = Path(directory)
+            state_path = project / "workflow_state.json"
+            copy2(FIXTURE_STATE, state_path)
+            state_path.chmod(0o644)
+
+            completed = self.run_migration(project, "--in-place")
+
+            self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+            self.assertEqual(0o644, stat.S_IMODE(state_path.stat().st_mode))
+
+    def test_nested_custom_output_is_created_atomically_with_source_mode(self) -> None:
+        with TemporaryDirectory(prefix="schema-v2-migration-") as directory:
+            project = Path(directory)
+            state_path = project / "workflow_state.json"
+            copy2(FIXTURE_STATE, state_path)
+            state_path.chmod(0o644)
+            output_path = project / "nested" / "states" / "workflow_state.v2.json"
+
+            completed = self.run_migration(
+                project, "--output", str(output_path)
+            )
+
+            self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+            self.assertEqual("2.0", load_json(output_path)["schema_version"])
+            self.assertEqual(0o644, stat.S_IMODE(output_path.stat().st_mode))
+
+    def test_custom_output_rejects_parent_symlink_outside_root(self) -> None:
+        with TemporaryDirectory(prefix="schema-v2-migration-") as directory:
+            project = Path(directory)
+            state_path = project / "workflow_state.json"
+            copy2(FIXTURE_STATE, state_path)
+            with TemporaryDirectory(prefix="schema-v2-outside-") as outside:
+                link = project / "nested"
+                link.symlink_to(Path(outside), target_is_directory=True)
+                output_path = link / "workflow_state.v2.json"
+
+                completed = self.run_migration(
+                    project, "--output", str(output_path)
+                )
+
+                self.assertEqual(
+                    1, completed.returncode, completed.stdout + completed.stderr
+                )
+                self.assertFalse((Path(outside) / "workflow_state.v2.json").exists())
 
 
 if __name__ == "__main__":

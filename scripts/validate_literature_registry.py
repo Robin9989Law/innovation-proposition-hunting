@@ -160,15 +160,25 @@ def load_registry(
     return keys, owners, conflicts, duplicate_ids, publication_errors
 
 
-def scan(root: Path, ignored: set[Path]) -> list[dict[str, object]]:
+def scan(
+    root: Path, ignored: set[Path]
+) -> tuple[list[dict[str, object]], list[str]]:
     rows: list[dict[str, object]] = []
+    path_errors: list[str] = []
     for path in sorted(root.rglob("*")):
-        if not path.is_file() or path.resolve() in ignored:
+        try:
+            resolved = path.resolve(strict=True)
+            resolved.relative_to(root)
+        except (OSError, ValueError):
+            path_errors.append(f"{path.relative_to(root)}->{path.resolve()}")
+            continue
+        if not resolved.is_file() or resolved in ignored:
             continue
         if path.suffix.lower() not in {".md", ".json", ".txt", ".tex", ".bib"}:
             continue
         for line_no, line in enumerate(
-            path.read_text(encoding="utf-8", errors="ignore").splitlines(), start=1
+            resolved.read_text(encoding="utf-8", errors="ignore").splitlines(),
+            start=1,
         ):
             for match in URL_RE.finditer(line):
                 url = clean_url(match.group(0))
@@ -182,7 +192,14 @@ def scan(root: Path, ignored: set[Path]) -> list[dict[str, object]]:
                         "line": line_no,
                     }
                 )
-    return rows
+    return rows, path_errors
+
+
+def print_path_error(item_id: str, detail: str) -> int:
+    print("literature_registry_status=INVALID")
+    print("literature_registry_errors=1")
+    print(f"INVALID\tPATH_OUTSIDE_ROOT\t{item_id}\t{detail}")
+    return 1
 
 
 def main() -> int:
@@ -192,10 +209,16 @@ def main() -> int:
     parser.add_argument(
         "--ledger-output", type=Path, default=Path("near_neighbor_url_ledger.csv")
     )
-    parser.add_argument(
+    ledger_mode = parser.add_mutually_exclusive_group()
+    ledger_mode.add_argument(
+        "--write-ledger",
+        action="store_true",
+        help="Explicitly create or replace the URL ledger.",
+    )
+    ledger_mode.add_argument(
         "--read-only",
         action="store_true",
-        help="Validate without creating or replacing the URL ledger.",
+        help="Compatibility flag; read-only is the default.",
     )
     args = parser.parse_args()
 
@@ -206,6 +229,13 @@ def main() -> int:
         if args.ledger_output.is_absolute()
         else root / args.ledger_output
     ).resolve()
+    if not root.is_dir():
+        return print_path_error("root", f"not_directory:{root}")
+    for item_id, path in (("registry", registry), ("ledger", ledger)):
+        try:
+            path.relative_to(root)
+        except ValueError:
+            return print_path_error(item_id, f"outside_root:{path}")
     (
         registered_keys,
         owners,
@@ -250,9 +280,9 @@ def main() -> int:
                 f"search_mode:{search_mode};allowed:{sorted(allowed_modes)}",
             )
         )
-    rows = scan(root, {registry, ledger})
+    rows, path_errors = scan(root, {registry, ledger})
 
-    if not args.read_only:
+    if args.write_ledger and not path_errors:
         ledger.parent.mkdir(parents=True, exist_ok=True)
         with ledger.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.DictWriter(
@@ -280,6 +310,7 @@ def main() -> int:
     print(f"duplicate_registry_ids={len(duplicate_ids)}")
     print(f"cross_record_url_conflicts={len(conflicts)}")
     print(f"publication_metadata_errors={len(publication_errors)}")
+    print(f"path_boundary_errors={len(path_errors)}")
     print(f"peer_reviewed_published_count={actual_peer_reviewed_count}")
     print(f"search_mode={search_mode}")
     for key in missing:
@@ -290,7 +321,9 @@ def main() -> int:
         print(f"URL_CONFLICT\t{key}\t{left}\t{right}")
     for record_id, error in publication_errors:
         print(f"PUBLICATION_ERROR\t{record_id}\t{error}")
-    return 1 if missing or duplicate_ids or conflicts or publication_errors else 0
+    for error in path_errors:
+        print(f"INVALID\tPATH_OUTSIDE_ROOT\tscan\t{error}")
+    return 1 if missing or duplicate_ids or conflicts or publication_errors or path_errors else 0
 
 
 if __name__ == "__main__":

@@ -6,9 +6,11 @@ from __future__ import annotations
 import argparse
 from copy import deepcopy
 from datetime import datetime, timezone
+import errno
 import json
 import os
 from pathlib import Path
+import stat
 import tempfile
 from typing import Any
 
@@ -49,7 +51,23 @@ def migrate(state: dict[str, Any]) -> dict[str, Any]:
     return migrated
 
 
-def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+def fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        try:
+            os.fsync(descriptor)
+        except OSError as error:
+            if error.errno not in {errno.EINVAL, errno.ENOTSUP}:
+                raise
+    finally:
+        os.close(descriptor)
+
+
+def write_temporary_json(
+    path: Path,
+    payload: dict[str, Any],
+    mode: int,
+) -> Path:
     serialized = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode(
         "utf-8"
     )
@@ -59,15 +77,43 @@ def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     temporary_path = Path(temporary_name)
     descriptor_open = True
     try:
+        os.fchmod(descriptor, mode)
         with os.fdopen(descriptor, "wb") as handle:
             descriptor_open = False
             handle.write(serialized)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary_path, path)
     except BaseException:
         if descriptor_open:
             os.close(descriptor)
+        temporary_path.unlink(missing_ok=True)
+        raise
+    return temporary_path
+
+
+def atomic_write_json(
+    path: Path,
+    payload: dict[str, Any],
+    mode: int | None = None,
+) -> None:
+    if mode is None:
+        mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o600
+    temporary_path = write_temporary_json(path, payload, mode)
+    try:
+        os.replace(temporary_path, path)
+        fsync_directory(path.parent)
+    except BaseException:
+        temporary_path.unlink(missing_ok=True)
+        raise
+
+
+def atomic_publish_json(path: Path, payload: dict[str, Any], mode: int) -> None:
+    temporary_path = write_temporary_json(path, payload, mode)
+    try:
+        os.link(temporary_path, path)
+        temporary_path.unlink()
+        fsync_directory(path.parent)
+    except BaseException:
         temporary_path.unlink(missing_ok=True)
         raise
 
@@ -80,6 +126,7 @@ def create_exclusive_backup(source: Path, backup: Path) -> None:
     )
     backup_open = True
     try:
+        os.fchmod(descriptor, stat.S_IMODE(source.stat().st_mode))
         with os.fdopen(descriptor, "wb") as destination:
             backup_open = False
             with source.open("rb") as source_handle:
@@ -98,6 +145,16 @@ def is_schema_1_x(value: Any) -> bool:
     return isinstance(value, str) and (value == "1" or value.startswith("1."))
 
 
+def prepare_output_parent(root: Path, output: Path) -> Path:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    resolved_parent = output.parent.resolve(strict=True)
+    try:
+        resolved_parent.relative_to(root)
+    except ValueError as error:
+        raise ValueError(f"output_parent_outside_root:{resolved_parent}") from error
+    return resolved_parent / output.name
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
@@ -111,6 +168,7 @@ def main() -> int:
     state_path = args.state.resolve()
     try:
         state_path.relative_to(root)
+        source_mode = stat.S_IMODE(state_path.stat().st_mode)
         source = load_json(state_path)
         if not is_schema_1_x(source.get("schema_version")):
             raise ValueError("source_schema_not_1_x")
@@ -130,12 +188,15 @@ def main() -> int:
             )
             create_exclusive_backup(state_path, backup)
             print(f"migration_backup={backup}")
+            atomic_write_json(output_path, migrated, source_mode)
         else:
             if output_path == state_path:
                 raise ValueError("output_equals_state")
-            if os.path.lexists(output_path):
-                raise ValueError("output_exists")
-        atomic_write_json(output_path, migrated)
+            output_path = prepare_output_parent(root, output_path)
+            try:
+                atomic_publish_json(output_path, migrated, source_mode)
+            except FileExistsError as error:
+                raise ValueError("output_exists") from error
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(f"migration_status=INVALID\nmigration_error={error}")
         return 1

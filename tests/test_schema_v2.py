@@ -62,6 +62,39 @@ class SchemaV2ValidationTests(unittest.TestCase):
             if path.is_file()
         }
 
+    @staticmethod
+    def write_valid_literature_registry(project: Path) -> Path:
+        registry = project / "near_neighbor_registry.json"
+        write_json(
+            registry,
+            {
+                "records": [],
+                "peer_reviewed_published_count": 0,
+                "search_mode": "SEARCH_OPEN",
+                "synthesis_lock_threshold": 100,
+            },
+        )
+        return registry
+
+    @staticmethod
+    def run_literature_validator(
+        project: Path, *extra_args: str
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(REPOSITORY_ROOT / "scripts" / "validate_literature_registry.py"),
+                "--root",
+                str(project),
+                "--registry",
+                str(project / "near_neighbor_registry.json"),
+                *extra_args,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
     def test_valid_v0_state_is_ready_without_an_audit(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V0")
         self.addCleanup(temporary_directory.cleanup)
@@ -341,6 +374,33 @@ class SchemaV2ValidationTests(unittest.TestCase):
         self.assertEqual(before, self.snapshot_files(project))
         self.assertEqual(b"preserve this ledger\n", ledger.read_bytes())
 
+    def test_standalone_literature_validator_defaults_to_read_only(self) -> None:
+        with TemporaryDirectory(prefix="schema-v2-literature-") as directory:
+            project = Path(directory)
+            self.write_valid_literature_registry(project)
+            ledger = project / "near_neighbor_url_ledger.csv"
+
+            first = self.run_literature_validator(project)
+            self.assertEqual(0, first.returncode, first.stdout + first.stderr)
+            self.assertFalse(ledger.exists())
+
+            ledger.write_bytes(b"preserve standalone ledger\n")
+            second = self.run_literature_validator(project)
+            self.assertEqual(0, second.returncode, second.stdout + second.stderr)
+            self.assertEqual(b"preserve standalone ledger\n", ledger.read_bytes())
+
+    def test_standalone_literature_validator_writes_only_with_explicit_flag(self) -> None:
+        with TemporaryDirectory(prefix="schema-v2-literature-") as directory:
+            project = Path(directory)
+            self.write_valid_literature_registry(project)
+            ledger = project / "near_neighbor_url_ledger.csv"
+
+            completed = self.run_literature_validator(project, "--write-ledger")
+
+            self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+            self.assertTrue(ledger.is_file())
+            self.assertIn("canonical_key", ledger.read_text(encoding="utf-8"))
+
     def test_validate_all_rejects_state_outside_root_before_schema_dispatch(self) -> None:
         with TemporaryDirectory(prefix="schema-v2-root-") as root_directory:
             with TemporaryDirectory(prefix="schema-v2-outside-") as outside_directory:
@@ -392,6 +452,79 @@ class SchemaV2ValidationTests(unittest.TestCase):
                 self.assertIn("VALIDATOR_ERROR", completed.stdout)
                 self.assertIn("outside_root", completed.stdout)
                 self.assertNotIn("Traceback", completed.stderr)
+
+    def test_validate_all_rejects_default_registry_symlink_outside_root(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V0")
+        self.addCleanup(temporary_directory.cleanup)
+        state = load_json(project / "workflow_state.json")
+        state["independent_audit"] = {}
+        write_json(project / "workflow_state.json", state)
+        with TemporaryDirectory(prefix="schema-v2-outside-") as outside:
+            outside_registry = Path(outside) / "registry.json"
+            outside_registry.write_text("{}\n", encoding="utf-8")
+            (project / "near_neighbor_registry.json").symlink_to(outside_registry)
+
+            completed = run_all_validator(project)
+
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("VALIDATOR_ERROR", completed.stdout)
+        self.assertIn("outside_root", completed.stdout)
+        self.assertNotIn("Traceback", completed.stderr)
+
+    def test_standalone_literature_validator_rejects_registry_outside_root(self) -> None:
+        with TemporaryDirectory(prefix="schema-v2-literature-") as directory:
+            project = Path(directory)
+            with TemporaryDirectory(prefix="schema-v2-outside-") as outside:
+                outside_registry = Path(outside) / "registry.json"
+                write_json(
+                    outside_registry,
+                    {
+                        "records": [],
+                        "peer_reviewed_published_count": 0,
+                        "search_mode": "SEARCH_OPEN",
+                    },
+                )
+                completed = subprocess.run(
+                    [
+                        sys.executable,
+                        str(
+                            REPOSITORY_ROOT
+                            / "scripts"
+                            / "validate_literature_registry.py"
+                        ),
+                        "--root",
+                        str(project),
+                        "--registry",
+                        str(outside_registry),
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("PATH_OUTSIDE_ROOT", completed.stdout)
+        self.assertNotIn("Traceback", completed.stderr)
+
+    def test_literature_scan_rejects_file_symlink_outside_root_without_reading_it(
+        self,
+    ) -> None:
+        with TemporaryDirectory(prefix="schema-v2-literature-") as directory:
+            project = Path(directory)
+            self.write_valid_literature_registry(project)
+            with TemporaryDirectory(prefix="schema-v2-outside-") as outside:
+                outside_document = Path(outside) / "secret.md"
+                outside_document.write_text(
+                    "https://arxiv.org/abs/9999.99999\n", encoding="utf-8"
+                )
+                (project / "escape.md").symlink_to(outside_document)
+
+                completed = self.run_literature_validator(project)
+
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("PATH_OUTSIDE_ROOT", completed.stdout)
+        self.assertNotIn("9999.99999", completed.stdout)
+        self.assertNotIn("Traceback", completed.stderr)
 
     def test_validate_all_returns_stable_error_for_unexpected_state_input(self) -> None:
         temporary_directory, project = make_valid_project()
