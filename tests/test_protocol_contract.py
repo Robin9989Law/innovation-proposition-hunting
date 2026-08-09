@@ -916,6 +916,44 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertEqual(1, completed.returncode)
         self.assertIn("INVALID_TEST_TARGET_CONTRACT", completed.stdout)
 
+    def test_arbitrarily_nested_class_global_target_binding_is_rejected(self) -> None:
+        project = self.make_project()
+        test_path = project / "checks/check_online_chronology.py"
+        test_path.write_text(
+            test_path.read_text(encoding="utf-8")
+            + "\nclass Outer:\n"
+            + "    class Middle:\n"
+            + "        class Inner:\n"
+            + "            global TARGET_CLAIM_IDS\n"
+            + '            TARGET_CLAIM_IDS = ("C-X",)\n',
+            encoding="utf-8",
+        )
+        self.refresh_test_and_output_hashes(project)
+
+        completed = self.run_trace(project)
+
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("INVALID_TEST_TARGET_CONTRACT", completed.stdout)
+
+    def test_dead_arbitrarily_nested_class_global_target_binding_is_ignored(self) -> None:
+        project = self.make_project()
+        test_path = project / "checks/check_online_chronology.py"
+        test_path.write_text(
+            test_path.read_text(encoding="utf-8")
+            + "\nclass Outer:\n"
+            + "    if 0:\n"
+            + "        class Middle:\n"
+            + "            class Inner:\n"
+            + "                global TARGET_CLAIM_IDS\n"
+            + '                TARGET_CLAIM_IDS = ("C-X",)\n',
+            encoding="utf-8",
+        )
+        self.refresh_test_and_output_hashes(project)
+
+        completed = self.run_trace(project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+
     def test_statically_dead_class_global_target_binding_is_ignored(self) -> None:
         project = self.make_project()
         test_path = project / "checks/check_online_chronology.py"
@@ -1173,6 +1211,97 @@ class ProtocolContractTests(unittest.TestCase):
                 self.assertEqual(1, completed.returncode)
                 self.assertIn("TRACE_TEST_IMPLEMENTATION_MISMATCH", completed.stdout)
 
+    def test_for_else_terminal_paths_make_following_call_unreachable(self) -> None:
+        loop_headers = ("for item in values:", "async for item in values:")
+        for loop_header in loop_headers:
+            with self.subTest(loop_header=loop_header):
+                project = self.make_project()
+                test_path = project / "checks/check_online_chronology.py"
+                function_header = (
+                    "async def proof():" if loop_header.startswith("async") else "def proof():"
+                )
+                test_path.write_text(
+                    "from implementation.online_algorithm import evaluate_online\n"
+                    'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+                    f"{function_header}\n"
+                    f"    {loop_header}\n"
+                    "        return\n"
+                    "    else:\n"
+                    "        return\n"
+                    "    evaluate_online(None, [], [])\n",
+                    encoding="utf-8",
+                )
+                self.refresh_test_and_output_hashes(project)
+
+                completed = self.run_trace(project)
+
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("TRACE_TEST_IMPLEMENTATION_MISMATCH", completed.stdout)
+
+    def test_for_else_break_keeps_following_call_reachable(self) -> None:
+        project = self.make_project()
+        test_path = project / "checks/check_online_chronology.py"
+        test_path.write_text(
+            "from implementation.online_algorithm import evaluate_online\n"
+            'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+            "def proof():\n"
+            "    for item in values:\n"
+            "        break\n"
+            "    else:\n"
+            "        return\n"
+            "    evaluate_online(None, [], [])\n",
+            encoding="utf-8",
+        )
+        self.refresh_test_and_output_hashes(project)
+
+        completed = self.run_trace(project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+
+    def test_exhaustive_match_terminal_case_makes_following_call_unreachable(self) -> None:
+        patterns = ("_", "captured")
+        for pattern in patterns:
+            with self.subTest(pattern=pattern):
+                project = self.make_project()
+                test_path = project / "checks/check_online_chronology.py"
+                test_path.write_text(
+                    "from implementation.online_algorithm import evaluate_online\n"
+                    'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+                    "def proof():\n"
+                    "    match value:\n"
+                    f"        case {pattern}:\n"
+                    "            return\n"
+                    "    evaluate_online(None, [], [])\n",
+                    encoding="utf-8",
+                )
+                self.refresh_test_and_output_hashes(project)
+
+                completed = self.run_trace(project)
+
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("TRACE_TEST_IMPLEMENTATION_MISMATCH", completed.stdout)
+
+    def test_nonexhaustive_or_guarded_match_keeps_following_call_reachable(self) -> None:
+        cases = ("case 1:\n            return", "case _ if condition:\n            return")
+        for case in cases:
+            with self.subTest(case=case):
+                project = self.make_project()
+                test_path = project / "checks/check_online_chronology.py"
+                test_path.write_text(
+                    "from implementation.online_algorithm import evaluate_online\n"
+                    'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+                    "def proof():\n"
+                    "    match value:\n"
+                    f"        {case}\n"
+                    "    evaluate_online(None, [], [])\n",
+                    encoding="utf-8",
+                )
+                self.refresh_test_and_output_hashes(project)
+
+                completed = self.run_trace(project)
+
+                self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+
     def test_break_from_infinite_while_keeps_following_call_reachable(self) -> None:
         project = self.make_project()
         test_path = project / "checks/check_online_chronology.py"
@@ -1375,6 +1504,27 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertEqual(1, completed.returncode)
         self.assertIn("TRACE_TEST_IMPLEMENTATION_MISMATCH", completed.stdout)
 
+    def test_nested_class_global_module_alias_rebinding_invalidates_bound_call(self) -> None:
+        project = self.make_project()
+        test_path = project / "checks/check_online_chronology.py"
+        test_path.write_text(
+            "import implementation.online_algorithm as bound\n"
+            'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+            "class Outer:\n"
+            "    class Middle:\n"
+            "        class RebindAlias:\n"
+            "            global bound\n"
+            "            bound = fake\n"
+            "bound.evaluate_online(None, [], [])\n",
+            encoding="utf-8",
+        )
+        self.refresh_test_and_output_hashes(project)
+
+        completed = self.run_trace(project)
+
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("TRACE_TEST_IMPLEMENTATION_MISMATCH", completed.stdout)
+
     def test_enclosing_scope_shadow_cannot_prove_nested_call(self) -> None:
         project = self.make_project()
         test_path = project / "checks/check_online_chronology.py"
@@ -1498,6 +1648,26 @@ class ProtocolContractTests(unittest.TestCase):
             "class RebindImplementation:\n"
             "    global evaluate_online\n"
             "    evaluate_online = fake\n",
+            encoding="utf-8",
+        )
+        self.refresh_implementation_hashes(project)
+
+        completed = self.run_trace(project)
+
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("INVALID_IMPLEMENTATION_SYMBOL", completed.stdout)
+
+    def test_nested_class_global_implementation_rebinding_invalidates_final_symbol(self) -> None:
+        project = self.make_project()
+        implementation = project / "implementation/online_algorithm.py"
+        implementation.write_text(
+            "def evaluate_online(*args):\n"
+            "    return []\n"
+            "class Outer:\n"
+            "    class Middle:\n"
+            "        class RebindImplementation:\n"
+            "            global evaluate_online\n"
+            "            evaluate_online = fake\n",
             encoding="utf-8",
         )
         self.refresh_implementation_hashes(project)

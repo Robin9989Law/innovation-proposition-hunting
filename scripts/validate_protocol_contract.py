@@ -196,9 +196,35 @@ def _literal_truth(node: ast.AST) -> bool | None:
 
 
 def _class_global_names(statements: list[ast.stmt]) -> set[str]:
+    """Collect globals from class code, including recursively executed classes."""
+
     names: set[str] = set()
 
     class GlobalVisitor(ast.NodeVisitor):
+        def visit_Global(self, node: ast.Global) -> None:
+            names.update(node.names)
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            return
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+            return
+
+        def visit_Lambda(self, node: ast.Lambda) -> None:
+            return
+
+    visitor = GlobalVisitor()
+    for statement in statements:
+        visitor.visit(statement)
+    return names
+
+
+def _direct_class_global_names(statements: list[ast.stmt]) -> set[str]:
+    """Collect globals belonging to one class scope, not nested class scopes."""
+
+    names: set[str] = set()
+
+    class DirectGlobalVisitor(ast.NodeVisitor):
         def visit_Global(self, node: ast.Global) -> None:
             names.update(node.names)
 
@@ -214,7 +240,7 @@ def _class_global_names(statements: list[ast.stmt]) -> set[str]:
         def visit_Lambda(self, node: ast.Lambda) -> None:
             return
 
-    visitor = GlobalVisitor()
+    visitor = DirectGlobalVisitor()
     for statement in statements:
         visitor.visit(statement)
     return names
@@ -272,9 +298,46 @@ class _ModuleBindingVisitor(ast.NodeVisitor):
             self.visit(base)
         for keyword in node.keywords:
             self.visit(keyword.value)
-        if self.name in _class_global_names(node.body):
-            for statement in node.body:
+        self._visit_class_body_module_effects(node.body)
+
+    def _visit_class_body_module_effects(self, body: list[ast.stmt]) -> None:
+        if self.name in _direct_class_global_names(body):
+            for statement in body:
                 self.visit(statement)
+            return
+        if self.name in _class_global_names(body):
+            self._visit_nested_class_effects(body)
+
+    def _visit_nested_class_effects(self, statements: list[ast.stmt]) -> None:
+        """Inspect executed nested class bodies without treating class locals as module binds."""
+
+        for statement in statements:
+            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if isinstance(statement, ast.ClassDef):
+                self._visit_class_body_module_effects(statement.body)
+                continue
+            if isinstance(statement, ast.If):
+                truth = _literal_truth(statement.test)
+                if self.skip_static_false and truth is False:
+                    self._visit_nested_class_effects(statement.orelse)
+                elif self.skip_static_false and truth is True:
+                    self._visit_nested_class_effects(statement.body)
+                else:
+                    self._visit_nested_class_effects(statement.body)
+                    self._visit_nested_class_effects(statement.orelse)
+                continue
+            if isinstance(statement, ast.While):
+                truth = _literal_truth(statement.test)
+                if self.skip_static_false and truth is False:
+                    self._visit_nested_class_effects(statement.orelse)
+                else:
+                    self._visit_nested_class_effects(statement.body)
+                    self._visit_nested_class_effects(statement.orelse)
+                continue
+            for child in ast.iter_child_nodes(statement):
+                if isinstance(child, ast.stmt):
+                    self._visit_nested_class_effects([child])
 
     def visit_Lambda(self, node: ast.Lambda) -> None:
         return  # Lambda parameters and walrus targets are local to the lambda.
@@ -520,9 +583,15 @@ def _reachable_nodes_with_scopes(
         if isinstance(node, (ast.For, ast.AsyncFor)):
             visit_expression(node.target, active_scopes)
             visit_expression(node.iter, active_scopes)
-            visit_block(node.body, active_scopes)
-            visit_block(node.orelse, active_scopes)
-            return {fallthrough}
+            body_outcomes = visit_block(node.body, active_scopes)
+            else_outcomes = visit_block(node.orelse, active_scopes)
+            outcomes = (
+                (body_outcomes & {"RETURN", "RAISE"})
+                | (else_outcomes - {"BREAK", "CONTINUE"})
+            )
+            if "BREAK" in body_outcomes:
+                outcomes.add(fallthrough)
+            return outcomes
         if isinstance(node, (ast.With, ast.AsyncWith)):
             for item in node.items:
                 visit_expression(item.context_expr, active_scopes)
@@ -545,10 +614,18 @@ def _reachable_nodes_with_scopes(
             )
         if isinstance(node, ast.Match):
             visit_expression(node.subject, active_scopes)
+            outcomes: set[str] = set()
             for case in node.cases:
                 visit_expression(case.guard, active_scopes)
-                visit_block(case.body, active_scopes)
-            return {fallthrough}
+                outcomes.update(visit_block(case.body, active_scopes))
+            last_case_is_irrefutable = bool(node.cases) and (
+                node.cases[-1].guard is None
+                and isinstance(node.cases[-1].pattern, ast.MatchAs)
+                and node.cases[-1].pattern.pattern is None
+            )
+            if not last_case_is_irrefutable:
+                outcomes.add(fallthrough)
+            return outcomes
         if isinstance(node, ast.Return):
             visit_expression(node.value, active_scopes)
             return {"RETURN"}
