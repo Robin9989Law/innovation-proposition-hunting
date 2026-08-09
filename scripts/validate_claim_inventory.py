@@ -100,24 +100,8 @@ GUARANTEE_DEPOSIT_PATTERN = re.compile(
 GUARANTEE_DEPOSIT_VERB = re.compile(
     r"(?:缴纳|交纳|收取|退还|支付|扣除|返还|没收)[^，。；：、！？]{0,6}$"
 )
-FIRST_CLAIM_CUES = (
-    "提出",
-    "开发",
-    "构建",
-    "设计",
-    "实现",
-    "发布",
-    "发现",
-    "证明",
-    "给出",
-    "首创",
-    "开创",
-)
 FIRST_ORDINAL_CONTEXT_PATTERNS = (
-    re.compile(
-        r"^第一(?:步|章|节|阶段|轮|部分)"
-        r"(?=$|[\s，。；：、！？）】]|是|为|需|介绍|讨论|收集|整理|执行|进行)"
-    ),
+    re.compile(r"^第一(?:步|章|节|阶段|轮|部分)"),
     re.compile(r"^第一项实验(?=$|[\s，。；：、！？）】]|检查|用于|比较|测量|验证|评估)"),
     re.compile(r"^第一篇文章(?=$|[\s，。；：、！？）】]|介绍|讨论|回顾|总结)"),
     re.compile(r"^第一套参数(?=$|[\s，。；：、！？）】]|用于|作为|包含|取值)"),
@@ -324,7 +308,6 @@ def matches_for_line(line: str) -> list[tuple[int, str]]:
                 continue
         if (
             term == "第一"
-            and not any(cue in line for cue in FIRST_CLAIM_CUES)
             and any(
                 pattern.match(lexical_context)
                 for pattern in FIRST_ORDINAL_CONTEXT_PATTERNS
