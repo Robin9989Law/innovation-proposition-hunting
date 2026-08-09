@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 import stat
@@ -176,19 +177,29 @@ class MigrationTests(unittest.TestCase):
     def test_atomic_writer_cleans_temporary_file_if_replace_fails(self) -> None:
         module = load_migration_module()
         atomic_write_json = getattr(module, "atomic_write_json", None)
+        open_trusted_directory = getattr(module, "open_trusted_directory", None)
         self.assertIsNotNone(atomic_write_json, "atomic_write_json helper is required")
-        if atomic_write_json is None:
+        self.assertIsNotNone(
+            open_trusted_directory, "open_trusted_directory helper is required"
+        )
+        if atomic_write_json is None or open_trusted_directory is None:
             return
         with TemporaryDirectory(prefix="schema-v2-atomic-") as directory:
             project = Path(directory)
             target = project / "state.json"
             target.write_bytes(b"original\n")
 
-            with mock.patch.object(
-                module.os, "replace", side_effect=OSError("replace failed")
-            ):
-                with self.assertRaisesRegex(OSError, "replace failed"):
-                    atomic_write_json(target, {"schema_version": "2.0"})
+            with open_trusted_directory(project, project, create=False) as dir_fd:
+                with mock.patch.object(
+                    module.os, "replace", side_effect=OSError("replace failed")
+                ):
+                    with self.assertRaisesRegex(OSError, "replace failed"):
+                        atomic_write_json(
+                            dir_fd,
+                            target.name,
+                            {"schema_version": "2.0"},
+                            0o644,
+                        )
 
             self.assertEqual(b"original\n", target.read_bytes())
             self.assertEqual([target], list(project.iterdir()))
@@ -196,28 +207,70 @@ class MigrationTests(unittest.TestCase):
     def test_atomic_no_clobber_publish_rejects_racing_target(self) -> None:
         module = load_migration_module()
         atomic_publish_json = getattr(module, "atomic_publish_json", None)
+        open_trusted_directory = getattr(module, "open_trusted_directory", None)
         self.assertIsNotNone(
             atomic_publish_json, "atomic_publish_json helper is required"
         )
-        if atomic_publish_json is None:
+        self.assertIsNotNone(
+            open_trusted_directory, "open_trusted_directory helper is required"
+        )
+        if atomic_publish_json is None or open_trusted_directory is None:
             return
         with TemporaryDirectory(prefix="schema-v2-race-") as directory:
             project = Path(directory)
             target = project / "state.v2.json"
             original_link = module.os.link
 
-            def create_racing_target(source, destination):
-                Path(destination).write_bytes(b"concurrent writer\n")
-                return original_link(source, destination)
+            def create_racing_target(source, destination, **kwargs):
+                target.write_bytes(b"concurrent writer\n")
+                return original_link(source, destination, **kwargs)
 
-            with mock.patch.object(
-                module.os, "link", side_effect=create_racing_target
-            ):
-                with self.assertRaises(FileExistsError):
-                    atomic_publish_json(target, {"schema_version": "2.0"}, 0o644)
+            with open_trusted_directory(project, project, create=False) as dir_fd:
+                with mock.patch.object(
+                    module.os, "link", side_effect=create_racing_target
+                ):
+                    with self.assertRaises(FileExistsError):
+                        atomic_publish_json(
+                            dir_fd,
+                            target.name,
+                            {"schema_version": "2.0"},
+                            0o644,
+                        )
 
             self.assertEqual(b"concurrent writer\n", target.read_bytes())
             self.assertEqual([target], list(project.iterdir()))
+
+    def test_trusted_directory_fd_prevents_post_check_symlink_swap(self) -> None:
+        module = load_migration_module()
+        atomic_publish_json = getattr(module, "atomic_publish_json", None)
+        open_trusted_directory = getattr(module, "open_trusted_directory", None)
+        self.assertIsNotNone(atomic_publish_json)
+        self.assertIsNotNone(open_trusted_directory)
+        if atomic_publish_json is None or open_trusted_directory is None:
+            return
+        with TemporaryDirectory(prefix="schema-v2-root-") as directory:
+            root = Path(directory)
+            nested = root / "nested"
+            with TemporaryDirectory(prefix="schema-v2-outside-") as outside:
+                outside_path = Path(outside)
+                with open_trusted_directory(root, nested, create=True) as dir_fd:
+                    held_fd = dir_fd
+                    nested.rmdir()
+                    nested.symlink_to(outside_path, target_is_directory=True)
+                    try:
+                        atomic_publish_json(
+                            dir_fd,
+                            "state.json",
+                            {"schema_version": "2.0"},
+                            0o644,
+                        )
+                    except OSError:
+                        pass
+
+                self.assertFalse((outside_path / "state.json").exists())
+                self.assertEqual([], list(outside_path.iterdir()))
+                with self.assertRaises(OSError):
+                    os.fstat(held_fd)
 
     def test_migration_rejects_non_schema_1_inputs(self) -> None:
         for schema_version in (None, "2.0", "3.0", 1):

@@ -4,15 +4,16 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
 import errno
 import json
 import os
 from pathlib import Path
+import secrets
 import stat
-import tempfile
-from typing import Any
+from typing import Any, Iterator
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -51,30 +52,95 @@ def migrate(state: dict[str, Any]) -> dict[str, Any]:
     return migrated
 
 
-def fsync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY)
+def directory_open_flags() -> int:
+    if not hasattr(os, "O_DIRECTORY") or not hasattr(os, "O_NOFOLLOW"):
+        raise RuntimeError("secure_directory_flags_unavailable")
+    return os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+
+
+@contextmanager
+def open_trusted_directory(
+    root: Path,
+    parent: Path,
+    *,
+    create: bool,
+) -> Iterator[int]:
+    lexical_root = root.absolute()
+    parent = parent.absolute()
     try:
-        try:
-            os.fsync(descriptor)
-        except OSError as error:
-            if error.errno not in {errno.EINVAL, errno.ENOTSUP}:
-                raise
+        relative_parent = parent.relative_to(lexical_root)
+    except ValueError as error:
+        raise ValueError(f"output_parent_outside_root:{parent}") from error
+    root = root.resolve(strict=True)
+
+    current_fd = os.open(root, directory_open_flags())
+    try:
+        for component in relative_parent.parts:
+            if component in {"", ".", ".."}:
+                raise ValueError(f"unsafe_output_component:{component}")
+            if create:
+                try:
+                    os.mkdir(component, 0o755, dir_fd=current_fd)
+                except FileExistsError:
+                    pass
+            next_fd = os.open(
+                component,
+                directory_open_flags(),
+                dir_fd=current_fd,
+            )
+            os.close(current_fd)
+            current_fd = next_fd
+        yield current_fd
     finally:
-        os.close(descriptor)
+        os.close(current_fd)
+
+
+def fsync_directory(dir_fd: int) -> None:
+    try:
+        os.fsync(dir_fd)
+    except OSError as error:
+        if error.errno not in {errno.EINVAL, errno.ENOTSUP}:
+            raise
+
+
+def validate_filename(name: str) -> None:
+    if not name or name in {".", ".."} or Path(name).name != name:
+        raise ValueError(f"unsafe_output_filename:{name}")
+
+
+def unlink_if_exists(dir_fd: int, name: str) -> None:
+    try:
+        os.unlink(name, dir_fd=dir_fd)
+    except FileNotFoundError:
+        pass
 
 
 def write_temporary_json(
-    path: Path,
+    dir_fd: int,
+    target_name: str,
     payload: dict[str, Any],
     mode: int,
-) -> Path:
+) -> str:
+    validate_filename(target_name)
     serialized = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode(
         "utf-8"
     )
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
-    )
-    temporary_path = Path(temporary_name)
+    descriptor = -1
+    temporary_name = ""
+    for _ in range(128):
+        temporary_name = f".{target_name}.{secrets.token_hex(12)}.tmp"
+        try:
+            descriptor = os.open(
+                temporary_name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=dir_fd,
+            )
+            break
+        except FileExistsError:
+            continue
+    if descriptor < 0:
+        raise FileExistsError("unable_to_allocate_temporary_file")
     descriptor_open = True
     try:
         os.fchmod(descriptor, mode)
@@ -86,73 +152,92 @@ def write_temporary_json(
     except BaseException:
         if descriptor_open:
             os.close(descriptor)
-        temporary_path.unlink(missing_ok=True)
+        unlink_if_exists(dir_fd, temporary_name)
         raise
-    return temporary_path
+    return temporary_name
 
 
 def atomic_write_json(
-    path: Path,
+    dir_fd: int,
+    target_name: str,
     payload: dict[str, Any],
-    mode: int | None = None,
+    mode: int,
 ) -> None:
-    if mode is None:
-        mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o600
-    temporary_path = write_temporary_json(path, payload, mode)
+    temporary_name = write_temporary_json(dir_fd, target_name, payload, mode)
     try:
-        os.replace(temporary_path, path)
-        fsync_directory(path.parent)
+        os.replace(
+            temporary_name,
+            target_name,
+            src_dir_fd=dir_fd,
+            dst_dir_fd=dir_fd,
+        )
+        fsync_directory(dir_fd)
     except BaseException:
-        temporary_path.unlink(missing_ok=True)
+        unlink_if_exists(dir_fd, temporary_name)
         raise
 
 
-def atomic_publish_json(path: Path, payload: dict[str, Any], mode: int) -> None:
-    temporary_path = write_temporary_json(path, payload, mode)
+def atomic_publish_json(
+    dir_fd: int,
+    target_name: str,
+    payload: dict[str, Any],
+    mode: int,
+) -> None:
+    temporary_name = write_temporary_json(dir_fd, target_name, payload, mode)
     try:
-        os.link(temporary_path, path)
-        temporary_path.unlink()
-        fsync_directory(path.parent)
+        os.link(
+            temporary_name,
+            target_name,
+            src_dir_fd=dir_fd,
+            dst_dir_fd=dir_fd,
+            follow_symlinks=False,
+        )
+        os.unlink(temporary_name, dir_fd=dir_fd)
+        fsync_directory(dir_fd)
     except BaseException:
-        temporary_path.unlink(missing_ok=True)
+        unlink_if_exists(dir_fd, temporary_name)
         raise
 
 
-def create_exclusive_backup(source: Path, backup: Path) -> None:
+def create_exclusive_backup(
+    dir_fd: int,
+    source_name: str,
+    backup_name: str,
+    mode: int,
+) -> None:
+    validate_filename(source_name)
+    validate_filename(backup_name)
     descriptor = os.open(
-        backup,
-        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-        source.stat().st_mode & 0o777,
+        backup_name,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+        0o600,
+        dir_fd=dir_fd,
     )
     backup_open = True
     try:
-        os.fchmod(descriptor, stat.S_IMODE(source.stat().st_mode))
+        os.fchmod(descriptor, mode)
         with os.fdopen(descriptor, "wb") as destination:
             backup_open = False
-            with source.open("rb") as source_handle:
+            source_descriptor = os.open(
+                source_name,
+                os.O_RDONLY | os.O_NOFOLLOW,
+                dir_fd=dir_fd,
+            )
+            with os.fdopen(source_descriptor, "rb") as source_handle:
                 for chunk in iter(lambda: source_handle.read(1024 * 1024), b""):
                     destination.write(chunk)
             destination.flush()
             os.fsync(destination.fileno())
+        fsync_directory(dir_fd)
     except BaseException:
         if backup_open:
             os.close(descriptor)
-        backup.unlink(missing_ok=True)
+        unlink_if_exists(dir_fd, backup_name)
         raise
 
 
 def is_schema_1_x(value: Any) -> bool:
     return isinstance(value, str) and (value == "1" or value.startswith("1."))
-
-
-def prepare_output_parent(root: Path, output: Path) -> Path:
-    output.parent.mkdir(parents=True, exist_ok=True)
-    resolved_parent = output.parent.resolve(strict=True)
-    try:
-        resolved_parent.relative_to(root)
-    except ValueError as error:
-        raise ValueError(f"output_parent_outside_root:{resolved_parent}") from error
-    return resolved_parent / output.name
 
 
 def main() -> int:
@@ -183,20 +268,39 @@ def main() -> int:
         output_path.relative_to(root)
         if args.in_place:
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-            backup = state_path.with_name(
-                f"{state_path.name}.v1-backup-{timestamp}"
-            )
-            create_exclusive_backup(state_path, backup)
+            backup_name = f"{state_path.name}.v1-backup-{timestamp}"
+            backup = state_path.with_name(backup_name)
+            with open_trusted_directory(
+                root, state_path.parent, create=False
+            ) as dir_fd:
+                create_exclusive_backup(
+                    dir_fd,
+                    state_path.name,
+                    backup_name,
+                    source_mode,
+                )
+                atomic_write_json(
+                    dir_fd,
+                    state_path.name,
+                    migrated,
+                    source_mode,
+                )
             print(f"migration_backup={backup}")
-            atomic_write_json(output_path, migrated, source_mode)
         else:
             if output_path == state_path:
                 raise ValueError("output_equals_state")
-            output_path = prepare_output_parent(root, output_path)
-            try:
-                atomic_publish_json(output_path, migrated, source_mode)
-            except FileExistsError as error:
-                raise ValueError("output_exists") from error
+            with open_trusted_directory(
+                root, output_path.parent, create=True
+            ) as dir_fd:
+                try:
+                    atomic_publish_json(
+                        dir_fd,
+                        output_path.name,
+                        migrated,
+                        source_mode,
+                    )
+                except FileExistsError as error:
+                    raise ValueError("output_exists") from error
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(f"migration_status=INVALID\nmigration_error={error}")
         return 1
