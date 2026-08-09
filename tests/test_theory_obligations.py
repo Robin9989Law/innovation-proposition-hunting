@@ -17,6 +17,7 @@ from tests.helpers import (
     run_script,
     write_json,
 )
+from scripts.validation_common import StrictJSONError, strict_json_loads
 
 
 REGISTRY_NAME = "theory_obligation_registry.json"
@@ -740,6 +741,73 @@ class TheoryObligationTests(unittest.TestCase):
         self.assertIn("INVALID_WORKFLOW_STATE_JSON", completed.stdout)
         self.assertIn("UTF8_BOM:$", completed.stdout)
         self.assertNotIn("Traceback", completed.stderr)
+
+    def test_isolated_unicode_surrogates_are_rejected_with_ascii_safe_paths(self) -> None:
+        cases = (
+            (
+                "workflow_state.json",
+                '  "claim_profile": "THEORY",\n',
+                '  "claim_profile": "\\ud800",\n',
+                "INVALID_WORKFLOW_STATE_JSON",
+                "NON_SCALAR_UNICODE:$.claim_profile:U+D800",
+            ),
+            (
+                "claim_inventory.json",
+                '      "statement": "For every real x, if x >= 0, then x + 1 > 0.",\n',
+                '      "statement": "\\udc00",\n',
+                "INVALID_CLAIM_INVENTORY_JSON",
+                "NON_SCALAR_UNICODE:$.claims[0].statement:U+DC00",
+            ),
+            (
+                REGISTRY_NAME,
+                '          "command": "python3 checks/theory_witness.py minimal-positive",\n',
+                '          "command": "nested-\\ud800-value",\n',
+                "INVALID_THEORY_REGISTRY_JSON",
+                "NON_SCALAR_UNICODE:$.obligations[0].witnesses[0].command:U+D800",
+            ),
+            (
+                REGISTRY_NAME,
+                '      "claim_id": "C-THEOREM-1",\n',
+                '      "\\ud800": 1,\n      "\\ud800": 2,\n'
+                '      "claim_id": "C-THEOREM-1",\n',
+                "INVALID_THEORY_REGISTRY_JSON",
+                'NON_SCALAR_UNICODE:$.obligations[0]["\\ud800"]:U+D800',
+            ),
+        )
+        for file_name, needle, replacement, code, detail in cases:
+            with self.subTest(file_name=file_name, detail=detail):
+                project = self.make_project()
+                artifact = project / file_name
+                raw = artifact.read_text(encoding="utf-8")
+                self.assertEqual(1, raw.count(needle))
+                artifact.write_text(raw.replace(needle, replacement), encoding="utf-8")
+
+                completed = self.run_theory(project)
+
+                self.assertEqual(1, completed.returncode)
+                self.assertIn(code, completed.stdout)
+                self.assertIn(detail, completed.stdout)
+                self.assertNotIn("VALIDATOR_ERROR", completed.stdout)
+                self.assertNotIn("UnicodeEncodeError", completed.stderr)
+                self.assertNotIn("Traceback", completed.stderr)
+                completed.stdout.encode("ascii")
+
+    def test_valid_surrogate_pair_and_native_emoji_materialize_identically(self) -> None:
+        escaped = strict_json_loads(
+            r'{"\ud83d\ude00":"\ud83d\ude00"}'
+        )
+        native = strict_json_loads('{"😀":"😀"}')
+
+        self.assertEqual({"😀": "😀"}, escaped)
+        self.assertEqual(native, escaped)
+
+    def test_duplicate_valid_emoji_key_has_ascii_safe_path(self) -> None:
+        with self.assertRaises(StrictJSONError) as raised:
+            strict_json_loads('{"😀":1,"\\ud83d\\ude00":2}')
+
+        detail = str(raised.exception)
+        self.assertEqual('DUPLICATE_KEY:$["\\ud83d\\ude00"]', detail)
+        detail.encode("ascii")
 
     def test_unavailable_reviewer_capability_preserves_blocked_na(self) -> None:
         project = self.make_project()

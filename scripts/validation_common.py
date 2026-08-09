@@ -213,9 +213,20 @@ def read_regular_file_at(
 
 
 def _json_child_path(path: str, key: str) -> str:
-    if key.isidentifier():
+    if key.isascii() and key.isidentifier():
         return f"{path}.{key}"
-    return f"{path}[{json.dumps(key, ensure_ascii=False)}]"
+    return f"{path}[{json.dumps(key, ensure_ascii=True)}]"
+
+
+def _reject_non_scalar_unicode(value: str, path: str) -> None:
+    for character in value:
+        codepoint = ord(character)
+        if 0xD800 <= codepoint <= 0xDFFF:
+            raise StrictJSONError(
+                "NON_SCALAR_UNICODE",
+                path,
+                f"U+{codepoint:04X}",
+            )
 
 
 def _materialize_strict_json(value: Any, path: str) -> Any:
@@ -224,6 +235,7 @@ def _materialize_strict_json(value: Any, path: str) -> Any:
     if isinstance(value, _JSONObjectPairs):
         seen: set[str] = set()
         for key, _ in value.pairs:
+            _reject_non_scalar_unicode(key, _json_child_path(path, key))
             if key in seen:
                 raise StrictJSONError("DUPLICATE_KEY", _json_child_path(path, key))
             seen.add(key)
@@ -236,6 +248,8 @@ def _materialize_strict_json(value: Any, path: str) -> Any:
             _materialize_strict_json(child, f"{path}[{index}]")
             for index, child in enumerate(value)
         ]
+    if isinstance(value, str):
+        _reject_non_scalar_unicode(value, path)
     return value
 
 
