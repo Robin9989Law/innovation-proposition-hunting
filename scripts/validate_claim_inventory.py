@@ -59,12 +59,30 @@ CHINESE_RISK_TERMS = (
 CHINESE_RISK_PATTERN = re.compile(
     "|".join(re.escape(term) for term in CHINESE_RISK_TERMS)
 )
-CHINESE_NON_RISK_SUFFIXES = {
-    "保证": ("金",),
-    "充分": ("利用",),
-    "在线": ("性",),
-    "必要": ("时",),
-    "精确": ("率",),
+CHINESE_LEXICAL_CONTEXT_RULES = {
+    "保证": (
+        ("保证金融", True),
+        ("保证金", False),
+    ),
+    "充分": (("充分利用", False),),
+    "在线": (
+        ("在线性能", True),
+        ("在线下界", True),
+        ("在线性模型", False),
+        ("在线性回归", False),
+        ("在线性方程", False),
+        ("在线性代数", False),
+        ("在线性系统", False),
+        ("在线下实验", False),
+        ("在线下场景", False),
+        ("在线下环境", False),
+        ("在线下测试", False),
+        ("在线下设置", False),
+        ("在线下数据", False),
+        ("在线下进行", False),
+    ),
+    "必要": (("必要时", False),),
+    "精确": (("精确率", False),),
 }
 FIRST_CLAIM_CLASSIFIERS = ("种", "个", "项", "篇", "套", "款")
 FIRST_CLAIM_CUES = (
@@ -291,9 +309,6 @@ def matches_for_line(line: str) -> list[tuple[int, str]]:
     for match in CHINESE_RISK_PATTERN.finditer(line):
         term = match.group(0)
         following = line[match.end() :]
-        if term == "在线" and following.startswith("下"):
-            if not following.startswith("下界"):
-                continue
         if term == "第一":
             classifier = next(
                 (
@@ -311,8 +326,20 @@ def matches_for_line(line: str) -> list[tuple[int, str]]:
                 for research_object in FIRST_CLAIM_OBJECTS
             ):
                 continue
-        suffixes = CHINESE_NON_RISK_SUFFIXES.get(term, ())
-        if any(line.startswith(suffix, match.end()) for suffix in suffixes):
+        lexical_context = line[match.start() :]
+        context_decision = next(
+            (
+                is_risk
+                for context, is_risk in sorted(
+                    CHINESE_LEXICAL_CONTEXT_RULES.get(term, ()),
+                    key=lambda rule: len(rule[0]),
+                    reverse=True,
+                )
+                if lexical_context.startswith(context)
+            ),
+            True,
+        )
+        if not context_decision:
             continue
         matches.append((match.start(), term))
     for pattern in (
