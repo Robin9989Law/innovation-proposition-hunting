@@ -371,6 +371,72 @@ class ClaimInventoryTests(unittest.TestCase):
                 )
                 self.assertIn("claim_inventory_status=READY", completed.stdout)
 
+    def test_markdown_nested_list_fences_follow_the_full_container_path(self) -> None:
+        cases = (
+            (
+                "reviewer_example",
+                (
+                    "- item",
+                    "  - ```",
+                    "    The exact hidden result.",
+                    "    ```",
+                    "# Theorem 1",
+                ),
+                (("# Theorem 1", "theorem"),),
+            ),
+            (
+                "three_levels_and_sibling",
+                (
+                    "- outer",
+                    "  - middle",
+                    "    - ````",
+                    "      The exact hidden result.",
+                    "      ````",
+                    "    The universal middle prose.",
+                    "  The bounded outer prose.",
+                    "- The necessary sibling item.",
+                ),
+                (
+                    ("    The universal middle prose.", "universal"),
+                    ("  The bounded outer prose.", "bounded"),
+                    ("- The necessary sibling item.", "necessary"),
+                ),
+            ),
+            (
+                "blockquote_nested_list",
+                (
+                    "> - outer",
+                    ">   - ```",
+                    ">     The exact hidden result.",
+                    ">     ```",
+                    ">   The universal outer prose.",
+                    "# Lemma 1",
+                ),
+                (
+                    (">   The universal outer prose.", "universal"),
+                    ("# Lemma 1", "lemma"),
+                ),
+            ),
+        )
+        for label, lines, expected_claims in cases:
+            with self.subTest(label=label):
+                _, project = self.make_project(validity_level="V2")
+                (project / "manuscript.md").write_text(
+                    "\n".join(lines) + "\n", encoding="utf-8"
+                )
+                expected = [
+                    expected_occurrence_id("manuscript.md", line, term, 1)
+                    for line, term in expected_claims
+                ]
+                set_inventory(project, claims=[claim(expected)])
+
+                completed = run_script("validate_claim_inventory.py", project)
+
+                self.assertEqual(
+                    0, completed.returncode, completed.stdout + completed.stderr
+                )
+                self.assertIn("claim_inventory_status=READY", completed.stdout)
+
     def test_tex_comments_and_code_environments_are_ignored(self) -> None:
         _, project = self.make_project(validity_level="V2")
         (project / "appendix.tex").write_text(

@@ -477,9 +477,11 @@ def markdown_strip_blockquotes(line: str) -> tuple[str, int]:
             content = content[1:]
 
 
-def markdown_list_item(content: str) -> tuple[str, int] | None:
+def markdown_list_item(
+    content: str, base_content_indent: int
+) -> tuple[str, int] | None:
     indent_characters, indent_columns = markdown_indentation(content)
-    if indent_columns > 3:
+    if not base_content_indent <= indent_columns <= base_content_indent + 3:
         return None
     marker_match = re.match(r"(?:[-+*]|\d{1,9}[.)])", content[indent_characters:])
     if marker_match is None:
@@ -515,20 +517,20 @@ def markdown_scannable_lines(lines: list[str]) -> Iterable[tuple[int, str, str]]
     fence_character: str | None = None
     fence_length = 0
     fence_blockquote_depth = 0
-    fence_list_content_indent: int | None = None
-    list_content_indent: int | None = None
+    fence_list_path: tuple[int, ...] = ()
+    list_path: list[int] = []
     list_blockquote_depth: int | None = None
     for line_number, line in enumerate(lines, start=1):
         if fence_character is not None:
-            if fence_blockquote_depth == 0 and fence_list_content_indent is None:
+            if fence_blockquote_depth == 0 and not fence_list_path:
                 container_content = line
                 inside_fence_scope = True
             else:
                 container_content, blockquote_depth = markdown_strip_blockquotes(line)
                 inside_fence_scope = blockquote_depth == fence_blockquote_depth
-                if inside_fence_scope and fence_list_content_indent is not None:
+                if inside_fence_scope and fence_list_path:
                     continuation = markdown_strip_content_indent(
-                        container_content, fence_list_content_indent
+                        container_content, fence_list_path[-1]
                     )
                     if continuation is not None:
                         container_content = continuation
@@ -553,44 +555,41 @@ def markdown_scannable_lines(lines: list[str]) -> Iterable[tuple[int, str, str]]
                     fence_character = None
                     fence_length = 0
                     fence_blockquote_depth = 0
-                    fence_list_content_indent = None
+                    fence_list_path = ()
                 continue
             fence_character = None
             fence_length = 0
             fence_blockquote_depth = 0
-            fence_list_content_indent = None
-            if list_content_indent is not None:
-                list_content_indent = None
-                list_blockquote_depth = None
+            fence_list_path = ()
 
         container_content, blockquote_depth = markdown_strip_blockquotes(line)
-        if (
-            list_content_indent is not None
-            and list_blockquote_depth != blockquote_depth
-        ):
-            list_content_indent = None
+        if list_path and list_blockquote_depth != blockquote_depth:
+            list_path.clear()
             list_blockquote_depth = None
 
-        current_list_content_indent: int | None = None
-        if list_content_indent is not None:
-            continuation = markdown_strip_content_indent(
-                container_content, list_content_indent
-            )
-            if continuation is not None:
-                container_content = continuation
-                current_list_content_indent = list_content_indent
-            elif not container_content.strip():
-                container_content = ""
-                current_list_content_indent = list_content_indent
-            else:
-                list_content_indent = None
+        if container_content.strip():
+            _, leading_columns = markdown_indentation(container_content)
+            while list_path and leading_columns < list_path[-1]:
+                list_path.pop()
+            if not list_path:
                 list_blockquote_depth = None
-        if current_list_content_indent is None:
-            list_item = markdown_list_item(container_content)
+
+            base_content_indent = list_path[-1] if list_path else 0
+            list_item = markdown_list_item(
+                container_content, base_content_indent
+            )
             if list_item is not None:
-                container_content, list_content_indent = list_item
+                container_content, content_indent = list_item
+                list_path.append(content_indent)
                 list_blockquote_depth = blockquote_depth
-                current_list_content_indent = list_content_indent
+            elif list_path:
+                continuation = markdown_strip_content_indent(
+                    container_content, list_path[-1]
+                )
+                if continuation is not None:
+                    container_content = continuation
+        else:
+            container_content = ""
 
         indent_characters, indent_columns = markdown_indentation(container_content)
         candidate = (
@@ -602,7 +601,7 @@ def markdown_scannable_lines(lines: list[str]) -> Iterable[tuple[int, str, str]]
             fence_character = marker[0]
             fence_length = len(marker)
             fence_blockquote_depth = blockquote_depth
-            fence_list_content_indent = current_list_content_indent
+            fence_list_path = tuple(list_path)
             continue
         if indent_columns >= 4:
             continue
