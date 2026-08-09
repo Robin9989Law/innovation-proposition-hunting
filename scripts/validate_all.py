@@ -51,6 +51,17 @@ THEORY_OBLIGATION_REQUIRED_STATES = {
     "COMPLETE",
 }
 THEORY_PROFILES = {"THEORY", "MIXED"}
+ALGORITHM_PROFILES = {"ALGORITHM", "MIXED"}
+ALGORITHM_CONTRACT_REQUIRED_STATES = {
+    "VALIDITY_AUDIT",
+    "INDEPENDENT_REVIEW",
+    "DIRECTION_LOCK",
+    "COMPUTE",
+    "POSTCOMPUTE_CLAIM_FREEZE",
+    "FINAL_VALIDITY_AUDIT",
+    "FINAL_LOCK",
+    "COMPLETE",
+}
 
 
 def load_state(path: Path) -> dict[str, Any]:
@@ -100,6 +111,9 @@ def main() -> int:
     parser.add_argument("--output-support", type=Path)
     parser.add_argument("--claim-inventory", type=Path)
     parser.add_argument("--theory-obligations", type=Path)
+    parser.add_argument("--protocol-contract", type=Path)
+    parser.add_argument("--baseline-budget", type=Path)
+    parser.add_argument("--claim-code-trace", type=Path)
     args = parser.parse_args()
 
     root = args.root.resolve()
@@ -130,6 +144,21 @@ def main() -> int:
         if args.theory_obligations
         else root / "theory_obligation_registry.json"
     )
+    protocol_contract = (
+        args.protocol_contract.absolute()
+        if args.protocol_contract
+        else root / "protocol_contract.json"
+    )
+    baseline_budget = (
+        args.baseline_budget.absolute()
+        if args.baseline_budget
+        else root / "baseline_budget.json"
+    )
+    claim_code_trace = (
+        args.claim_code_trace.absolute()
+        if args.claim_code_trace
+        else root / "claim_code_trace.json"
+    )
 
     try:
         if not root.is_dir():
@@ -141,6 +170,9 @@ def main() -> int:
             ("output_support", outputs),
             ("claim_inventory", inventory),
             ("theory_obligations", theory_obligations),
+            ("protocol_contract", protocol_contract),
+            ("baseline_budget", baseline_budget),
+            ("claim_code_trace", claim_code_trace),
         ):
             require_within_root(root, path, label)
         state = load_state(state_path)
@@ -263,6 +295,89 @@ def main() -> int:
     else:
         print("=== theory_obligations ===")
         print(f"SKIP\tnot_required_at_state:{effective_state}")
+
+    algorithm_profile = (
+        isinstance(claim_profile, str) and claim_profile in ALGORITHM_PROFILES
+    )
+    algorithm_required = (
+        algorithm_profile and dispatch_state in ALGORITHM_CONTRACT_REQUIRED_STATES
+    )
+    run_algorithm_contracts = algorithm_profile and (
+        algorithm_required or protocol_contract.exists() or claim_code_trace.exists()
+    )
+    if run_algorithm_contracts:
+        if not protocol_contract.is_file():
+            if algorithm_required:
+                print(f"PROTOCOL_CONTRACT_REQUIRED\tmissing:{protocol_contract}")
+                suite_issues.append(
+                    Issue(
+                        "PROTOCOL_CONTRACT_REQUIRED",
+                        "INVALID",
+                        "protocol_contract",
+                        str(protocol_contract),
+                    )
+                )
+        else:
+            protocol_exit = run(
+                "protocol_contract",
+                [
+                    sys.executable,
+                    str(script_dir / "validate_protocol_contract.py"),
+                    "--root",
+                    str(root),
+                    "--state",
+                    str(state_path),
+                    "--inventory",
+                    str(inventory),
+                    "--protocol",
+                    str(protocol_contract),
+                    "--baseline-budget",
+                    str(baseline_budget),
+                    "--claim-code-trace",
+                    str(claim_code_trace),
+                ],
+            )
+            protocol_issue = issue_for_exit("protocol_contract", protocol_exit)
+            if protocol_issue:
+                suite_issues.append(protocol_issue)
+
+        if not claim_code_trace.is_file():
+            if algorithm_required:
+                print(f"CLAIM_CODE_TRACE_REQUIRED\tmissing:{claim_code_trace}")
+                suite_issues.append(
+                    Issue(
+                        "CLAIM_CODE_TRACE_REQUIRED",
+                        "INVALID",
+                        "claim_code_trace",
+                        str(claim_code_trace),
+                    )
+                )
+        else:
+            trace_exit = run(
+                "claim_code_trace",
+                [
+                    sys.executable,
+                    str(script_dir / "validate_claim_code_trace.py"),
+                    "--root",
+                    str(root),
+                    "--state",
+                    str(state_path),
+                    "--inventory",
+                    str(inventory),
+                    "--trace",
+                    str(claim_code_trace),
+                    "--protocol",
+                    str(protocol_contract),
+                ],
+            )
+            trace_issue = issue_for_exit("claim_code_trace", trace_exit)
+            if trace_issue:
+                suite_issues.append(trace_issue)
+    else:
+        print("=== protocol_contract ===")
+        print(f"SKIP\tnot_required_for_profile_or_state:{claim_profile}:{effective_state}")
+        print("=== claim_code_trace ===")
+        print(f"SKIP\tnot_required_for_profile_or_state:{claim_profile}:{effective_state}")
 
     run_literature = (
         literature.is_file()

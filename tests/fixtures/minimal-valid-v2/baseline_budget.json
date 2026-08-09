@@ -1,0 +1,28 @@
+{
+  "schema_version": "2.0",
+  "validation_epoch": 1,
+  "comparators": [
+    {
+      "comparator_id": "B-COMPARATOR-A",
+      "claim_ids": [
+        "C-ALGORITHM-1"
+      ],
+      "width_or_parameter_budget": "same trainable parameter count as Algorithm 1",
+      "seeds": [
+        11,
+        23,
+        37
+      ],
+      "regularization_search_space": [
+        0.0,
+        0.01,
+        0.1
+      ],
+      "tuning_data": "identical TRAIN_ONLY split",
+      "label_access": "identical labels after each prediction",
+      "update_frequency": "one update per sample",
+      "compute_budget": "identical accelerator-seconds cap",
+      "stopping_rules": "identical fixed sample horizon"
+    }
+  ]
+}

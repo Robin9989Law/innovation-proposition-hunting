@@ -21,6 +21,21 @@
       "occurrence_ids": [
         "09246fb7704dccd70a5da81e01e659f3a9ee6f2ca552b0aedbb6c3a79709c012"
       ]
+    },
+    {
+      "claim_id": "C-ALGORITHM-1",
+      "statement": "Under the frozen protocol, Algorithm 1 provides a fair comparison with Comparator A.",
+      "claim_type": "ALGORITHM",
+      "locations": [
+        "manuscript.md:9"
+      ],
+      "evidence_responsibility": "Bind the sample-wise predict-before-update protocol to the implementation, executable test, and fair comparator budget.",
+      "risk_terms": [
+        "fair"
+      ],
+      "status": "FROZEN",
+      "validation_epoch": 1,
+      "occurrence_ids": []
     }
   ]
 }
