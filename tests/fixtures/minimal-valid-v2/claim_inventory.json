@@ -4,5 +4,23 @@
   "manuscript_sources": [
     "manuscript.md"
   ],
-  "claims": []
+  "claims": [
+    {
+      "claim_id": "C-THEOREM-1",
+      "statement": "For every real x, if x >= 0, then x + 1 > 0.",
+      "claim_type": "THEOREM",
+      "locations": [
+        "manuscript.md:3"
+      ],
+      "evidence_responsibility": "Prove the exact quantified statement and exercise its premises and boundaries.",
+      "risk_terms": [
+        "theorem"
+      ],
+      "status": "FROZEN",
+      "validation_epoch": 1,
+      "occurrence_ids": [
+        "09246fb7704dccd70a5da81e01e659f3a9ee6f2ca552b0aedbb6c3a79709c012"
+      ]
+    }
+  ]
 }

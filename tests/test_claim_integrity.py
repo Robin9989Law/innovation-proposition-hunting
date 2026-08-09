@@ -861,6 +861,7 @@ class ClaimInventoryTests(unittest.TestCase):
         _, project = self.make_project(validity_level="V2")
         source = project / "manuscript.md"
         source.write_text("Descriptive statistics only.\n", encoding="utf-8")
+        set_inventory(project, claims=[])
         state = load_json(project / "workflow_state.json")
         inventory = load_json(project / "claim_inventory.json")
         original_scan = module.scan_sources

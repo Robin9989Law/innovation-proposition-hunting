@@ -40,6 +40,17 @@ CLAIM_INVENTORY_REQUIRED_STATES = {
     "FINAL_LOCK",
     "COMPLETE",
 }
+THEORY_OBLIGATION_REQUIRED_STATES = {
+    "VALIDITY_AUDIT",
+    "INDEPENDENT_REVIEW",
+    "DIRECTION_LOCK",
+    "COMPUTE",
+    "POSTCOMPUTE_CLAIM_FREEZE",
+    "FINAL_VALIDITY_AUDIT",
+    "FINAL_LOCK",
+    "COMPLETE",
+}
+THEORY_PROFILES = {"THEORY", "MIXED"}
 
 
 def load_state(path: Path) -> dict[str, Any]:
@@ -88,6 +99,7 @@ def main() -> int:
     parser.add_argument("--claim-registry", type=Path)
     parser.add_argument("--output-support", type=Path)
     parser.add_argument("--claim-inventory", type=Path)
+    parser.add_argument("--theory-obligations", type=Path)
     args = parser.parse_args()
 
     root = args.root.resolve()
@@ -113,6 +125,11 @@ def main() -> int:
         if args.claim_inventory
         else (root / "claim_inventory.json").resolve()
     )
+    theory_obligations = (
+        args.theory_obligations.absolute()
+        if args.theory_obligations
+        else root / "theory_obligation_registry.json"
+    )
 
     try:
         if not root.is_dir():
@@ -123,6 +140,7 @@ def main() -> int:
             ("claim_registry", claims),
             ("output_support", outputs),
             ("claim_inventory", inventory),
+            ("theory_obligations", theory_obligations),
         ):
             require_within_root(root, path, label)
         state = load_state(state_path)
@@ -200,6 +218,48 @@ def main() -> int:
                 suite_issues.append(inventory_issue)
     else:
         print("=== claim_inventory ===")
+        print(f"SKIP\tnot_required_at_state:{effective_state}")
+
+    theory_required = (
+        state.get("claim_profile") in THEORY_PROFILES
+        and dispatch_state in THEORY_OBLIGATION_REQUIRED_STATES
+    )
+    run_theory_obligations = theory_obligations.exists() or theory_required
+    if run_theory_obligations:
+        if not theory_obligations.is_file():
+            print(
+                "THEORY_OBLIGATION_REGISTRY_REQUIRED"
+                f"\tmissing:{theory_obligations}"
+            )
+            suite_issues.append(
+                Issue(
+                    "THEORY_OBLIGATION_REGISTRY_REQUIRED",
+                    "INVALID",
+                    "theory_obligation_registry",
+                    str(theory_obligations),
+                )
+            )
+        else:
+            theory_exit = run(
+                "theory_obligations",
+                [
+                    sys.executable,
+                    str(script_dir / "validate_theory_obligations.py"),
+                    "--root",
+                    str(root),
+                    "--state",
+                    str(state_path),
+                    "--inventory",
+                    str(inventory),
+                    "--registry",
+                    str(theory_obligations),
+                ],
+            )
+            theory_issue = issue_for_exit("theory_obligations", theory_exit)
+            if theory_issue:
+                suite_issues.append(theory_issue)
+    else:
+        print("=== theory_obligations ===")
         print(f"SKIP\tnot_required_at_state:{effective_state}")
 
     run_literature = (

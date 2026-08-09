@@ -1,0 +1,1 @@
+PASS: x=0 gives x+1=1>0.

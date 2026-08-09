@@ -1,0 +1,1 @@
+FAIL: x=-2 violates x+1>0 when x>=0 is removed.

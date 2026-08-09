@@ -4,7 +4,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from shutil import copy2
+from shutil import copy2, copytree
 from tempfile import TemporaryDirectory
 from typing import Any, Sequence
 
@@ -99,6 +99,8 @@ def make_valid_project(
     for fixture_path in MINIMAL_VALID_V2.iterdir():
         if fixture_path.is_file():
             copy2(fixture_path, project / fixture_path.name)
+        elif fixture_path.is_dir():
+            copytree(fixture_path, project / fixture_path.name)
     return temporary_directory, project
 
 
