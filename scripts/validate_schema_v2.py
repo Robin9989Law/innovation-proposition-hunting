@@ -72,16 +72,17 @@ def validate(root: Path, state: dict[str, Any]) -> list[Issue]:
                     "missing_object",
                 )
             )
-        elif audit.get("capability_available") is False:
-            issues.append(
-                Issue(
-                    "BLOCKED_CAPABILITY",
-                    "BLOCKED",
-                    "independent_audit",
-                    "independent_reviewer_unavailable",
-                )
-            )
         else:
+            capability_unavailable = audit.get("capability_available") is False
+            if capability_unavailable:
+                issues.append(
+                    Issue(
+                        "BLOCKED_CAPABILITY",
+                        "BLOCKED",
+                        "independent_audit",
+                        "independent_reviewer_unavailable",
+                    )
+                )
             authors = audit.get("author_agent_ids")
             reviewer = audit.get("reviewer_agent_id")
             valid_authors = (
@@ -89,7 +90,8 @@ def validate(root: Path, state: dict[str, Any]) -> list[Issue]:
                 and bool(authors)
                 and all(isinstance(author, str) and author.strip() for author in authors)
             )
-            if not valid_authors:
+            valid_reviewer = isinstance(reviewer, str) and bool(reviewer.strip())
+            if not capability_unavailable and not valid_authors:
                 issues.append(
                     Issue(
                         "INVALID_AUDIT_AUTHORS",
@@ -98,7 +100,7 @@ def validate(root: Path, state: dict[str, Any]) -> list[Issue]:
                         "author_agent_ids:missing_or_invalid",
                     )
                 )
-            if not isinstance(reviewer, str) or not reviewer.strip():
+            if not capability_unavailable and not valid_reviewer:
                 issues.append(
                     Issue(
                         "INVALID_AUDIT_REVIEWER",
@@ -107,7 +109,7 @@ def validate(root: Path, state: dict[str, Any]) -> list[Issue]:
                         "reviewer_agent_id:missing_or_invalid",
                     )
                 )
-            elif valid_authors and reviewer in authors:
+            if valid_authors and valid_reviewer and reviewer in authors:
                 issues.append(
                     Issue(
                         "AUDITOR_NOT_INDEPENDENT",

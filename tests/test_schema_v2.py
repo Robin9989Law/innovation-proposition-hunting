@@ -112,6 +112,20 @@ class SchemaV2ValidationTests(unittest.TestCase):
         self.assertEqual(2, completed.returncode, completed.stdout + completed.stderr)
         self.assertIn("BLOCKED_CAPABILITY", completed.stdout)
 
+    def test_blocked_capability_does_not_hide_existing_self_review(self) -> None:
+        temporary_directory, project = make_valid_project(claim_profile="THEORY")
+        self.addCleanup(temporary_directory.cleanup)
+        state = load_json(project / "workflow_state.json")
+        state["independent_audit"]["capability_available"] = False
+        state["independent_audit"]["reviewer_agent_id"] = "agent-a"
+        write_json(project / "workflow_state.json", state)
+
+        completed = run_schema_validator(project)
+
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("BLOCKED_CAPABILITY", completed.stdout)
+        self.assertIn("AUDITOR_NOT_INDEPENDENT", completed.stdout)
+
     def test_validate_all_does_not_convert_blocked_to_success(self) -> None:
         temporary_directory, project = make_valid_project(claim_profile="THEORY")
         self.addCleanup(temporary_directory.cleanup)
