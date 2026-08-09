@@ -195,6 +195,31 @@ def _literal_truth(node: ast.AST) -> bool | None:
         return None
 
 
+def _class_global_names(statements: list[ast.stmt]) -> set[str]:
+    names: set[str] = set()
+
+    class GlobalVisitor(ast.NodeVisitor):
+        def visit_Global(self, node: ast.Global) -> None:
+            names.update(node.names)
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            return
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+            return
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            return
+
+        def visit_Lambda(self, node: ast.Lambda) -> None:
+            return
+
+    visitor = GlobalVisitor()
+    for statement in statements:
+        visitor.visit(statement)
+    return names
+
+
 class _ModuleBindingVisitor(ast.NodeVisitor):
     """Find a module-scope binding without descending into nested scopes."""
 
@@ -247,6 +272,9 @@ class _ModuleBindingVisitor(ast.NodeVisitor):
             self.visit(base)
         for keyword in node.keywords:
             self.visit(keyword.value)
+        if self.name in _class_global_names(node.body):
+            for statement in node.body:
+                self.visit(statement)
 
     def visit_Lambda(self, node: ast.Lambda) -> None:
         return  # Lambda parameters and walrus targets are local to the lambda.
@@ -405,6 +433,7 @@ def _reachable_nodes_with_scopes(
     """Conservatively enumerate reachable AST nodes with lexical scopes."""
 
     found: list[tuple[ast.AST, tuple[set[str], ...]]] = []
+    fallthrough = "FALLTHROUGH"
 
     def argument_names(arguments: ast.arguments) -> set[str]:
         names = {
@@ -438,22 +467,29 @@ def _reachable_nodes_with_scopes(
 
     def visit_block(
         block: list[ast.stmt], active_scopes: tuple[set[str], ...]
-    ) -> bool:
+    ) -> set[str]:
+        outcomes: set[str] = set()
+        can_continue = True
         for statement in block:
-            if visit_statement(statement, active_scopes):
-                return True
-        return False
+            if not can_continue:
+                break
+            statement_outcomes = visit_statement(statement, active_scopes)
+            outcomes.update(statement_outcomes - {fallthrough})
+            can_continue = fallthrough in statement_outcomes
+        if can_continue:
+            outcomes.add(fallthrough)
+        return outcomes
 
     def visit_statement(
         node: ast.stmt, active_scopes: tuple[set[str], ...]
-    ) -> bool:
+    ) -> set[str]:
         found.append((node, active_scopes))
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             local_names = _bound_names_in_scope(node)
             visit_block(node.body, active_scopes + (local_names,))
-            return False
+            return {fallthrough}
         if isinstance(node, ast.ClassDef):
-            return False  # Class execution/name resolution is not trusted as proof.
+            return {fallthrough}  # Class bodies are not trusted as call proof.
         if isinstance(node, ast.If):
             visit_expression(node.test, active_scopes)
             truth = _literal_truth(node.test)
@@ -461,54 +497,73 @@ def _reachable_nodes_with_scopes(
                 return visit_block(node.orelse, active_scopes)
             if truth is True:
                 return visit_block(node.body, active_scopes)
-            body_stops = visit_block(node.body, active_scopes)
-            else_stops = visit_block(node.orelse, active_scopes)
-            return bool(node.orelse) and body_stops and else_stops
+            return visit_block(node.body, active_scopes) | visit_block(
+                node.orelse, active_scopes
+            )
         if isinstance(node, ast.While):
             visit_expression(node.test, active_scopes)
-            if _literal_truth(node.test) is False:
+            truth = _literal_truth(node.test)
+            if truth is False:
                 return visit_block(node.orelse, active_scopes)
-            visit_block(node.body, active_scopes)
-            visit_block(node.orelse, active_scopes)
-            return False
+            body_outcomes = visit_block(node.body, active_scopes)
+            if truth is True:
+                outcomes = body_outcomes & {"RETURN", "RAISE"}
+                if "BREAK" in body_outcomes:
+                    outcomes.add(fallthrough)
+                return outcomes
+            else_outcomes = visit_block(node.orelse, active_scopes)
+            return (
+                {fallthrough}
+                | (body_outcomes & {"RETURN", "RAISE"})
+                | (else_outcomes - {"BREAK", "CONTINUE"})
+            )
         if isinstance(node, (ast.For, ast.AsyncFor)):
             visit_expression(node.target, active_scopes)
             visit_expression(node.iter, active_scopes)
             visit_block(node.body, active_scopes)
             visit_block(node.orelse, active_scopes)
-            return False
+            return {fallthrough}
         if isinstance(node, (ast.With, ast.AsyncWith)):
             for item in node.items:
                 visit_expression(item.context_expr, active_scopes)
                 visit_expression(item.optional_vars, active_scopes)
             return visit_block(node.body, active_scopes)
         if isinstance(node, (ast.Try, ast.TryStar)):
-            visit_block(node.body, active_scopes)
+            body_outcomes = visit_block(node.body, active_scopes)
+            handler_outcomes: set[str] = set()
             for handler in node.handlers:
                 if handler.type is not None:
                     visit_expression(handler.type, active_scopes)
-                visit_block(handler.body, active_scopes)
-            visit_block(node.orelse, active_scopes)
-            return visit_block(node.finalbody, active_scopes)
+                handler_outcomes.update(visit_block(handler.body, active_scopes))
+            if fallthrough in body_outcomes:
+                else_outcomes = visit_block(node.orelse, active_scopes)
+                body_outcomes = (body_outcomes - {fallthrough}) | else_outcomes
+            protected_outcomes = body_outcomes | handler_outcomes
+            final_outcomes = visit_block(node.finalbody, active_scopes)
+            return (final_outcomes - {fallthrough}) | (
+                protected_outcomes if fallthrough in final_outcomes else set()
+            )
         if isinstance(node, ast.Match):
             visit_expression(node.subject, active_scopes)
             for case in node.cases:
                 visit_expression(case.guard, active_scopes)
                 visit_block(case.body, active_scopes)
-            return False
+            return {fallthrough}
         if isinstance(node, ast.Return):
             visit_expression(node.value, active_scopes)
-            return True
+            return {"RETURN"}
         if isinstance(node, ast.Raise):
             visit_expression(node.exc, active_scopes)
             visit_expression(node.cause, active_scopes)
-            return True
-        if isinstance(node, (ast.Break, ast.Continue)):
-            return True
+            return {"RAISE"}
+        if isinstance(node, ast.Break):
+            return {"BREAK"}
+        if isinstance(node, ast.Continue):
+            return {"CONTINUE"}
         for child in ast.iter_child_nodes(node):
             if isinstance(child, ast.expr):
                 visit_expression(child, active_scopes)
-        return False
+        return {fallthrough}
 
     visit_block(statements, scopes)
     return found
@@ -564,6 +619,7 @@ def parse_python_test_contract(
         tree.body,
         "TARGET_CLAIM_IDS",
         ignored_nodes={declaration.targets[0]},
+        skip_static_false=True,
     ):
         return None, ["TARGET_CLAIM_IDS:rebound_or_deleted"]
     for node in ast.walk(tree):
