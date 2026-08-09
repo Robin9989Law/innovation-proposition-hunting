@@ -23,7 +23,7 @@
     "status": "PASS",
     "exit_code": 0,
     "output_file": "test_outputs/online_chronology_pass.json",
-    "output_sha256": "6bb73291a56d3d947043769fc48aa066b5aeda087e1d956d9f7305c95135a47e",
+    "output_sha256": "59ebe2f48676478301ca0c1a3e7776ad2be309830bed7219f572236f3db11801",
     "target_claim_ids": [
       "C-ALGORITHM-1"
     ],

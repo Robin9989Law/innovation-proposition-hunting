@@ -37,6 +37,24 @@ class ProtocolContractTests(unittest.TestCase):
     def run_trace(self, project: Path) -> subprocess.CompletedProcess[str]:
         return run_script("validate_claim_code_trace.py", project)
 
+    def refresh_test_and_output_hashes(self, project: Path) -> None:
+        test_path = project / "checks/check_online_chronology.py"
+        output_path = project / "test_outputs/online_chronology_pass.json"
+        test_hash = sha256(test_path)
+        manifest = load_json(output_path)
+        manifest["executable_test_sha256"] = test_hash
+        write_json(output_path, manifest)
+        output_hash = sha256(output_path)
+
+        protocol = load_json(project / PROTOCOL)
+        protocol["chronology_test"]["output_sha256"] = output_hash
+        write_json(project / PROTOCOL, protocol)
+        trace = load_json(project / TRACE)
+        for binding in trace["traces"]:
+            binding["executable_test_sha256"] = test_hash
+            binding["pass_output_sha256"] = output_hash
+        write_json(project / TRACE, trace)
+
     def test_minimal_algorithm_protocol_is_ready(self) -> None:
         completed = self.run_protocol(self.make_project())
 
@@ -229,6 +247,43 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
         self.assertFalse(marker.exists())
 
+    def test_protocol_exit_codes_reject_booleans_with_explicit_code(self) -> None:
+        for value in (False, True):
+            with self.subTest(value=value):
+                project = self.make_project()
+                protocol = load_json(project / PROTOCOL)
+                protocol["chronology_test"]["exit_code"] = value
+                write_json(project / PROTOCOL, protocol)
+
+                completed = self.run_protocol(project)
+
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("INVALID_EXIT_CODE_TYPE", completed.stdout)
+
+    def test_pass_manifest_exit_codes_reject_booleans_in_both_validators(self) -> None:
+        for value in (False, True):
+            with self.subTest(value=value):
+                project = self.make_project()
+                output_path = project / "test_outputs/online_chronology_pass.json"
+                manifest = load_json(output_path)
+                manifest["exit_code"] = value
+                write_json(output_path, manifest)
+                output_hash = sha256(output_path)
+                protocol = load_json(project / PROTOCOL)
+                protocol["chronology_test"]["output_sha256"] = output_hash
+                write_json(project / PROTOCOL, protocol)
+                trace = load_json(project / TRACE)
+                trace["traces"][0]["pass_output_sha256"] = output_hash
+                write_json(project / TRACE, trace)
+
+                protocol_result = self.run_protocol(project)
+                trace_result = self.run_trace(project)
+
+                self.assertEqual(1, protocol_result.returncode)
+                self.assertEqual(1, trace_result.returncode)
+                self.assertIn("INVALID_EXIT_CODE_TYPE", protocol_result.stdout)
+                self.assertIn("INVALID_EXIT_CODE_TYPE", trace_result.stdout)
+
     def test_current_chronology_output_hash_is_required(self) -> None:
         project = self.make_project()
         (project / "test_outputs/online_chronology_pass.json").write_text(
@@ -283,6 +338,95 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertEqual(1, completed.returncode)
         self.assertIn("TRACE_TEST_CLAIM_ID_MISSING", completed.stdout)
 
+    def test_comment_claim_id_cannot_replace_machine_readable_test_targets(self) -> None:
+        project = self.make_project()
+        test_path = project / "checks/check_online_chronology.py"
+        test_path.write_text(
+            "# TARGET_CLAIM_IDS: C-ALGORITHM-1\n"
+            "from implementation.online_algorithm import evaluate_online\n"
+            "evaluate_online\n",
+            encoding="utf-8",
+        )
+        self.refresh_test_and_output_hashes(project)
+
+        completed = self.run_trace(project)
+
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("INVALID_TEST_TARGET_CONTRACT", completed.stdout)
+
+    def test_test_target_contract_rejects_extra_or_dynamic_claim_ids(self) -> None:
+        replacements = (
+            'TARGET_CLAIM_IDS = ("C-ALGORITHM-1", "C-ORPHAN-1")',
+            "TARGET_CLAIM_IDS = build_target_claim_ids()",
+        )
+        for declaration in replacements:
+            with self.subTest(declaration=declaration):
+                project = self.make_project()
+                test_path = project / "checks/check_online_chronology.py"
+                text = test_path.read_text(encoding="utf-8")
+                text = text.replace(
+                    'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)', declaration
+                )
+                test_path.write_text(text, encoding="utf-8")
+                self.refresh_test_and_output_hashes(project)
+
+                completed = self.run_trace(project)
+
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("INVALID_TEST_TARGET_CONTRACT", completed.stdout)
+
+    def test_test_must_reference_bound_implementation_not_merely_claim_id(self) -> None:
+        project = self.make_project()
+        test_path = project / "checks/check_online_chronology.py"
+        test_path.write_text(
+            'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+            "def test_placeholder():\n"
+            "    return True\n",
+            encoding="utf-8",
+        )
+        self.refresh_test_and_output_hashes(project)
+
+        completed = self.run_trace(project)
+
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("TRACE_TEST_IMPLEMENTATION_MISMATCH", completed.stdout)
+
+    def test_block_trace_cannot_reuse_online_implementation_test(self) -> None:
+        project = self.make_project()
+        block_path = project / "implementation/block_algorithm.py"
+        block_hash = sha256(block_path)
+        protocol = load_json(project / PROTOCOL)
+        chronology = protocol["chronology_test"]
+        chronology["implementation_relative_path"] = "implementation/block_algorithm.py"
+        chronology["implementation_sha256"] = block_hash
+        write_json(project / PROTOCOL, protocol)
+        trace = load_json(project / TRACE)
+        binding = trace["traces"][0]
+        binding["implementation_relative_path"] = "implementation/block_algorithm.py"
+        binding["implementation_symbol"] = "evaluate_in_blocks"
+        binding["implementation_sha256"] = block_hash
+        write_json(project / TRACE, trace)
+        output_path = project / "test_outputs/online_chronology_pass.json"
+        manifest = load_json(output_path)
+        manifest["implementation_relative_path"] = "implementation/block_algorithm.py"
+        manifest["implementation_sha256"] = block_hash
+        write_json(output_path, manifest)
+        output_hash = sha256(output_path)
+        protocol = load_json(project / PROTOCOL)
+        protocol["chronology_test"]["output_sha256"] = output_hash
+        write_json(project / PROTOCOL, protocol)
+        trace = load_json(project / TRACE)
+        trace["traces"][0]["pass_output_sha256"] = output_hash
+        write_json(project / TRACE, trace)
+
+        protocol_result = self.run_protocol(project)
+        trace_result = self.run_trace(project)
+
+        self.assertEqual(1, protocol_result.returncode)
+        self.assertEqual(1, trace_result.returncode)
+        self.assertIn("ONLINE_CHRONOLOGY_UNVERIFIED", protocol_result.stdout)
+        self.assertIn("TRACE_TEST_IMPLEMENTATION_MISMATCH", trace_result.stdout)
+
     def test_pass_manifest_must_list_target_claim_and_pass(self) -> None:
         project = self.make_project()
         output_path = project / "test_outputs/online_chronology_pass.json"
@@ -297,6 +441,28 @@ class ProtocolContractTests(unittest.TestCase):
 
         self.assertEqual(1, completed.returncode)
         self.assertIn("TRACE_OUTPUT_CLAIM_ID_MISSING", completed.stdout)
+
+    def test_manifest_targets_must_equal_trace_reference_set_without_orphans(self) -> None:
+        project = self.make_project()
+        output_path = project / "test_outputs/online_chronology_pass.json"
+        manifest = load_json(output_path)
+        manifest["target_claim_ids"] = ["C-ALGORITHM-1", "C-ORPHAN-1"]
+        write_json(output_path, manifest)
+        output_hash = sha256(output_path)
+        protocol = load_json(project / PROTOCOL)
+        protocol["chronology_test"]["output_sha256"] = output_hash
+        write_json(project / PROTOCOL, protocol)
+        trace = load_json(project / TRACE)
+        trace["traces"][0]["pass_output_sha256"] = output_hash
+        write_json(project / TRACE, trace)
+
+        protocol_result = self.run_protocol(project)
+        trace_result = self.run_trace(project)
+
+        self.assertEqual(1, protocol_result.returncode)
+        self.assertEqual(1, trace_result.returncode)
+        self.assertIn("ONLINE_CHRONOLOGY_UNVERIFIED", protocol_result.stdout)
+        self.assertIn("TRACE_TARGET_SET_MISMATCH", trace_result.stdout)
 
     def test_trace_rejects_current_file_hash_mismatch(self) -> None:
         project = self.make_project()
@@ -435,6 +601,23 @@ class ProtocolContractTests(unittest.TestCase):
         completed = run_all_validator(project)
 
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+
+    def test_validate_all_checks_lone_early_baseline_without_missing_protocol_noise(self) -> None:
+        project = self.make_project("ALGORITHM")
+        (project / PROTOCOL).unlink()
+        (project / TRACE).unlink()
+        baseline_path = project / BASELINES
+        baseline_path.write_text(
+            '{"schema_version":"2.0","schema_version":"2.0","comparators":[]}\n',
+            encoding="utf-8",
+        )
+
+        completed = run_all_validator(project)
+
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("INVALID_BASELINE_BUDGET_JSON", completed.stdout)
+        self.assertNotIn("PROTOCOL_CONTRACT_REQUIRED", completed.stdout)
+        self.assertNotIn("CLAIM_CODE_TRACE_REQUIRED", completed.stdout)
 
 
 if __name__ == "__main__":

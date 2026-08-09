@@ -28,6 +28,7 @@ from validation_common import (
 from validate_protocol_contract import (
     ALGORITHM_PROFILES,
     collect_algorithm_claims,
+    parse_python_test_contract,
 )
 
 
@@ -280,7 +281,19 @@ def validate_pass_manifest(
             Issue("INVALID_PASS_OUTPUT", "INVALID", item_id, str(error))
         ]
     issues: list[Issue] = []
-    if manifest.get("status") != "PASS" or manifest.get("exit_code") != 0:
+    exit_code = manifest.get("exit_code")
+    if type(exit_code) is not int:
+        issues.append(
+            Issue(
+                "INVALID_EXIT_CODE_TYPE",
+                "INVALID",
+                item_id,
+                f"exit_code:expected_integer;found:{type(exit_code).__name__}",
+            )
+        )
+    if manifest.get("status") != "PASS" or (
+        type(exit_code) is int and exit_code != 0
+    ):
         issues.append(
             Issue(
                 "TRACE_OUTPUT_NOT_PASS",
@@ -293,6 +306,7 @@ def validate_pass_manifest(
     target_ids = manifest.get("target_claim_ids")
     if (
         not string_list(target_ids)
+        or not all(canonical_identifier(target) for target in target_ids)
         or len(set(target_ids)) != len(target_ids)
         or claim_id not in target_ids
     ):
@@ -393,7 +407,7 @@ def validate_binding(
             )
         )
 
-    test_data, test_issues = read_bound_file(
+    _, test_issues = read_bound_file(
         root_fd,
         item_id,
         binding.get("executable_test_relative_path"),
@@ -402,19 +416,6 @@ def validate_binding(
         include_data=True,
     )
     issues.extend(test_issues)
-    if (
-        test_data is not None
-        and isinstance(claim_id, str)
-        and not exact_token_present(test_data, claim_id)
-    ):
-        issues.append(
-            Issue(
-                "TRACE_TEST_CLAIM_ID_MISSING",
-                "INVALID",
-                item_id,
-                "executable_test_must_list_exact_target_claim_id",
-            )
-        )
 
     output_data, output_issues = read_bound_file(
         root_fd,
@@ -427,6 +428,149 @@ def validate_binding(
     issues.extend(output_issues)
     issues.extend(validate_pass_manifest(output_data, binding, item_id))
     return claim_id, issues
+
+
+def grouped_bindings(
+    raw_bindings: list[Any], path_field: str
+) -> dict[str, list[dict[str, Any]]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for binding in raw_bindings:
+        if not isinstance(binding, dict):
+            continue
+        claim_id = binding.get("claim_id")
+        path = binding.get(path_field)
+        if not canonical_identifier(claim_id) or not canonical_relative_path(path):
+            continue
+        groups.setdefault(path, []).append(binding)
+    return groups
+
+
+def validate_test_reference_groups(
+    root_fd: int,
+    raw_bindings: list[Any],
+    algorithm_claims: dict[str, dict[str, Any]],
+) -> list[Issue]:
+    issues: list[Issue] = []
+    for test_path, bindings in grouped_bindings(
+        raw_bindings, "executable_test_relative_path"
+    ).items():
+        expected_targets = {binding["claim_id"] for binding in bindings}
+        if not expected_targets.issubset(algorithm_claims):
+            issues.append(
+                Issue(
+                    "TRACE_TARGET_SET_MISMATCH",
+                    "INVALID",
+                    test_path,
+                    "test_reference_set_contains_non_algorithm_claim",
+                )
+            )
+        try:
+            snapshot = read_regular_file_at(root_fd, test_path, include_data=True)
+        except (FileNotFoundError, UnsafePathError, OSError):
+            continue  # Per-binding path validation already reports the exact failure.
+        assert snapshot.data is not None
+        declared_targets: set[str] | None = None
+        target_contract_reported = False
+        for binding in bindings:
+            parsed_targets, contract_errors = parse_python_test_contract(
+                snapshot.data,
+                test_path,
+                binding.get("implementation_relative_path"),
+                binding.get("implementation_symbol"),
+            )
+            if declared_targets is None and parsed_targets is not None:
+                declared_targets = parsed_targets
+            target_errors = [
+                error
+                for error in contract_errors
+                if error.startswith("TARGET_CLAIM_IDS")
+                or error.startswith("executable_test:")
+            ]
+            implementation_errors = [
+                error for error in contract_errors if error not in target_errors
+            ]
+            if target_errors and not target_contract_reported:
+                issues.append(
+                    Issue(
+                        "INVALID_TEST_TARGET_CONTRACT",
+                        "INVALID",
+                        test_path,
+                        ";".join(target_errors),
+                    )
+                )
+                target_contract_reported = True
+            if implementation_errors:
+                issues.append(
+                    Issue(
+                        "TRACE_TEST_IMPLEMENTATION_MISMATCH",
+                        "INVALID",
+                        binding["claim_id"],
+                        ";".join(implementation_errors),
+                    )
+                )
+        if declared_targets != expected_targets:
+            missing = expected_targets - (declared_targets or set())
+            if missing:
+                issues.append(
+                    Issue(
+                        "TRACE_TEST_CLAIM_ID_MISSING",
+                        "INVALID",
+                        test_path,
+                        f"missing:{','.join(sorted(missing))}",
+                    )
+                )
+            if not target_contract_reported:
+                issues.append(
+                    Issue(
+                        "INVALID_TEST_TARGET_CONTRACT",
+                        "INVALID",
+                        test_path,
+                        "declared_targets_must_equal_trace_reference_set",
+                    )
+                )
+    return issues
+
+
+def validate_output_reference_groups(
+    root_fd: int,
+    raw_bindings: list[Any],
+    algorithm_claims: dict[str, dict[str, Any]],
+) -> list[Issue]:
+    issues: list[Issue] = []
+    for output_path, bindings in grouped_bindings(
+        raw_bindings, "pass_output_relative_path"
+    ).items():
+        expected_targets = {binding["claim_id"] for binding in bindings}
+        try:
+            snapshot = read_regular_file_at(root_fd, output_path, include_data=True)
+        except (FileNotFoundError, UnsafePathError, OSError):
+            continue
+        assert snapshot.data is not None
+        try:
+            manifest = strict_object(snapshot.data, "pass_output")
+        except (StrictJSONError, TypeError):
+            continue
+        raw_targets = manifest.get("target_claim_ids")
+        valid_targets = (
+            string_list(raw_targets)
+            and all(canonical_identifier(target) for target in raw_targets)
+            and len(set(raw_targets)) == len(raw_targets)
+        )
+        declared_targets = set(raw_targets) if valid_targets else set()
+        if (
+            not valid_targets
+            or declared_targets != expected_targets
+            or not declared_targets.issubset(algorithm_claims)
+        ):
+            issues.append(
+                Issue(
+                    "TRACE_TARGET_SET_MISMATCH",
+                    "INVALID",
+                    output_path,
+                    "manifest_targets_must_equal_trace_reference_set_and_inventory",
+                )
+            )
+    return issues
 
 
 def validate_protocol_cross_binding(
@@ -571,6 +715,12 @@ def validate_loaded(
                 "algorithm_claim_requires_exactly_one_trace",
             )
         )
+    issues.extend(
+        validate_test_reference_groups(root_fd, raw_bindings, algorithm_claims)
+    )
+    issues.extend(
+        validate_output_reference_groups(root_fd, raw_bindings, algorithm_claims)
+    )
     issues.extend(
         validate_protocol_cross_binding(protocol, unique_bindings, algorithm_claims)
     )

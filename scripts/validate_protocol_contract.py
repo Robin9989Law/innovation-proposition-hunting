@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import ast
 from collections import Counter
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 from typing import Any
 
@@ -126,11 +127,125 @@ CHINESE_BUDGET_TERMS = (
 )
 
 
+def canonical_identifier(value: Any) -> bool:
+    return nonempty_string(value) and value.strip() == value
+
+
 def strict_object_from_snapshot(data: bytes, label: str) -> dict[str, Any]:
     payload = strict_json_load_bytes(data)
     if not isinstance(payload, dict):
         raise TypeError(f"{label}:top_level_not_object")
     return payload
+
+
+def _dotted_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        prefix = _dotted_name(node.value)
+        return f"{prefix}.{node.attr}" if prefix else None
+    return None
+
+
+def _implementation_module(raw_path: str) -> str | None:
+    if not canonical_relative_path(raw_path):
+        return None
+    path = PurePosixPath(raw_path)
+    if path.suffix != ".py":
+        return None
+    parts = list(path.with_suffix("").parts)
+    if parts and parts[-1] == "__init__":
+        parts.pop()
+    return ".".join(parts) if parts else None
+
+
+def parse_python_test_contract(
+    data: bytes,
+    test_path: str,
+    implementation_path: str,
+    implementation_symbol: str,
+) -> tuple[set[str] | None, list[str]]:
+    """Parse a non-executed Python test contract and prove its code binding."""
+
+    if PurePosixPath(test_path).suffix != ".py":
+        return None, ["executable_test:python_AST_contract_required"]
+    module = _implementation_module(implementation_path)
+    if module is None or not canonical_identifier(implementation_symbol):
+        return None, ["implementation_binding:invalid_module_or_symbol"]
+    try:
+        text = data.decode("utf-8")
+        tree = ast.parse(text, filename=test_path)
+    except (UnicodeError, SyntaxError) as error:
+        return None, [f"executable_test:unparseable:{type(error).__name__}"]
+
+    declarations: list[ast.AST] = []
+    for statement in tree.body:
+        if isinstance(statement, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "TARGET_CLAIM_IDS"
+            for target in statement.targets
+        ):
+            declarations.append(statement.value)
+        elif (
+            isinstance(statement, ast.AnnAssign)
+            and isinstance(statement.target, ast.Name)
+            and statement.target.id == "TARGET_CLAIM_IDS"
+            and statement.value is not None
+        ):
+            declarations.append(statement.value)
+    if len(declarations) != 1:
+        return None, [
+            f"TARGET_CLAIM_IDS:expected_one_top_level_literal;found:{len(declarations)}"
+        ]
+    try:
+        raw_targets = ast.literal_eval(declarations[0])
+    except (ValueError, TypeError, SyntaxError):
+        return None, ["TARGET_CLAIM_IDS:expected_literal_list_or_tuple"]
+    if not isinstance(raw_targets, (list, tuple)) or not raw_targets:
+        return None, ["TARGET_CLAIM_IDS:expected_nonempty_literal_list_or_tuple"]
+    if not all(canonical_identifier(target) for target in raw_targets):
+        return None, ["TARGET_CLAIM_IDS:expected_canonical_strings"]
+    if len(set(raw_targets)) != len(raw_targets):
+        return None, ["TARGET_CLAIM_IDS:duplicate_claim_id"]
+
+    from_import_names: set[str] = set()
+    module_aliases: set[str] = set()
+    direct_module_import = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module == module:
+            for alias in node.names:
+                if alias.name == implementation_symbol:
+                    from_import_names.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == module:
+                    if alias.asname:
+                        module_aliases.add(alias.asname)
+                    else:
+                        direct_module_import = True
+
+    referenced = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            if node.id in from_import_names:
+                referenced = True
+        elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
+            dotted = _dotted_name(node)
+            if dotted == f"{module}.{implementation_symbol}":
+                referenced = direct_module_import
+            if any(
+                dotted == f"{alias}.{implementation_symbol}"
+                for alias in module_aliases
+            ):
+                referenced = True
+    if not (from_import_names or module_aliases or direct_module_import):
+        return set(raw_targets), [
+            f"implementation_import_missing:{module}:{implementation_symbol}"
+        ]
+    if not referenced:
+        return set(raw_targets), [
+            f"implementation_reference_missing:{module}:{implementation_symbol}"
+        ]
+    return set(raw_targets), []
 
 
 def load_object(
@@ -437,17 +552,46 @@ def validate_chronology(
     if chronology.get("status") != "PASS":
         issues.append(chronology_issue(f"status:expected_PASS;found:{chronology.get('status')}"))
     exit_code = chronology.get("exit_code")
-    if isinstance(exit_code, bool) or exit_code != 0:
+    if type(exit_code) is not int:
+        issues.append(
+            Issue(
+                "INVALID_EXIT_CODE_TYPE",
+                "INVALID",
+                "chronology_test",
+                f"exit_code:expected_integer;found:{type(exit_code).__name__}",
+            )
+        )
+    elif exit_code != 0:
         issues.append(chronology_issue(f"exit_code:expected_0;found:{exit_code}"))
     target_ids = chronology.get("target_claim_ids")
-    if not string_list(target_ids):
-        issues.append(chronology_issue("target_claim_ids:expected_nonempty_string_list"))
+    if not string_list(target_ids) or not all(
+        canonical_identifier(target) for target in target_ids
+    ):
+        issues.append(
+            chronology_issue(
+                "target_claim_ids:expected_nonempty_canonical_string_list"
+            )
+        )
         target_ids = []
     elif len(set(target_ids)) != len(target_ids):
         issues.append(chronology_issue("target_claim_ids:duplicates"))
     missing_targets = sorted(set(algorithm_claims) - set(target_ids))
     if missing_targets:
         issues.append(chronology_issue(f"missing_algorithm_claims:{','.join(missing_targets)}"))
+    orphan_targets = sorted(set(target_ids) - set(algorithm_claims))
+    if orphan_targets:
+        issues.append(chronology_issue(f"orphan_algorithm_claims:{','.join(orphan_targets)}"))
+
+    trace_bindings: dict[str, list[dict[str, Any]]] = {}
+    if isinstance(trace, dict):
+        raw_traces = trace.get("traces")
+        if isinstance(raw_traces, list):
+            for binding in raw_traces:
+                if not isinstance(binding, dict) or not canonical_identifier(
+                    binding.get("claim_id")
+                ):
+                    continue
+                trace_bindings.setdefault(binding["claim_id"], []).append(binding)
 
     output_path = chronology.get("output_file")
     output_hash = chronology.get("output_sha256")
@@ -501,27 +645,97 @@ def validate_chronology(
             except (StrictJSONError, TypeError) as error:
                 issues.append(chronology_issue(f"output_manifest_invalid:{error}"))
             else:
-                if manifest.get("status") != "PASS" or manifest.get("exit_code") != 0:
+                manifest_exit = manifest.get("exit_code")
+                if type(manifest_exit) is not int:
+                    issues.append(
+                        Issue(
+                            "INVALID_EXIT_CODE_TYPE",
+                            "INVALID",
+                            "chronology_test_output",
+                            "exit_code:expected_integer;"
+                            f"found:{type(manifest_exit).__name__}",
+                        )
+                    )
+                if manifest.get("status") != "PASS" or (
+                    type(manifest_exit) is int and manifest_exit != 0
+                ):
                     issues.append(chronology_issue("output_manifest_not_PASS_exit_0"))
                 manifest_targets = manifest.get("target_claim_ids")
-                if not string_list(manifest_targets) or not set(target_ids).issubset(
-                    set(manifest_targets) if isinstance(manifest_targets, list) else set()
-                ):
+                valid_manifest_targets = (
+                    string_list(manifest_targets)
+                    and all(canonical_identifier(target) for target in manifest_targets)
+                    and len(set(manifest_targets)) == len(manifest_targets)
+                )
+                if not valid_manifest_targets or set(manifest_targets) != set(target_ids):
                     issues.append(chronology_issue("output_manifest_target_claim_mismatch"))
+                elif not set(manifest_targets).issubset(algorithm_claims):
+                    issues.append(chronology_issue("output_manifest_orphan_target_claim"))
                 if (
                     manifest.get("implementation_relative_path") != implementation_path
                     or manifest.get("implementation_sha256") != implementation_hash
                 ):
                     issues.append(chronology_issue("output_manifest_implementation_mismatch"))
 
-    trace_bindings: dict[str, list[dict[str, Any]]] = {}
-    if isinstance(trace, dict):
-        raw_traces = trace.get("traces")
-        if isinstance(raw_traces, list):
-            for binding in raw_traces:
-                if not isinstance(binding, dict) or not nonempty_string(binding.get("claim_id")):
-                    continue
-                trace_bindings.setdefault(binding["claim_id"], []).append(binding)
+                test_path = manifest.get("executable_test_relative_path")
+                test_hash = manifest.get("executable_test_sha256")
+                if not canonical_relative_path(test_path):
+                    issues.append(chronology_issue("executable_test_path:unsafe_or_noncanonical"))
+                elif not isinstance(test_hash, str) or SHA256_PATTERN.fullmatch(test_hash) is None:
+                    issues.append(chronology_issue("executable_test_sha256:invalid"))
+                else:
+                    try:
+                        test_snapshot = read_regular_file_at(
+                            root_fd, test_path, include_data=True
+                        )
+                    except (FileNotFoundError, UnsafePathError, OSError) as error:
+                        issues.append(
+                            chronology_issue(
+                                "executable_test_unavailable:"
+                                f"{type(error).__name__}:{error}"
+                            )
+                        )
+                    else:
+                        if test_snapshot.sha256 != test_hash:
+                            issues.append(
+                                chronology_issue(
+                                    "executable_test_hash_mismatch:"
+                                    f"declared:{test_hash};current:{test_snapshot.sha256}"
+                                )
+                            )
+                        assert test_snapshot.data is not None
+                        symbols = {
+                            binding.get("implementation_symbol")
+                            for claim_id in target_ids
+                            for binding in trace_bindings.get(claim_id, [])
+                            if canonical_identifier(binding.get("implementation_symbol"))
+                        }
+                        if len(symbols) != 1:
+                            issues.append(
+                                chronology_issue(
+                                    "trace_implementation_symbol_not_unique"
+                                )
+                            )
+                        else:
+                            test_targets, contract_errors = parse_python_test_contract(
+                                test_snapshot.data,
+                                test_path,
+                                implementation_path,
+                                next(iter(symbols)),
+                            )
+                            if contract_errors:
+                                issues.append(
+                                    chronology_issue(
+                                        "executable_test_implementation_mismatch:"
+                                        + ";".join(contract_errors)
+                                    )
+                                )
+                            if test_targets != set(target_ids):
+                                issues.append(
+                                    chronology_issue(
+                                        "executable_test_target_claim_mismatch"
+                                    )
+                                )
+
     for claim_id in target_ids:
         bindings = trace_bindings.get(claim_id, [])
         if len(bindings) != 1:
@@ -715,6 +929,7 @@ def main() -> int:
     parser.add_argument("--protocol", type=Path)
     parser.add_argument("--baseline-budget", type=Path)
     parser.add_argument("--claim-code-trace", type=Path)
+    parser.add_argument("--baseline-only", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -766,28 +981,48 @@ def main() -> int:
                 inventory, inventory_issues = load_object(
                     root_fd, paths["claim_inventory"], "claim_inventory"
                 )
-                protocol, protocol_issues = load_object(
-                    root_fd, paths["protocol_contract"], "protocol_contract"
-                )
                 baseline, baseline_issues = load_object(
                     root_fd,
                     paths["baseline_budget"],
                     "baseline_budget",
-                    required=False,
+                    required=args.baseline_only,
                 )
-                trace, trace_issues = load_object(
-                    root_fd,
-                    paths["claim_code_trace"],
-                    "claim_code_trace",
-                    required=False,
-                )
-                issues.extend(inventory_issues + protocol_issues + baseline_issues + trace_issues)
-                if inventory is not None and protocol is not None:
-                    issues.extend(
-                        validate_loaded(
-                            root_fd, state, inventory, protocol, baseline, trace
+                issues.extend(inventory_issues + baseline_issues)
+                if args.baseline_only:
+                    if inventory is not None and baseline is not None:
+                        algorithm_claims, claim_issues = collect_algorithm_claims(
+                            inventory, state.get("validation_epoch")
                         )
+                        issues.extend(claim_issues)
+                        trigger_claims = {
+                            claim_id
+                            for claim_id, claim in algorithm_claims.items()
+                            if claim_triggers_budget(claim)
+                        }
+                        issues.extend(
+                            validate_baselines(
+                                baseline,
+                                trigger_claims,
+                                state.get("validation_epoch"),
+                            )
+                        )
+                else:
+                    protocol, protocol_issues = load_object(
+                        root_fd, paths["protocol_contract"], "protocol_contract"
                     )
+                    trace, trace_issues = load_object(
+                        root_fd,
+                        paths["claim_code_trace"],
+                        "claim_code_trace",
+                        required=False,
+                    )
+                    issues.extend(protocol_issues + trace_issues)
+                    if inventory is not None and protocol is not None:
+                        issues.extend(
+                            validate_loaded(
+                                root_fd, state, inventory, protocol, baseline, trace
+                            )
+                        )
     except Exception as error:
         issues = [
             Issue(

@@ -303,7 +303,10 @@ def main() -> int:
         algorithm_profile and dispatch_state in ALGORITHM_CONTRACT_REQUIRED_STATES
     )
     run_algorithm_contracts = algorithm_profile and (
-        algorithm_required or protocol_contract.exists() or claim_code_trace.exists()
+        algorithm_required
+        or protocol_contract.exists()
+        or claim_code_trace.exists()
+        or baseline_budget.exists()
     )
     if run_algorithm_contracts:
         if not protocol_contract.is_file():
@@ -317,6 +320,26 @@ def main() -> int:
                         str(protocol_contract),
                     )
                 )
+            elif baseline_budget.exists():
+                baseline_exit = run(
+                    "baseline_budget",
+                    [
+                        sys.executable,
+                        str(script_dir / "validate_protocol_contract.py"),
+                        "--root",
+                        str(root),
+                        "--state",
+                        str(state_path),
+                        "--inventory",
+                        str(inventory),
+                        "--baseline-budget",
+                        str(baseline_budget),
+                        "--baseline-only",
+                    ],
+                )
+                baseline_issue = issue_for_exit("baseline_budget", baseline_exit)
+                if baseline_issue:
+                    suite_issues.append(baseline_issue)
         else:
             protocol_exit = run(
                 "protocol_contract",

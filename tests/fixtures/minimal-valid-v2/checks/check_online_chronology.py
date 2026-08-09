@@ -6,6 +6,9 @@ TARGET_CLAIM_IDS: C-ALGORITHM-1
 from implementation.online_algorithm import evaluate_online
 
 
+TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)
+
+
 class RecordingModel:
     def __init__(self):
         self.events = []
