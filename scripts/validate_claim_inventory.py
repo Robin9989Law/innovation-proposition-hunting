@@ -477,6 +477,21 @@ def markdown_strip_blockquotes(line: str) -> tuple[str, int]:
             content = content[1:]
 
 
+def markdown_consume_blockquote_depth(line: str, depth: int) -> str | None:
+    content = line
+    for _ in range(depth):
+        indent_characters, indent_columns = markdown_indentation(content)
+        if (
+            indent_columns > 3
+            or content[indent_characters : indent_characters + 1] != ">"
+        ):
+            return None
+        content = content[indent_characters + 1 :]
+        if content.startswith((" ", "\t")):
+            content = content[1:]
+    return content
+
+
 def markdown_list_item(
     content: str, base_content_indent: int
 ) -> tuple[str, int] | None:
@@ -488,6 +503,9 @@ def markdown_list_item(
         return None
     spacing_start = indent_characters + marker_match.end()
     spacing_characters, spacing_columns = markdown_indentation(content[spacing_start:])
+    if spacing_start + spacing_characters == len(content):
+        content_indent = indent_columns + marker_match.end() + 1
+        return "", content_indent
     if spacing_characters == 0:
         return None
     content_start = spacing_start + spacing_characters
@@ -526,8 +544,11 @@ def markdown_scannable_lines(lines: list[str]) -> Iterable[tuple[int, str, str]]
                 container_content = line
                 inside_fence_scope = True
             else:
-                container_content, blockquote_depth = markdown_strip_blockquotes(line)
-                inside_fence_scope = blockquote_depth == fence_blockquote_depth
+                consumed_content = markdown_consume_blockquote_depth(
+                    line, fence_blockquote_depth
+                )
+                inside_fence_scope = consumed_content is not None
+                container_content = consumed_content or ""
                 if inside_fence_scope and fence_list_path:
                     continuation = markdown_strip_content_indent(
                         container_content, fence_list_path[-1]
@@ -623,30 +644,25 @@ def strip_tex_comment(line: str) -> str:
 
 
 def tex_scannable_lines(lines: list[str]) -> Iterable[tuple[int, str, str]]:
-    code_environment_stack: list[str] = []
+    code_environment: str | None = None
     for line_number, line in enumerate(lines, start=1):
         visible_line = strip_tex_comment(line)
         fragment_start = 0
         for token in TEX_ENVIRONMENT_TOKEN.finditer(visible_line):
             environment = token.group("environment").casefold()
-            if environment not in TEX_CODE_ENVIRONMENTS:
+            action = token.group("action").casefold()
+            if code_environment is not None:
+                if action == "end" and environment == code_environment:
+                    code_environment = None
+                    fragment_start = token.end()
                 continue
-            if token.group("action").casefold() == "begin":
-                if not code_environment_stack:
-                    fragment = visible_line[fragment_start : token.start()]
-                    if fragment:
-                        yield line_number, line, fragment
-                code_environment_stack.append(environment)
+            if environment not in TEX_CODE_ENVIRONMENTS or action != "begin":
                 continue
-            if environment not in code_environment_stack:
-                continue
-            while code_environment_stack:
-                opened_environment = code_environment_stack.pop()
-                if opened_environment == environment:
-                    break
-            if not code_environment_stack:
-                fragment_start = token.end()
-        if not code_environment_stack:
+            fragment = visible_line[fragment_start : token.start()]
+            if fragment:
+                yield line_number, line, fragment
+            code_environment = environment
+        if code_environment is None:
             fragment = visible_line[fragment_start:]
             if fragment:
                 yield line_number, line, fragment

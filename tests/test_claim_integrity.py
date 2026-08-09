@@ -437,6 +437,90 @@ class ClaimInventoryTests(unittest.TestCase):
                 )
                 self.assertIn("claim_inventory_status=READY", completed.stdout)
 
+    def test_markdown_empty_list_markers_and_extra_quotes_bound_fences(self) -> None:
+        marker_cases = (
+            ("dash", "-", 2),
+            ("asterisk", "*", 2),
+            ("plus", "+", 2),
+            ("ordered_dot", "1.", 3),
+            ("ordered_parenthesis", "1)", 3),
+            ("dash_trailing_spaces", "-   ", 2),
+            ("ordered_trailing_spaces", "1.   ", 3),
+        )
+        cases = [
+            (
+                f"empty_{label}",
+                (
+                    marker,
+                    " " * content_indent + "```",
+                    " " * content_indent + "The exact hidden result.",
+                    "# Theorem 1",
+                ),
+                (("# Theorem 1", "theorem"),),
+            )
+            for label, marker, content_indent in marker_cases
+        ]
+        cases.extend(
+            (
+                (
+                    "nested_empty_list",
+                    (
+                        "- outer",
+                        "  -",
+                        "    ```",
+                        "    The exact hidden result.",
+                        "  The universal outer result.",
+                        "# Lemma 1",
+                    ),
+                    (
+                        ("  The universal outer result.", "universal"),
+                        ("# Lemma 1", "lemma"),
+                    ),
+                ),
+                (
+                    "extra_blockquotes_are_fence_content",
+                    (
+                        "> ```",
+                        "> > The exact hidden result.",
+                        "> > > The universal hidden result.",
+                        "> ```",
+                        "# Corollary 1",
+                    ),
+                    (("# Corollary 1", "corollary"),),
+                ),
+                (
+                    "extra_blockquotes_inside_empty_list_fence",
+                    (
+                        "> -",
+                        ">   ```",
+                        ">   > The exact hidden result.",
+                        ">   > > The universal hidden result.",
+                        ">   ```",
+                        "# Theorem 2",
+                    ),
+                    (("# Theorem 2", "theorem"),),
+                ),
+            )
+        )
+        for label, lines, expected_claims in cases:
+            with self.subTest(label=label):
+                _, project = self.make_project(validity_level="V2")
+                (project / "manuscript.md").write_text(
+                    "\n".join(lines) + "\n", encoding="utf-8"
+                )
+                expected = [
+                    expected_occurrence_id("manuscript.md", line, term, 1)
+                    for line, term in expected_claims
+                ]
+                set_inventory(project, claims=[claim(expected)])
+
+                completed = run_script("validate_claim_inventory.py", project)
+
+                self.assertEqual(
+                    0, completed.returncode, completed.stdout + completed.stderr
+                )
+                self.assertIn("claim_inventory_status=READY", completed.stdout)
+
     def test_tex_comments_and_code_environments_are_ignored(self) -> None:
         _, project = self.make_project(validity_level="V2")
         (project / "appendix.tex").write_text(
@@ -522,6 +606,51 @@ class ClaimInventoryTests(unittest.TestCase):
 
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
         self.assertIn("claim_inventory_status=READY", completed.stdout)
+
+    def test_tex_code_environments_are_opaque_and_non_nesting(self) -> None:
+        environments = (
+            ("verbatim", ""),
+            ("verbatim*", ""),
+            ("lstlisting", ""),
+            ("lstlisting*", ""),
+            ("minted", "{python}"),
+            ("minted*", "{python}"),
+        )
+        for environment, arguments in environments:
+            with self.subTest(environment=environment):
+                _, project = self.make_project(validity_level="V2")
+                opening = rf"\begin{{{environment}}}{arguments}"
+                literal_begin = (
+                    rf"\begin{{{environment}}}{arguments} "
+                    "The bounded hidden result."
+                )
+                closing = (
+                    rf"\end{{{environment}}} The exact visible suffix. "
+                    r"\begin{verbatim} The universal hidden result. "
+                    r"\end{verbatim} The necessary visible suffix."
+                )
+                (project / "appendix.tex").write_text(
+                    "\n".join((opening, literal_begin, closing)) + "\n",
+                    encoding="utf-8",
+                )
+                expected = [
+                    expected_occurrence_id("appendix.tex", closing, "exact", 1),
+                    expected_occurrence_id(
+                        "appendix.tex", closing, "necessary", 1
+                    ),
+                ]
+                set_inventory(
+                    project,
+                    claims=[claim(expected)],
+                    sources=["appendix.tex"],
+                )
+
+                completed = run_script("validate_claim_inventory.py", project)
+
+                self.assertEqual(
+                    0, completed.returncode, completed.stdout + completed.stderr
+                )
+                self.assertIn("claim_inventory_status=READY", completed.stdout)
 
     def test_normal_prose_without_risk_terms_is_ready(self) -> None:
         _, project = self.make_project(validity_level="V2")
