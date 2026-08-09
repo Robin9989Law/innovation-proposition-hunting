@@ -53,19 +53,26 @@ CHINESE_RISK_TERMS = (
     "在线",
     "插值",
     "首次",
-    "第一",
     "任意",
 )
 CHINESE_RISK_PATTERN = re.compile(
     "|".join(re.escape(term) for term in CHINESE_RISK_TERMS)
 )
+CHINESE_NON_RISK_SUFFIXES = {
+    "保证": ("金",),
+    "充分": ("利用",),
+    "在线": ("性", "下"),
+    "必要": ("时",),
+    "精确": ("率",),
+}
 
 MARKDOWN_THEOREM_HEADING = re.compile(
-    r"^\s*#{1,6}\s*(?:\*\*|__)?(?P<term>theorem|lemma|corollary)\b",
+    r"^ {0,3}#{1,6}[ \t]+(?:\*\*|__)?"
+    r"(?P<term>theorem|lemma|corollary)\b",
     re.IGNORECASE,
 )
 MARKDOWN_CHINESE_THEOREM_HEADING = re.compile(
-    r"^\s*#{1,6}\s*(?:\*\*|__)?(?P<term>定理|引理|推论)"
+    r"^ {0,3}#{1,6}[ \t]+(?:\*\*|__)?(?P<term>定理|引理|推论)"
 )
 PLAIN_THEOREM_TITLE = re.compile(
     r"^\s*(?:\*\*|__)?(?P<term>theorem|lemma|corollary)\b"
@@ -79,6 +86,18 @@ PLAIN_CHINESE_THEOREM_TITLE = re.compile(
 TEX_THEOREM_ENVIRONMENT = re.compile(
     r"\\begin\{(?P<term>theorem|lemma|corollary)\*?\}", re.IGNORECASE
 )
+TEX_ENVIRONMENT_BEGIN = re.compile(r"\\begin\{(?P<environment>[^{}]+)\}")
+TEX_CODE_ENVIRONMENTS = {
+    "bverbatim",
+    "lverbatim",
+    "lstlisting",
+    "lstlisting*",
+    "minted",
+    "minted*",
+    "saveverbatim",
+    "verbatim",
+    "verbatim*",
+}
 
 REQUIRED_CLAIM_FIELDS = (
     "claim_id",
@@ -232,9 +251,12 @@ def matches_for_line(line: str) -> list[tuple[int, str]]:
     matches: list[tuple[int, str]] = []
     for canonical_term, pattern in ENGLISH_RISK_PATTERNS:
         matches.extend((match.start(), canonical_term) for match in pattern.finditer(line))
-    matches.extend(
-        (match.start(), match.group(0)) for match in CHINESE_RISK_PATTERN.finditer(line)
-    )
+    for match in CHINESE_RISK_PATTERN.finditer(line):
+        term = match.group(0)
+        suffixes = CHINESE_NON_RISK_SUFFIXES.get(term, ())
+        if any(line.startswith(suffix, match.end()) for suffix in suffixes):
+            continue
+        matches.append((match.start(), term))
     for pattern in (
         MARKDOWN_THEOREM_HEADING,
         MARKDOWN_CHINESE_THEOREM_HEADING,
@@ -247,6 +269,86 @@ def matches_for_line(line: str) -> list[tuple[int, str]]:
             for match in pattern.finditer(line)
         )
     return sorted(matches, key=lambda item: (item[0], item[1]))
+
+
+def markdown_indentation(line: str) -> tuple[int, int]:
+    character_count = 0
+    column_count = 0
+    for character in line:
+        if character == " ":
+            column_count += 1
+        elif character == "\t":
+            column_count += 4 - (column_count % 4)
+        else:
+            break
+        character_count += 1
+    return character_count, column_count
+
+
+def markdown_scannable_lines(lines: list[str]) -> Iterable[tuple[int, str, str]]:
+    fence_character: str | None = None
+    fence_length = 0
+    for line_number, line in enumerate(lines, start=1):
+        indent_characters, indent_columns = markdown_indentation(line)
+        candidate = line[indent_characters:] if indent_columns <= 3 else ""
+        if fence_character is not None:
+            closing = re.match(
+                rf"{re.escape(fence_character)}{{{fence_length},}}[ \t]*\Z",
+                candidate,
+            )
+            if closing:
+                fence_character = None
+                fence_length = 0
+            continue
+
+        opening = re.match(r"(?P<marker>`{3,}|~{3,})", candidate)
+        if opening:
+            marker = opening.group("marker")
+            fence_character = marker[0]
+            fence_length = len(marker)
+            continue
+        if indent_columns >= 4:
+            continue
+        yield line_number, line, line
+
+
+def strip_tex_comment(line: str) -> str:
+    for index, character in enumerate(line):
+        if character != "%":
+            continue
+        backslashes = 0
+        cursor = index - 1
+        while cursor >= 0 and line[cursor] == "\\":
+            backslashes += 1
+            cursor -= 1
+        if backslashes % 2 == 0:
+            return line[:index]
+    return line
+
+
+def tex_scannable_lines(lines: list[str]) -> Iterable[tuple[int, str, str]]:
+    code_environment: str | None = None
+    for line_number, line in enumerate(lines, start=1):
+        if code_environment is not None:
+            if re.search(
+                rf"\\end\{{{re.escape(code_environment)}\}}", line, re.IGNORECASE
+            ):
+                code_environment = None
+            continue
+
+        visible_line = strip_tex_comment(line)
+        environment_match = TEX_ENVIRONMENT_BEGIN.search(visible_line)
+        if environment_match:
+            environment = environment_match.group("environment").casefold()
+            if environment in TEX_CODE_ENVIRONMENTS:
+                if not re.search(
+                    rf"\\end\{{{re.escape(environment)}\}}",
+                    visible_line[environment_match.end() :],
+                    re.IGNORECASE,
+                ):
+                    code_environment = environment
+                continue
+        yield line_number, line, visible_line
 
 
 def scan_sources(
@@ -268,9 +370,14 @@ def scan_sources(
                 )
             )
             continue
-        for line_number, line in enumerate(lines, start=1):
+        scannable_lines = (
+            tex_scannable_lines(lines)
+            if source_path.suffix.casefold() == ".tex"
+            else markdown_scannable_lines(lines)
+        )
+        for line_number, line, visible_line in scannable_lines:
             normalized = " ".join(line.split()).casefold()
-            for _, term in matches_for_line(line):
+            for _, term in matches_for_line(visible_line):
                 key = (relative_path, term.casefold(), normalized)
                 ordinals[key] += 1
                 identifier = occurrence_id(

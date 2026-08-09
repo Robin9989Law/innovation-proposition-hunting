@@ -130,6 +130,33 @@ class ClaimInventoryTests(unittest.TestCase):
         self.assertIn("claim_inventory_issues=4", completed.stdout)
         self.assertEqual(4, completed.stdout.count("UNREGISTERED_HIGH_RISK_CLAIM"))
 
+    def test_embedded_chinese_tokens_in_normal_prose_are_not_scanned(self) -> None:
+        _, project = self.make_project(validity_level="V2")
+        (project / "manuscript.md").write_text(
+            "在线性模型中，我们充分利用精确率计算保证金。\n"
+            "必要时，第一步是整理数据。\n",
+            encoding="utf-8",
+        )
+        set_inventory(project, claims=[])
+
+        completed = run_script("validate_claim_inventory.py", project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("claim_inventory_status=READY", completed.stdout)
+
+    def test_semantic_chinese_online_learning_is_still_scanned(self) -> None:
+        _, project = self.make_project(validity_level="V2")
+        (project / "manuscript.md").write_text(
+            "该方法用于在线学习。\n", encoding="utf-8"
+        )
+        set_inventory(project, claims=[])
+
+        completed = run_script("validate_claim_inventory.py", project)
+
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual(1, completed.stdout.count("UNREGISTERED_HIGH_RISK_CLAIM"))
+        self.assertIn("term:在线", completed.stdout)
+
     def test_theorem_headings_and_tex_environments_are_scanned(self) -> None:
         _, project = self.make_project(validity_level="V2")
         (project / "manuscript.md").write_text(
@@ -145,6 +172,72 @@ class ClaimInventoryTests(unittest.TestCase):
 
         self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
         self.assertIn("claim_inventory_issues=6", completed.stdout)
+
+    def test_markdown_code_and_malformed_headings_are_ignored(self) -> None:
+        _, project = self.make_project(validity_level="V2")
+        (project / "manuscript.md").write_text(
+            "    # Theorem in indented code\n"
+            "\t# Lemma in tab-indented code\n"
+            "  \tCorollary 7 in mixed tab-indented code\n"
+            "#Theorem without required heading space\n"
+            "```markdown\n"
+            "# Corollary inside a backtick fence\n"
+            "The exact result inside code.\n"
+            "```\n"
+            "~~~tex\n"
+            "\\begin{theorem}\n"
+            "~~~\n",
+            encoding="utf-8",
+        )
+        set_inventory(project, claims=[])
+
+        completed = run_script("validate_claim_inventory.py", project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("claim_inventory_status=READY", completed.stdout)
+
+    def test_markdown_real_heading_after_fence_is_scanned(self) -> None:
+        _, project = self.make_project(validity_level="V2")
+        (project / "manuscript.md").write_text(
+            "```\n# Theorem inside code\n```\n# Theorem outside code\n",
+            encoding="utf-8",
+        )
+        set_inventory(project, claims=[])
+
+        completed = run_script("validate_claim_inventory.py", project)
+
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual(1, completed.stdout.count("UNREGISTERED_HIGH_RISK_CLAIM"))
+
+    def test_tex_comments_and_code_environments_are_ignored(self) -> None:
+        _, project = self.make_project(validity_level="V2")
+        (project / "appendix.tex").write_text(
+            "% \\begin{theorem}\n"
+            "\\begin{verbatim}\n\\begin{theorem}\n\\end{verbatim}\n"
+            "\\begin{lstlisting}\n\\begin{lemma}\n\\end{lstlisting}\n"
+            "\\begin{minted}{tex}\n\\begin{corollary}\n\\end{minted}\n",
+            encoding="utf-8",
+        )
+        set_inventory(project, claims=[], sources=["appendix.tex"])
+
+        completed = run_script("validate_claim_inventory.py", project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("claim_inventory_status=READY", completed.stdout)
+
+    def test_tex_real_theorem_after_code_environment_is_scanned(self) -> None:
+        _, project = self.make_project(validity_level="V2")
+        (project / "appendix.tex").write_text(
+            "\\begin{verbatim}\n\\begin{theorem}\n\\end{verbatim}\n"
+            "\\begin{theorem} % real environment\n",
+            encoding="utf-8",
+        )
+        set_inventory(project, claims=[], sources=["appendix.tex"])
+
+        completed = run_script("validate_claim_inventory.py", project)
+
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual(1, completed.stdout.count("UNREGISTERED_HIGH_RISK_CLAIM"))
 
     def test_normal_prose_without_risk_terms_is_ready(self) -> None:
         _, project = self.make_project(validity_level="V2")
