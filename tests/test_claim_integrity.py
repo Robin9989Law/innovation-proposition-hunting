@@ -157,6 +157,74 @@ class ClaimInventoryTests(unittest.TestCase):
         self.assertEqual(1, completed.stdout.count("UNREGISTERED_HIGH_RISK_CLAIM"))
         self.assertIn("term:在线", completed.stdout)
 
+    def test_chinese_online_lower_bound_uses_canonical_occurrence_id(self) -> None:
+        _, project = self.make_project(validity_level="V2")
+        line = "该算法达到在线下界。"
+        (project / "manuscript.md").write_text(line + "\n", encoding="utf-8")
+        set_inventory(project, claims=[])
+        expected = expected_occurrence_id("manuscript.md", line, "在线", 1)
+
+        completed = run_script("validate_claim_inventory.py", project)
+
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual(1, completed.stdout.count("UNREGISTERED_HIGH_RISK_CLAIM"))
+        self.assertIn(expected, completed.stdout)
+        self.assertIn("term:在线", completed.stdout)
+
+    def test_chinese_offline_and_linear_contexts_are_not_scanned(self) -> None:
+        _, project = self.make_project(validity_level="V2")
+        (project / "manuscript.md").write_text(
+            "我们在线下实验中比较方法。\n"
+            "在线下场景中采集数据。\n"
+            "在线性模型中报告描述性统计。\n",
+            encoding="utf-8",
+        )
+        set_inventory(project, claims=[])
+
+        completed = run_script("validate_claim_inventory.py", project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+
+    def test_genuine_chinese_first_claims_use_canonical_occurrence_ids(self) -> None:
+        _, project = self.make_project(validity_level="V2")
+        lines = (
+            "我们提出第一种无需标签的方法。",
+            "这是第一个满足该界的算法。",
+            "我们开发了第一套公开评测协议。",
+        )
+        (project / "manuscript.md").write_text(
+            "\n".join(lines) + "\n", encoding="utf-8"
+        )
+        set_inventory(project, claims=[])
+        expected_ids = [
+            expected_occurrence_id("manuscript.md", line, "第一", 1)
+            for line in lines
+        ]
+
+        completed = run_script("validate_claim_inventory.py", project)
+
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual(3, completed.stdout.count("UNREGISTERED_HIGH_RISK_CLAIM"))
+        for identifier in expected_ids:
+            self.assertIn(identifier, completed.stdout)
+        self.assertEqual(3, completed.stdout.count("term:第一"))
+
+    def test_chinese_procedure_and_plain_numbering_are_not_first_claims(self) -> None:
+        _, project = self.make_project(validity_level="V2")
+        (project / "manuscript.md").write_text(
+            "第一步是整理数据。\n"
+            "第一项实验检查缓存。\n"
+            "第一篇文章介绍背景。\n"
+            "第一套参数用于调试。\n"
+            "第一款规定适用于本节。\n",
+            encoding="utf-8",
+        )
+        set_inventory(project, claims=[])
+
+        completed = run_script("validate_claim_inventory.py", project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+
     def test_theorem_headings_and_tex_environments_are_scanned(self) -> None:
         _, project = self.make_project(validity_level="V2")
         (project / "manuscript.md").write_text(

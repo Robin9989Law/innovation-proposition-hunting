@@ -53,6 +53,7 @@ CHINESE_RISK_TERMS = (
     "在线",
     "插值",
     "首次",
+    "第一",
     "任意",
 )
 CHINESE_RISK_PATTERN = re.compile(
@@ -61,10 +62,46 @@ CHINESE_RISK_PATTERN = re.compile(
 CHINESE_NON_RISK_SUFFIXES = {
     "保证": ("金",),
     "充分": ("利用",),
-    "在线": ("性", "下"),
+    "在线": ("性",),
     "必要": ("时",),
     "精确": ("率",),
 }
+FIRST_CLAIM_CLASSIFIERS = ("种", "个", "项", "篇", "套", "款")
+FIRST_CLAIM_CUES = (
+    "提出",
+    "开发",
+    "构建",
+    "设计",
+    "实现",
+    "发布",
+    "发现",
+    "证明",
+    "给出",
+    "首创",
+    "开创",
+)
+FIRST_CLAIM_OBJECTS = (
+    "方法",
+    "算法",
+    "模型",
+    "定理",
+    "引理",
+    "推论",
+    "结论",
+    "结果",
+    "协议",
+    "框架",
+    "系统",
+    "工具",
+    "数据集",
+    "基准",
+    "评测",
+    "证明",
+    "理论",
+    "机制",
+    "贡献",
+    "方案",
+)
 
 MARKDOWN_THEOREM_HEADING = re.compile(
     r"^ {0,3}#{1,6}[ \t]+(?:\*\*|__)?"
@@ -253,6 +290,27 @@ def matches_for_line(line: str) -> list[tuple[int, str]]:
         matches.extend((match.start(), canonical_term) for match in pattern.finditer(line))
     for match in CHINESE_RISK_PATTERN.finditer(line):
         term = match.group(0)
+        following = line[match.end() :]
+        if term == "在线" and following.startswith("下"):
+            if not following.startswith("下界"):
+                continue
+        if term == "第一":
+            classifier = next(
+                (
+                    candidate
+                    for candidate in FIRST_CLAIM_CLASSIFIERS
+                    if following.startswith(candidate)
+                ),
+                None,
+            )
+            if classifier is None:
+                continue
+            remainder = following[len(classifier) :]
+            if not any(cue in line for cue in FIRST_CLAIM_CUES) and not any(
+                research_object in remainder
+                for research_object in FIRST_CLAIM_OBJECTS
+            ):
+                continue
         suffixes = CHINESE_NON_RISK_SUFFIXES.get(term, ())
         if any(line.startswith(suffix, match.end()) for suffix in suffixes):
             continue
