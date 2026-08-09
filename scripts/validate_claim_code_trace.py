@@ -29,7 +29,7 @@ from validate_protocol_contract import (
     ALGORITHM_PROFILES,
     collect_algorithm_claims,
     parse_python_test_contract,
-    python_has_top_level_symbol,
+    python_top_level_symbol_status,
 )
 
 
@@ -282,6 +282,15 @@ def validate_pass_manifest(
             Issue("INVALID_PASS_OUTPUT", "INVALID", item_id, str(error))
         ]
     issues: list[Issue] = []
+    if manifest.get("schema_version") != "2.0":
+        issues.append(
+            Issue(
+                "INVALID_EVIDENCE_SCHEMA",
+                "INVALID",
+                item_id,
+                f"schema_version:expected_string_2.0;found:{manifest.get('schema_version')}",
+            )
+        )
     exit_code = manifest.get("exit_code")
     if type(exit_code) is not int:
         issues.append(
@@ -394,19 +403,28 @@ def validate_binding(
     )
     issues.extend(implementation_issues)
     implementation_symbol = binding.get("implementation_symbol")
-    if (
-        implementation_data is not None
-        and canonical_identifier(implementation_symbol)
-        and not python_has_top_level_symbol(implementation_data, implementation_symbol)
-    ):
-        issues.append(
-            Issue(
-                "IMPLEMENTATION_SYMBOL_NOT_FOUND",
-                "INVALID",
-                item_id,
-                implementation_symbol,
-            )
+    if implementation_data is not None and canonical_identifier(implementation_symbol):
+        symbol_status = python_top_level_symbol_status(
+            implementation_data, implementation_symbol
         )
+        if symbol_status == "MISSING":
+            issues.append(
+                Issue(
+                    "IMPLEMENTATION_SYMBOL_NOT_FOUND",
+                    "INVALID",
+                    item_id,
+                    implementation_symbol,
+                )
+            )
+        elif symbol_status != "VALID":
+            issues.append(
+                Issue(
+                    "INVALID_IMPLEMENTATION_SYMBOL",
+                    "INVALID",
+                    item_id,
+                    "final_module_binding_is_not_a_function_or_class_definition",
+                )
+            )
 
     _, test_issues = read_bound_file(
         root_fd,

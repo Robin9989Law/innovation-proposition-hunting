@@ -138,6 +138,16 @@ CANONICAL_BUDGET_RISK_TERMS = {
 CHINESE_FAIR_COMPARISON_PATTERN = re.compile(
     r"(?:作|做|进行|开展|报告)?\s*公平(?:的|地|性)?\s*(?:比较|对比|基线)"
 )
+CONTEXTUAL_STRONGER_PATTERN = re.compile(
+    r"(?:"
+    r"(?<![A-Za-z0-9_])strong(?:er|est)(?![A-Za-z0-9_])"
+    r"[^\n]{0,40}(?<![A-Za-z0-9_])(?:baseline|comparison)(?![A-Za-z0-9_])"
+    r"|"
+    r"(?<![A-Za-z0-9_])(?:baseline|comparison)(?![A-Za-z0-9_])"
+    r"[^\n]{0,40}(?<![A-Za-z0-9_])strong(?:er|est)(?![A-Za-z0-9_])"
+    r")",
+    re.IGNORECASE,
+)
 
 
 def canonical_identifier(value: Any) -> bool:
@@ -172,20 +182,158 @@ def _implementation_module(raw_path: str) -> str | None:
     return ".".join(parts) if parts else None
 
 
-def python_has_top_level_symbol(data: bytes, symbol: str) -> bool:
-    """Return whether Python source defines the exact public symbol at module level."""
+def _literal_truth(node: ast.AST) -> bool | None:
+    """Evaluate only Python literal syntax and return its truth value."""
+
+    try:
+        value = ast.literal_eval(node)
+    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+        return None
+    try:
+        return bool(value)
+    except (TypeError, ValueError):
+        return None
+
+
+class _ModuleBindingVisitor(ast.NodeVisitor):
+    """Find a module-scope binding without descending into nested scopes."""
+
+    def __init__(
+        self,
+        name: str,
+        *,
+        ignored_nodes: set[ast.AST] | None = None,
+        skip_static_false: bool = False,
+    ) -> None:
+        self.name = name
+        self.ignored_nodes = ignored_nodes or set()
+        self.skip_static_false = skip_static_false
+        self.found = False
+
+    def visit(self, node: ast.AST) -> Any:
+        if node in self.ignored_nodes:
+            return None
+        return super().visit(node)
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if node.id == self.name and isinstance(node.ctx, (ast.Store, ast.Del)):
+            self.found = True
+
+    def _visit_definition_header(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> None:
+        if node.name == self.name:
+            self.found = True
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        for default in (*node.args.defaults, *node.args.kw_defaults):
+            if default is not None:
+                self.visit(default)
+        if node.returns is not None:
+            self.visit(node.returns)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._visit_definition_header(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._visit_definition_header(node)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        if node.name == self.name:
+            self.found = True
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        for base in node.bases:
+            self.visit(base)
+        for keyword in node.keywords:
+            self.visit(keyword.value)
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        return  # Lambda parameters and walrus targets are local to the lambda.
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            if (alias.asname or alias.name.split(".")[0]) == self.name:
+                self.found = True
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        for alias in node.names:
+            if alias.name == "*" or (alias.asname or alias.name) == self.name:
+                self.found = True
+
+    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+        if node.name == self.name:
+            self.found = True
+        self.generic_visit(node)
+
+    def visit_MatchAs(self, node: ast.MatchAs) -> None:
+        if node.name == self.name:
+            self.found = True
+        self.generic_visit(node)
+
+    def visit_MatchStar(self, node: ast.MatchStar) -> None:
+        if node.name == self.name:
+            self.found = True
+
+    def visit_If(self, node: ast.If) -> None:
+        if not self.skip_static_false:
+            self.generic_visit(node)
+            return
+        truth = _literal_truth(node.test)
+        self.visit(node.test)
+        branch = node.orelse if truth is False else node.body if truth is True else None
+        for statement in branch if branch is not None else (*node.body, *node.orelse):
+            self.visit(statement)
+
+    def visit_While(self, node: ast.While) -> None:
+        if not self.skip_static_false or _literal_truth(node.test) is not False:
+            self.generic_visit(node)
+            return
+        self.visit(node.test)
+        for statement in node.orelse:
+            self.visit(statement)
+
+
+def _module_binds_name(
+    nodes: list[ast.stmt],
+    name: str,
+    *,
+    ignored_nodes: set[ast.AST] | None = None,
+    skip_static_false: bool = False,
+) -> bool:
+    visitor = _ModuleBindingVisitor(
+        name,
+        ignored_nodes=ignored_nodes,
+        skip_static_false=skip_static_false,
+    )
+    for node in nodes:
+        visitor.visit(node)
+    return visitor.found
+
+
+def python_top_level_symbol_status(data: bytes, symbol: str) -> str:
+    """Classify whether the final provable module binding is a definition."""
 
     if not canonical_identifier(symbol):
-        return False
+        return "MISSING"
     try:
         tree = ast.parse(data.decode("utf-8"))
     except (UnicodeError, SyntaxError):
-        return False
-    return any(
-        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        return "MISSING"
+    definitions = [
+        index
+        for index, node in enumerate(tree.body)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
         and node.name == symbol
-        for node in tree.body
-    )
+    ]
+    if not definitions:
+        return "MISSING"
+    final_definition = definitions[-1]
+    if _module_binds_name(
+        tree.body[final_definition + 1 :], symbol, skip_static_false=True
+    ):
+        return "INVALID_FINAL_BINDING"
+    return "VALID"
 
 
 def _bound_names_in_scope(node: ast.AST) -> set[str]:
@@ -251,14 +399,12 @@ def _bound_names_in_scope(node: ast.AST) -> set[str]:
     return names
 
 
-def _is_literal_false(node: ast.AST) -> bool:
-    return isinstance(node, ast.Constant) and node.value is False
-
-
-def _live_calls_with_scopes(
+def _reachable_nodes_with_scopes(
     statements: list[ast.stmt], scopes: tuple[set[str], ...]
-) -> list[tuple[ast.Call, tuple[set[str], ...]]]:
-    found: list[tuple[ast.Call, tuple[set[str], ...]]] = []
+) -> list[tuple[ast.AST, tuple[set[str], ...]]]:
+    """Conservatively enumerate reachable AST nodes with lexical scopes."""
+
+    found: list[tuple[ast.AST, tuple[set[str], ...]]] = []
 
     def argument_names(arguments: ast.arguments) -> set[str]:
         names = {
@@ -275,28 +421,96 @@ def _live_calls_with_scopes(
             names.add(arguments.kwarg.arg)
         return names
 
-    def visit(node: ast.AST, active_scopes: tuple[set[str], ...]) -> None:
-        if isinstance(node, ast.If) and _is_literal_false(node.test):
-            for child in node.orelse:
-                visit(child, active_scopes)
+    def visit_expression(
+        node: ast.AST | None, active_scopes: tuple[set[str], ...]
+    ) -> None:
+        if node is None:
             return
+        found.append((node, active_scopes))
+        if isinstance(node, ast.Lambda):
+            visit_expression(
+                node.body, active_scopes + (argument_names(node.args),)
+            )
+            return
+        for child in ast.iter_child_nodes(node):
+            if not isinstance(child, ast.stmt):
+                visit_expression(child, active_scopes)
+
+    def visit_block(
+        block: list[ast.stmt], active_scopes: tuple[set[str], ...]
+    ) -> bool:
+        for statement in block:
+            if visit_statement(statement, active_scopes):
+                return True
+        return False
+
+    def visit_statement(
+        node: ast.stmt, active_scopes: tuple[set[str], ...]
+    ) -> bool:
+        found.append((node, active_scopes))
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             local_names = _bound_names_in_scope(node)
-            for child in node.body:
-                visit(child, active_scopes + (local_names,))
-            return
-        if isinstance(node, ast.Lambda):
-            visit(node.body, active_scopes + (argument_names(node.args),))
-            return
+            visit_block(node.body, active_scopes + (local_names,))
+            return False
         if isinstance(node, ast.ClassDef):
-            return  # Class execution/name resolution is deliberately not trusted.
-        if isinstance(node, ast.Call):
-            found.append((node, active_scopes))
+            return False  # Class execution/name resolution is not trusted as proof.
+        if isinstance(node, ast.If):
+            visit_expression(node.test, active_scopes)
+            truth = _literal_truth(node.test)
+            if truth is False:
+                return visit_block(node.orelse, active_scopes)
+            if truth is True:
+                return visit_block(node.body, active_scopes)
+            body_stops = visit_block(node.body, active_scopes)
+            else_stops = visit_block(node.orelse, active_scopes)
+            return bool(node.orelse) and body_stops and else_stops
+        if isinstance(node, ast.While):
+            visit_expression(node.test, active_scopes)
+            if _literal_truth(node.test) is False:
+                return visit_block(node.orelse, active_scopes)
+            visit_block(node.body, active_scopes)
+            visit_block(node.orelse, active_scopes)
+            return False
+        if isinstance(node, (ast.For, ast.AsyncFor)):
+            visit_expression(node.target, active_scopes)
+            visit_expression(node.iter, active_scopes)
+            visit_block(node.body, active_scopes)
+            visit_block(node.orelse, active_scopes)
+            return False
+        if isinstance(node, (ast.With, ast.AsyncWith)):
+            for item in node.items:
+                visit_expression(item.context_expr, active_scopes)
+                visit_expression(item.optional_vars, active_scopes)
+            return visit_block(node.body, active_scopes)
+        if isinstance(node, (ast.Try, ast.TryStar)):
+            visit_block(node.body, active_scopes)
+            for handler in node.handlers:
+                if handler.type is not None:
+                    visit_expression(handler.type, active_scopes)
+                visit_block(handler.body, active_scopes)
+            visit_block(node.orelse, active_scopes)
+            return visit_block(node.finalbody, active_scopes)
+        if isinstance(node, ast.Match):
+            visit_expression(node.subject, active_scopes)
+            for case in node.cases:
+                visit_expression(case.guard, active_scopes)
+                visit_block(case.body, active_scopes)
+            return False
+        if isinstance(node, ast.Return):
+            visit_expression(node.value, active_scopes)
+            return True
+        if isinstance(node, ast.Raise):
+            visit_expression(node.exc, active_scopes)
+            visit_expression(node.cause, active_scopes)
+            return True
+        if isinstance(node, (ast.Break, ast.Continue)):
+            return True
         for child in ast.iter_child_nodes(node):
-            visit(child, active_scopes)
+            if isinstance(child, ast.expr):
+                visit_expression(child, active_scopes)
+        return False
 
-    for statement in statements:
-        visit(statement, scopes)
+    visit_block(statements, scopes)
     return found
 
 
@@ -346,20 +560,13 @@ def parse_python_test_contract(
     if len(set(raw_targets)) != len(raw_targets):
         return None, ["TARGET_CLAIM_IDS:duplicate_claim_id"]
 
+    if _module_binds_name(
+        tree.body,
+        "TARGET_CLAIM_IDS",
+        ignored_nodes={declaration.targets[0]},
+    ):
+        return None, ["TARGET_CLAIM_IDS:rebound_or_deleted"]
     for node in ast.walk(tree):
-        if (
-            node is declaration
-            or node is declaration.targets[0]
-            or node in value.elts
-            or node is value
-        ):
-            continue
-        if (
-            isinstance(node, ast.Name)
-            and node.id == "TARGET_CLAIM_IDS"
-            and isinstance(node.ctx, (ast.Store, ast.Del))
-        ):
-            return None, ["TARGET_CLAIM_IDS:rebound_or_deleted"]
         if (
             isinstance(node, ast.Subscript)
             and isinstance(node.value, ast.Name)
@@ -419,15 +626,47 @@ def parse_python_test_contract(
                     if local in binding_roots and alias.name != implementation_symbol:
                         other_module_binders.add(local)
             continue
-        other_module_binders.update(
-            _bound_names_in_scope(ast.Module(body=[statement], type_ignores=[]))
-        )
-    calls = _live_calls_with_scopes(tree.body, ())
+        for root in binding_roots:
+            if _module_binds_name(
+                [statement], root, skip_static_false=True
+            ):
+                other_module_binders.add(root)
+    reachable_nodes = _reachable_nodes_with_scopes(tree.body, ())
+    calls = [
+        (node, scopes)
+        for node, scopes in reachable_nodes
+        if isinstance(node, ast.Call)
+    ]
+    mutated_bindings: set[tuple[str, str]] = set()
+    for node, scopes in reachable_nodes:
+        for root, expected in bindings:
+            if root in other_module_binders or any(root in scope for scope in scopes):
+                continue
+            if (
+                isinstance(node, ast.Attribute)
+                and isinstance(node.ctx, (ast.Store, ast.Del))
+                and _dotted_name(node) == expected
+            ):
+                mutated_bindings.add((root, expected))
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id in {"setattr", "delattr"}
+                and len(node.args) >= 2
+                and _dotted_name(node.args[0]) == expected.rsplit(".", 1)[0]
+                and isinstance(node.args[1], ast.Constant)
+                and node.args[1].value == implementation_symbol
+            ):
+                mutated_bindings.add((root, expected))
     called = False
     for call, scopes in calls:
         dotted = _dotted_name(call.func)
         for root, expected in bindings:
-            if root in other_module_binders or any(root in scope for scope in scopes):
+            if (
+                root in other_module_binders
+                or any(root in scope for scope in scopes)
+                or (root, expected) in mutated_bindings
+            ):
                 continue
             if dotted == expected:
                 called = True
@@ -582,15 +821,19 @@ def claim_triggers_budget(claim: dict[str, Any]) -> bool:
         if (
             normalized_risks & CANONICAL_BUDGET_RISK_TERMS
             or any(pattern.search(risk_text) for pattern in ENGLISH_BUDGET_TERMS)
+            or CONTEXTUAL_STRONGER_PATTERN.search(risk_text) is not None
             or any(term in risk_text for term in CHINESE_BUDGET_TERMS)
             or CHINESE_FAIR_COMPARISON_PATTERN.search(risk_text) is not None
         ):
             return True
     statement = claim.get("statement")
     text = statement if isinstance(statement, str) else ""
-    return any(pattern.search(text) for pattern in ENGLISH_BUDGET_TERMS) or any(
-        term in text for term in CHINESE_BUDGET_TERMS
-    ) or CHINESE_FAIR_COMPARISON_PATTERN.search(text) is not None
+    return (
+        any(pattern.search(text) for pattern in ENGLISH_BUDGET_TERMS)
+        or CONTEXTUAL_STRONGER_PATTERN.search(text) is not None
+        or any(term in text for term in CHINESE_BUDGET_TERMS)
+        or CHINESE_FAIR_COMPARISON_PATTERN.search(text) is not None
+    )
 
 
 def validate_protocol_fields(protocol: dict[str, Any], state_epoch: Any) -> list[Issue]:
@@ -904,7 +1147,9 @@ def validate_chronology(
     implementation_snapshot = None
     if canonical_relative_path(implementation_path):
         try:
-            implementation_snapshot = read_regular_file_at(root_fd, implementation_path)
+            implementation_snapshot = read_regular_file_at(
+                root_fd, implementation_path, include_data=True
+            )
         except (FileNotFoundError, UnsafePathError, OSError) as error:
             issues.append(
                 chronology_issue(
@@ -922,6 +1167,20 @@ def validate_chronology(
                         f"current:{implementation_snapshot.sha256}"
                     )
                 )
+            assert implementation_snapshot.data is not None
+            if canonical_identifier(implementation_symbol):
+                symbol_status = python_top_level_symbol_status(
+                    implementation_snapshot.data, implementation_symbol
+                )
+                if symbol_status != "VALID":
+                    issues.append(
+                        Issue(
+                            "INVALID_IMPLEMENTATION_SYMBOL",
+                            "INVALID",
+                            "chronology_test",
+                            symbol_status,
+                        )
+                    )
 
     manifest: dict[str, Any] | None = None
     if canonical_relative_path(output_path):
@@ -945,6 +1204,16 @@ def validate_chronology(
             except (StrictJSONError, TypeError) as error:
                 issues.append(chronology_issue(f"output_manifest_invalid:{error}"))
             else:
+                if manifest.get("schema_version") != "2.0":
+                    issues.append(
+                        Issue(
+                            "INVALID_EVIDENCE_SCHEMA",
+                            "INVALID",
+                            "chronology_test_output",
+                            "schema_version:expected_string_2.0;"
+                            f"found:{manifest.get('schema_version')}",
+                        )
+                    )
                 if manifest.get("command") != chronology.get("command"):
                     issues.append(chronology_issue("output_manifest_command_mismatch"))
                 manifest_exit = manifest.get("exit_code")
