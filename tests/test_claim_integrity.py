@@ -323,6 +323,54 @@ class ClaimInventoryTests(unittest.TestCase):
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
         self.assertIn("claim_inventory_status=READY", completed.stdout)
 
+    def test_markdown_unclosed_fences_end_with_their_container_scope(self) -> None:
+        cases = (
+            (
+                "blockquote",
+                "> ```\n> The exact hidden result.\n# Theorem 1\n",
+                "# Theorem 1",
+                "theorem",
+            ),
+            (
+                "list",
+                "- ```\n  The exact hidden result.\n# Lemma 1\n",
+                "# Lemma 1",
+                "lemma",
+            ),
+            (
+                "root",
+                "```\nThe exact hidden result.\n# Corollary 1\n",
+                None,
+                None,
+            ),
+        )
+        for label, manuscript, visible_line, term in cases:
+            with self.subTest(label=label):
+                _, project = self.make_project(validity_level="V2")
+                (project / "manuscript.md").write_text(
+                    manuscript, encoding="utf-8"
+                )
+                expected = (
+                    [
+                        expected_occurrence_id(
+                            "manuscript.md", visible_line, term, 1
+                        )
+                    ]
+                    if visible_line is not None and term is not None
+                    else []
+                )
+                set_inventory(
+                    project,
+                    claims=[claim(expected)] if expected else [],
+                )
+
+                completed = run_script("validate_claim_inventory.py", project)
+
+                self.assertEqual(
+                    0, completed.returncode, completed.stdout + completed.stderr
+                )
+                self.assertIn("claim_inventory_status=READY", completed.stdout)
+
     def test_tex_comments_and_code_environments_are_ignored(self) -> None:
         _, project = self.make_project(validity_level="V2")
         (project / "appendix.tex").write_text(
@@ -668,6 +716,35 @@ class ClaimInventoryTests(unittest.TestCase):
         for descriptor in opened:
             with self.assertRaises(OSError):
                 os.fstat(descriptor)
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs unavailable")
+    def test_fifo_source_is_rejected_without_blocking(self) -> None:
+        _, project = self.make_project(validity_level="V2")
+        fifo = project / "stream.md"
+        os.mkfifo(fifo)
+        set_inventory(project, claims=[], sources=["stream.md"])
+
+        try:
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(REPOSITORY_ROOT / "scripts" / "validate_claim_inventory.py"),
+                    "--root",
+                    str(project),
+                    "--state",
+                    str(project / "workflow_state.json"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+        except subprocess.TimeoutExpired:
+            self.fail("claim validator blocked while opening a FIFO source")
+
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("MISSING_MANUSCRIPT_SOURCE", completed.stdout)
+        self.assertIn("not_a_regular_file", completed.stdout)
 
     def test_inventory_and_state_cli_paths_must_stay_within_root(self) -> None:
         _, project = self.make_project(validity_level="V2")

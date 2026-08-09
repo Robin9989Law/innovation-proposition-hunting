@@ -241,7 +241,12 @@ def secure_directory_flags() -> int:
 def secure_file_flags() -> int:
     if not hasattr(os, "O_NOFOLLOW"):
         raise RuntimeError("secure_source_open_flags_unavailable")
-    return os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+    return (
+        os.O_RDONLY
+        | os.O_NOFOLLOW
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
 
 
 def read_source_from_root_fd(
@@ -459,13 +464,15 @@ def markdown_indentation(line: str) -> tuple[int, int]:
     return character_count, column_count
 
 
-def markdown_strip_blockquotes(line: str) -> str:
+def markdown_strip_blockquotes(line: str) -> tuple[str, int]:
     content = line
+    depth = 0
     while True:
         indent_characters, indent_columns = markdown_indentation(content)
         if indent_columns > 3 or content[indent_characters : indent_characters + 1] != ">":
-            return content
+            return content, depth
         content = content[indent_characters + 1 :]
+        depth += 1
         if content.startswith((" ", "\t")):
             content = content[1:]
 
@@ -507,40 +514,95 @@ def markdown_strip_content_indent(content: str, content_indent: int) -> str | No
 def markdown_scannable_lines(lines: list[str]) -> Iterable[tuple[int, str, str]]:
     fence_character: str | None = None
     fence_length = 0
+    fence_blockquote_depth = 0
+    fence_list_content_indent: int | None = None
     list_content_indent: int | None = None
+    list_blockquote_depth: int | None = None
     for line_number, line in enumerate(lines, start=1):
-        container_content = markdown_strip_blockquotes(line)
-        list_item = markdown_list_item(container_content)
-        if list_item is not None:
-            container_content, list_content_indent = list_item
-        elif list_content_indent is not None:
+        if fence_character is not None:
+            if fence_blockquote_depth == 0 and fence_list_content_indent is None:
+                container_content = line
+                inside_fence_scope = True
+            else:
+                container_content, blockquote_depth = markdown_strip_blockquotes(line)
+                inside_fence_scope = blockquote_depth == fence_blockquote_depth
+                if inside_fence_scope and fence_list_content_indent is not None:
+                    continuation = markdown_strip_content_indent(
+                        container_content, fence_list_content_indent
+                    )
+                    if continuation is not None:
+                        container_content = continuation
+                    elif container_content.strip():
+                        inside_fence_scope = False
+                    else:
+                        container_content = ""
+            if inside_fence_scope:
+                indent_characters, indent_columns = markdown_indentation(
+                    container_content
+                )
+                candidate = (
+                    container_content[indent_characters:]
+                    if indent_columns <= 3
+                    else ""
+                )
+                closing = re.match(
+                    rf"{re.escape(fence_character)}{{{fence_length},}}[ \t]*\Z",
+                    candidate,
+                )
+                if closing:
+                    fence_character = None
+                    fence_length = 0
+                    fence_blockquote_depth = 0
+                    fence_list_content_indent = None
+                continue
+            fence_character = None
+            fence_length = 0
+            fence_blockquote_depth = 0
+            fence_list_content_indent = None
+            if list_content_indent is not None:
+                list_content_indent = None
+                list_blockquote_depth = None
+
+        container_content, blockquote_depth = markdown_strip_blockquotes(line)
+        if (
+            list_content_indent is not None
+            and list_blockquote_depth != blockquote_depth
+        ):
+            list_content_indent = None
+            list_blockquote_depth = None
+
+        current_list_content_indent: int | None = None
+        if list_content_indent is not None:
             continuation = markdown_strip_content_indent(
                 container_content, list_content_indent
             )
             if continuation is not None:
                 container_content = continuation
-            elif container_content.strip():
+                current_list_content_indent = list_content_indent
+            elif not container_content.strip():
+                container_content = ""
+                current_list_content_indent = list_content_indent
+            else:
                 list_content_indent = None
+                list_blockquote_depth = None
+        if current_list_content_indent is None:
+            list_item = markdown_list_item(container_content)
+            if list_item is not None:
+                container_content, list_content_indent = list_item
+                list_blockquote_depth = blockquote_depth
+                current_list_content_indent = list_content_indent
 
         indent_characters, indent_columns = markdown_indentation(container_content)
         candidate = (
             container_content[indent_characters:] if indent_columns <= 3 else ""
         )
-        if fence_character is not None:
-            closing = re.match(
-                rf"{re.escape(fence_character)}{{{fence_length},}}[ \t]*\Z",
-                candidate,
-            )
-            if closing:
-                fence_character = None
-                fence_length = 0
-            continue
-
         opening = re.match(r"(?P<marker>`{3,}|~{3,})", candidate)
         if opening:
             marker = opening.group("marker")
             fence_character = marker[0]
             fence_length = len(marker)
+            fence_blockquote_depth = blockquote_depth
+            fence_list_content_indent = current_list_content_indent
             continue
         if indent_columns >= 4:
             continue
