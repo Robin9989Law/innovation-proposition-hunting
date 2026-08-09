@@ -57,6 +57,21 @@ class ProtocolContractTests(unittest.TestCase):
             binding["pass_output_sha256"] = output_hash
         write_json(project / TRACE, trace)
 
+    def refresh_implementation_hashes(self, project: Path) -> None:
+        implementation_path = project / "implementation/online_algorithm.py"
+        implementation_hash = sha256(implementation_path)
+        protocol = load_json(project / PROTOCOL)
+        protocol["chronology_test"]["implementation_sha256"] = implementation_hash
+        write_json(project / PROTOCOL, protocol)
+        trace = load_json(project / TRACE)
+        trace["traces"][0]["implementation_sha256"] = implementation_hash
+        write_json(project / TRACE, trace)
+        output_path = project / "test_outputs/online_chronology_pass.json"
+        output = load_json(output_path)
+        output["implementation_sha256"] = implementation_hash
+        write_json(output_path, output)
+        self.refresh_test_and_output_hashes(project)
+
     def test_minimal_algorithm_protocol_is_ready(self) -> None:
         completed = self.run_protocol(self.make_project())
 
@@ -147,6 +162,52 @@ class ProtocolContractTests(unittest.TestCase):
 
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
 
+    def test_canonical_chinese_fair_risk_term_triggers_budget_contract(self) -> None:
+        project = self.make_project()
+        inventory = load_json(project / "claim_inventory.json")
+        inventory["claims"][1]["statement"] = "算法遵循冻结协议。"
+        inventory["claims"][1]["risk_terms"] = ["公平"]
+        write_json(project / "claim_inventory.json", inventory)
+        (project / BASELINES).unlink()
+
+        completed = self.run_protocol(project)
+
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("BASELINE_BUDGET_INCOMPLETE", completed.stdout)
+
+    def test_chinese_fair_comparison_grammar_triggers_budget_contract(self) -> None:
+        statements = (
+            "我们进行公平的比较。",
+            "我们公平地比较这些方法。",
+            "本文报告公平性比较。",
+            "我们作公平比较。",
+        )
+        for statement in statements:
+            with self.subTest(statement=statement):
+                project = self.make_project()
+                inventory = load_json(project / "claim_inventory.json")
+                inventory["claims"][1]["statement"] = statement
+                inventory["claims"][1]["risk_terms"] = ["protocol"]
+                write_json(project / "claim_inventory.json", inventory)
+                (project / BASELINES).unlink()
+
+                completed = self.run_protocol(project)
+
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("BASELINE_BUDGET_INCOMPLETE", completed.stdout)
+
+    def test_fairness_prose_without_comparison_does_not_trigger_budget(self) -> None:
+        project = self.make_project()
+        inventory = load_json(project / "claim_inventory.json")
+        inventory["claims"][1]["statement"] = "本文讨论公平性约束及其社会含义。"
+        inventory["claims"][1]["risk_terms"] = ["protocol"]
+        write_json(project / "claim_inventory.json", inventory)
+        (project / BASELINES).unlink()
+
+        completed = self.run_protocol(project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+
     def test_each_required_protocol_field_is_strictly_required(self) -> None:
         fields = (
             "prediction_unit",
@@ -219,6 +280,96 @@ class ProtocolContractTests(unittest.TestCase):
 
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
 
+    def test_protocol_unit_and_order_matrix_accepts_matching_modes(self) -> None:
+        variants = (
+            ("SAMPLE", "SAMPLE", "PREDICT_THEN_UPDATE", "AFTER_EACH_PREDICTION"),
+            ("BATCH", "BATCH", "BATCH_PREDICT_THEN_UPDATE", "AFTER_BATCH"),
+            ("BLOCK", "BLOCK", "BLOCK_PREDICT_THEN_UPDATE", "AFTER_BLOCK"),
+        )
+        for prediction, update, order, label in variants:
+            with self.subTest(prediction=prediction):
+                project = self.make_project()
+                protocol = load_json(project / PROTOCOL)
+                protocol.update(
+                    {
+                        "prediction_unit": prediction,
+                        "update_unit": update,
+                        "predict_update_order": order,
+                        "label_availability": label,
+                    }
+                )
+                protocol["update_semantics"] = {
+                    "uses_test_labels": True,
+                    "supervised_online_adaptation": True,
+                    "pre_update_scoring": True,
+                    "operational_label_availability": True,
+                    "evaluation_role": "NON_CONFIRMATORY",
+                }
+                write_json(project / PROTOCOL, protocol)
+
+                completed = self.run_protocol(project)
+
+                self.assertEqual(
+                    0, completed.returncode, completed.stdout + completed.stderr
+                )
+
+    def test_protocol_unit_and_order_matrix_rejects_crossed_modes(self) -> None:
+        variants = (
+            ("SAMPLE", "BLOCK", "PREDICT_THEN_UPDATE"),
+            ("SAMPLE", "SAMPLE", "BLOCK_PREDICT_THEN_UPDATE"),
+            ("BATCH", "SAMPLE", "BATCH_PREDICT_THEN_UPDATE"),
+            ("BLOCK", "BLOCK", "BATCH_PREDICT_THEN_UPDATE"),
+        )
+        for prediction, update, order in variants:
+            with self.subTest(prediction=prediction, update=update, order=order):
+                project = self.make_project()
+                protocol = load_json(project / PROTOCOL)
+                protocol["prediction_unit"] = prediction
+                protocol["update_unit"] = update
+                protocol["predict_update_order"] = order
+                write_json(project / PROTOCOL, protocol)
+
+                completed = self.run_protocol(project)
+
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("INVALID_PROTOCOL_MATRIX", completed.stdout)
+
+    def test_supervised_adaptation_requires_test_labels_and_available_labels(self) -> None:
+        variants = ((False, "AFTER_EACH_PREDICTION"), (True, "NEVER"))
+        for uses_labels, availability in variants:
+            with self.subTest(uses_labels=uses_labels, availability=availability):
+                project = self.make_project()
+                protocol = load_json(project / PROTOCOL)
+                protocol["label_availability"] = availability
+                protocol["update_semantics"] = {
+                    "uses_test_labels": uses_labels,
+                    "supervised_online_adaptation": True,
+                    "pre_update_scoring": True,
+                    "operational_label_availability": availability != "NEVER",
+                    "evaluation_role": "NON_CONFIRMATORY",
+                }
+                write_json(project / PROTOCOL, protocol)
+
+                completed = self.run_protocol(project)
+
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("INVALID_PROTOCOL_MATRIX", completed.stdout)
+
+    def test_operational_label_flag_matches_top_level_availability(self) -> None:
+        variants = (("AFTER_EACH_PREDICTION", False), ("NEVER", True))
+        for availability, operational in variants:
+            with self.subTest(availability=availability, operational=operational):
+                project = self.make_project()
+                protocol = load_json(project / PROTOCOL)
+                protocol["label_availability"] = availability
+                protocol["update_semantics"]["operational_label_availability"] = operational
+                write_json(project / PROTOCOL, protocol)
+
+                completed = self.run_protocol(project)
+
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("INVALID_PROTOCOL_MATRIX", completed.stdout)
+
     def test_test_label_update_rejects_label_availability_contradiction(self) -> None:
         project = self.make_project()
         protocol = load_json(project / PROTOCOL)
@@ -240,14 +391,100 @@ class ProtocolContractTests(unittest.TestCase):
     def test_chronology_command_is_recorded_but_never_executed(self) -> None:
         project = self.make_project()
         marker = project / "must-not-exist"
+        malicious_command = f"touch {marker}"
         protocol = load_json(project / PROTOCOL)
-        protocol["chronology_test"]["command"] = f"touch {marker}"
+        protocol["chronology_test"]["command"] = malicious_command
         write_json(project / PROTOCOL, protocol)
+        output_path = project / "test_outputs/online_chronology_pass.json"
+        output = load_json(output_path)
+        output["command"] = malicious_command
+        write_json(output_path, output)
+        output_hash = sha256(output_path)
+        protocol = load_json(project / PROTOCOL)
+        protocol["chronology_test"]["output_sha256"] = output_hash
+        write_json(project / PROTOCOL, protocol)
+        trace = load_json(project / TRACE)
+        trace["traces"][0]["pass_output_sha256"] = output_hash
+        write_json(project / TRACE, trace)
 
         completed = self.run_protocol(project)
 
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
         self.assertFalse(marker.exists())
+
+    def test_protocol_and_trace_must_share_exact_output_evidence(self) -> None:
+        project = self.make_project()
+        original = project / "test_outputs/online_chronology_pass.json"
+        alternate = project / "test_outputs/alternate_online_pass.json"
+        alternate_manifest = load_json(original)
+        alternate_manifest["evidence_variant"] = "different-current-artifact"
+        write_json(alternate, alternate_manifest)
+        trace = load_json(project / TRACE)
+        trace["traces"][0]["pass_output_relative_path"] = (
+            "test_outputs/alternate_online_pass.json"
+        )
+        trace["traces"][0]["pass_output_sha256"] = sha256(alternate)
+        write_json(project / TRACE, trace)
+
+        trace_result = self.run_trace(project)
+        protocol_result = self.run_protocol(project)
+
+        self.assertEqual(1, trace_result.returncode, trace_result.stdout)
+        self.assertIn("ONLINE_CHRONOLOGY_UNVERIFIED", trace_result.stdout)
+        self.assertEqual(1, protocol_result.returncode)
+        self.assertIn("ONLINE_CHRONOLOGY_UNVERIFIED", protocol_result.stdout)
+
+    def test_protocol_and_trace_must_share_exact_executable_test(self) -> None:
+        project = self.make_project()
+        original_test = project / "checks/check_online_chronology.py"
+        alternate_test = project / "checks/alternate_online_chronology.py"
+        alternate_test.write_text(
+            original_test.read_text(encoding="utf-8") + "\n# alternate artifact\n",
+            encoding="utf-8",
+        )
+        original_output = project / "test_outputs/online_chronology_pass.json"
+        alternate_output = project / "test_outputs/alternate_online_pass.json"
+        output = load_json(original_output)
+        output["executable_test_relative_path"] = "checks/alternate_online_chronology.py"
+        output["executable_test_sha256"] = sha256(alternate_test)
+        write_json(alternate_output, output)
+        trace = load_json(project / TRACE)
+        binding = trace["traces"][0]
+        binding["executable_test_relative_path"] = "checks/alternate_online_chronology.py"
+        binding["executable_test_sha256"] = sha256(alternate_test)
+        binding["pass_output_relative_path"] = "test_outputs/alternate_online_pass.json"
+        binding["pass_output_sha256"] = sha256(alternate_output)
+        write_json(project / TRACE, trace)
+
+        trace_result = self.run_trace(project)
+        protocol_result = self.run_protocol(project)
+
+        self.assertEqual(1, trace_result.returncode, trace_result.stdout)
+        self.assertIn("ONLINE_CHRONOLOGY_UNVERIFIED", trace_result.stdout)
+        self.assertEqual(1, protocol_result.returncode)
+        self.assertIn("ONLINE_CHRONOLOGY_UNVERIFIED", protocol_result.stdout)
+
+    def test_protocol_command_must_equal_recorded_manifest_command(self) -> None:
+        project = self.make_project()
+        protocol = load_json(project / PROTOCOL)
+        protocol["chronology_test"]["command"] = "python3 -m checks.different"
+        write_json(project / PROTOCOL, protocol)
+
+        completed = self.run_protocol(project)
+
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("ONLINE_CHRONOLOGY_UNVERIFIED", completed.stdout)
+
+    def test_protocol_and_trace_implementation_symbol_must_match(self) -> None:
+        project = self.make_project()
+        protocol = load_json(project / PROTOCOL)
+        protocol["chronology_test"]["implementation_symbol"] = "evaluate_in_blocks"
+        write_json(project / PROTOCOL, protocol)
+
+        completed = self.run_protocol(project)
+
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("ONLINE_CHRONOLOGY_UNVERIFIED", completed.stdout)
 
     def test_protocol_exit_codes_reject_booleans_with_explicit_code(self) -> None:
         for value in (False, True):
@@ -308,6 +545,53 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertEqual(1, completed.returncode)
         self.assertIn("MISSING_CLAIM_CODE_TRACE", completed.stdout)
 
+    def test_method_online_protocol_and_complexity_claims_route_as_algorithm(self) -> None:
+        for claim_type in ("METHOD", "ONLINE", "PROTOCOL", "COMPLEXITY"):
+            with self.subTest(claim_type=claim_type):
+                project = self.make_project()
+                inventory = load_json(project / "claim_inventory.json")
+                inventory["claims"][1]["claim_type"] = claim_type
+                write_json(project / "claim_inventory.json", inventory)
+                trace = load_json(project / TRACE)
+                trace["traces"] = []
+                write_json(project / TRACE, trace)
+
+                completed = self.run_trace(project)
+
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("MISSING_CLAIM_CODE_TRACE", completed.stdout)
+
+    def test_empirical_and_baseline_claims_do_not_route_as_algorithm(self) -> None:
+        for claim_type in ("EMPIRICAL", "BASELINE"):
+            with self.subTest(claim_type=claim_type):
+                project = self.make_project()
+                inventory = load_json(project / "claim_inventory.json")
+                inventory["claims"][1]["claim_type"] = claim_type
+                write_json(project / "claim_inventory.json", inventory)
+                trace = load_json(project / TRACE)
+                trace["traces"] = []
+                write_json(project / TRACE, trace)
+
+                completed = self.run_trace(project)
+
+                self.assertEqual(
+                    0, completed.returncode, completed.stdout + completed.stderr
+                )
+
+    def test_trace_collector_rejects_nonstring_claim_type(self) -> None:
+        project = self.make_project()
+        inventory = load_json(project / "claim_inventory.json")
+        inventory["claims"][1]["claim_type"] = False
+        write_json(project / "claim_inventory.json", inventory)
+        trace = load_json(project / TRACE)
+        trace["traces"] = []
+        write_json(project / TRACE, trace)
+
+        completed = self.run_trace(project)
+
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("INVALID_CLAIM_TYPE", completed.stdout)
+
     def test_trace_rejects_missing_symbols(self) -> None:
         for field in ("pseudocode_symbol", "implementation_symbol"):
             with self.subTest(field=field):
@@ -367,6 +651,31 @@ class ProtocolContractTests(unittest.TestCase):
                 test_path = project / "checks/check_online_chronology.py"
                 text = test_path.read_text(encoding="utf-8")
                 text = text.replace(
+                    'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)', declaration
+                )
+                test_path.write_text(text, encoding="utf-8")
+                self.refresh_test_and_output_hashes(project)
+
+                completed = self.run_trace(project)
+
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("INVALID_TEST_TARGET_CONTRACT", completed.stdout)
+
+    def test_test_target_contract_requires_one_immutable_tuple(self) -> None:
+        replacements = (
+            'TARGET_CLAIM_IDS = ["C-ALGORITHM-1"]',
+            'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\nTARGET_CLAIM_IDS = ("C-X",)',
+            'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\nTARGET_CLAIM_IDS: tuple[str, ...] = ("C-X",)',
+            'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\nTARGET_CLAIM_IDS += ("C-X",)',
+            'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\ndel TARGET_CLAIM_IDS',
+            'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\nTARGET_CLAIM_IDS[0] = "C-X"',
+            'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\nTARGET_CLAIM_IDS.append("C-X")',
+        )
+        for declaration in replacements:
+            with self.subTest(declaration=declaration):
+                project = self.make_project()
+                test_path = project / "checks/check_online_chronology.py"
+                text = test_path.read_text(encoding="utf-8").replace(
                     'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)', declaration
                 )
                 test_path.write_text(text, encoding="utf-8")
@@ -509,6 +818,155 @@ class ProtocolContractTests(unittest.TestCase):
                     0,
                     trace_result.returncode,
                     trace_result.stdout + trace_result.stderr,
+                )
+
+    def test_implementation_symbol_must_be_a_top_level_definition(self) -> None:
+        project = self.make_project()
+        implementation = project / "implementation/online_algorithm.py"
+        implementation.write_text(
+            '"ghost evaluate_online token"\n# def evaluate_online(): pass\n',
+            encoding="utf-8",
+        )
+        self.refresh_implementation_hashes(project)
+
+        completed = self.run_trace(project)
+
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("IMPLEMENTATION_SYMBOL_NOT_FOUND", completed.stdout)
+
+    def test_nested_or_dead_import_and_dead_call_do_not_prove_binding(self) -> None:
+        programs = (
+            (
+                "if False:\n"
+                "    from implementation.online_algorithm import evaluate_online\n"
+                'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+                "evaluate_online(None, [], [])\n"
+            ),
+            (
+                "from implementation.online_algorithm import evaluate_online\n"
+                'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+                "if False:\n"
+                "    evaluate_online(None, [], [])\n"
+            ),
+        )
+        for program in programs:
+            with self.subTest(program=program):
+                project = self.make_project()
+                (project / "checks/check_online_chronology.py").write_text(
+                    program, encoding="utf-8"
+                )
+                self.refresh_test_and_output_hashes(project)
+
+                completed = self.run_trace(project)
+
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("TRACE_TEST_IMPLEMENTATION_MISMATCH", completed.stdout)
+
+    def test_shadowed_import_binding_cannot_prove_target_call(self) -> None:
+        bodies = (
+            "def proof(evaluate_online):\n    evaluate_online(None, [], [])\n",
+            "proof = lambda evaluate_online: evaluate_online(None, [], [])\n",
+            "def proof():\n    evaluate_online = fake\n    evaluate_online(None, [], [])\n",
+            "def proof():\n    evaluate_online: object = fake\n    evaluate_online(None, [], [])\n",
+            "def proof():\n    evaluate_online += fake\n    evaluate_online(None, [], [])\n",
+            "def proof():\n    (evaluate_online := fake)\n    evaluate_online(None, [], [])\n",
+            "def proof():\n    del evaluate_online\n    evaluate_online(None, [], [])\n",
+            "def proof():\n    def evaluate_online(*args): pass\n    evaluate_online(None, [], [])\n",
+            "def proof():\n    class evaluate_online: pass\n    evaluate_online(None, [], [])\n",
+            "def proof():\n    import fake as evaluate_online\n    evaluate_online(None, [], [])\n",
+        )
+        for body in bodies:
+            with self.subTest(body=body):
+                project = self.make_project()
+                program = (
+                    "from implementation.online_algorithm import evaluate_online\n"
+                    'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+                    + body
+                )
+                (project / "checks/check_online_chronology.py").write_text(
+                    program, encoding="utf-8"
+                )
+                self.refresh_test_and_output_hashes(project)
+
+                completed = self.run_trace(project)
+
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("TRACE_TEST_IMPLEMENTATION_MISMATCH", completed.stdout)
+
+    def test_reassigned_module_alias_cannot_prove_target_call(self) -> None:
+        programs = (
+            "import implementation.online_algorithm as bound\n"
+            'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+            "bound = fake\n"
+            "bound.evaluate_online(None, [], [])\n",
+            "import implementation.online_algorithm as bound, fake as bound\n"
+            'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+            "bound.evaluate_online(None, [], [])\n",
+        )
+        for program in programs:
+            with self.subTest(program=program):
+                project = self.make_project()
+                test_path = project / "checks/check_online_chronology.py"
+                test_path.write_text(program, encoding="utf-8")
+                self.refresh_test_and_output_hashes(project)
+
+                completed = self.run_trace(project)
+
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("TRACE_TEST_IMPLEMENTATION_MISMATCH", completed.stdout)
+
+    def test_enclosing_scope_shadow_cannot_prove_nested_call(self) -> None:
+        project = self.make_project()
+        test_path = project / "checks/check_online_chronology.py"
+        test_path.write_text(
+            "from implementation.online_algorithm import evaluate_online\n"
+            'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+            "def outer():\n"
+            "    evaluate_online = fake\n"
+            "    def inner():\n"
+            "        evaluate_online(None, [], [])\n",
+            encoding="utf-8",
+        )
+        self.refresh_test_and_output_hashes(project)
+
+        completed = self.run_trace(project)
+
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("TRACE_TEST_IMPLEMENTATION_MISMATCH", completed.stdout)
+
+    def test_fake_module_import_cannot_prove_binding(self) -> None:
+        project = self.make_project()
+        test_path = project / "checks/check_online_chronology.py"
+        test_path.write_text(
+            "import fake.online_algorithm as implementation\n"
+            'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+            "implementation.evaluate_online(None, [], [])\n",
+            encoding="utf-8",
+        )
+        self.refresh_test_and_output_hashes(project)
+
+        completed = self.run_trace(project)
+
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("TRACE_TEST_IMPLEMENTATION_MISMATCH", completed.stdout)
+
+    def test_async_function_and_class_are_valid_top_level_implementation_symbols(self) -> None:
+        implementations = (
+            "async def evaluate_online(*args):\n    return []\n",
+            "class evaluate_online:\n    pass\n",
+        )
+        for source in implementations:
+            with self.subTest(source=source):
+                project = self.make_project()
+                (project / "implementation/online_algorithm.py").write_text(
+                    source, encoding="utf-8"
+                )
+                self.refresh_implementation_hashes(project)
+
+                completed = self.run_trace(project)
+
+                self.assertEqual(
+                    0, completed.returncode, completed.stdout + completed.stderr
                 )
 
     def test_pass_manifest_must_list_target_claim_and_pass(self) -> None:

@@ -29,6 +29,7 @@ from validate_protocol_contract import (
     ALGORITHM_PROFILES,
     collect_algorithm_claims,
     parse_python_test_contract,
+    python_has_top_level_symbol,
 )
 
 
@@ -396,7 +397,7 @@ def validate_binding(
     if (
         implementation_data is not None
         and canonical_identifier(implementation_symbol)
-        and not exact_token_present(implementation_data, implementation_symbol)
+        and not python_has_top_level_symbol(implementation_data, implementation_symbol)
     ):
         issues.append(
             Issue(
@@ -574,6 +575,7 @@ def validate_output_reference_groups(
 
 
 def validate_protocol_cross_binding(
+    root_fd: int,
     protocol: dict[str, Any] | None,
     bindings: dict[str, dict[str, Any]],
     algorithm_claims: dict[str, dict[str, Any]],
@@ -593,6 +595,15 @@ def validate_protocol_cross_binding(
     target_ids = chronology.get("target_claim_ids")
     targets = target_ids if string_list(target_ids) else []
     issues: list[Issue] = []
+    manifest: dict[str, Any] | None = None
+    output_path = chronology.get("output_file")
+    if canonical_relative_path(output_path):
+        try:
+            snapshot = read_regular_file_at(root_fd, output_path, include_data=True)
+            assert snapshot.data is not None
+            manifest = strict_object(snapshot.data, "chronology_test_output")
+        except (FileNotFoundError, UnsafePathError, OSError, StrictJSONError, TypeError):
+            manifest = None
     for claim_id in sorted(algorithm_claims):
         binding = bindings.get(claim_id)
         if claim_id not in targets or binding is None:
@@ -608,8 +619,12 @@ def validate_protocol_cross_binding(
         if (
             binding.get("implementation_relative_path")
             != chronology.get("implementation_relative_path")
+            or binding.get("implementation_symbol")
+            != chronology.get("implementation_symbol")
             or binding.get("implementation_sha256")
             != chronology.get("implementation_sha256")
+            or binding.get("pass_output_relative_path") != output_path
+            or binding.get("pass_output_sha256") != chronology.get("output_sha256")
         ):
             issues.append(
                 Issue(
@@ -617,6 +632,21 @@ def validate_protocol_cross_binding(
                     "INVALID",
                     claim_id,
                     "trace_and_chronology_implementation_mismatch",
+                )
+            )
+        if not isinstance(manifest, dict) or (
+            manifest.get("command") != chronology.get("command")
+            or binding.get("executable_test_relative_path")
+            != manifest.get("executable_test_relative_path")
+            or binding.get("executable_test_sha256")
+            != manifest.get("executable_test_sha256")
+        ):
+            issues.append(
+                Issue(
+                    "ONLINE_CHRONOLOGY_UNVERIFIED",
+                    "INVALID",
+                    claim_id,
+                    "trace_and_chronology_test_or_command_mismatch",
                 )
             )
     return issues
@@ -722,7 +752,9 @@ def validate_loaded(
         validate_output_reference_groups(root_fd, raw_bindings, algorithm_claims)
     )
     issues.extend(
-        validate_protocol_cross_binding(protocol, unique_bindings, algorithm_claims)
+        validate_protocol_cross_binding(
+            root_fd, protocol, unique_bindings, algorithm_claims
+        )
     )
     return issues
 

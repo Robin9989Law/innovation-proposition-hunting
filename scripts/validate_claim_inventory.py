@@ -14,7 +14,7 @@ import re
 import stat
 from typing import Any, Iterable, NamedTuple
 
-from validation_common import Issue, choose_exit, render
+from validation_common import CLAIM_TYPES, Issue, choose_exit, render
 
 
 AUDITED_VALIDITY_LEVELS = {"V3", "V4"}
@@ -734,6 +734,16 @@ def validate_claim_fields(
                     f"{field}:expected_nonempty_string",
                 )
             )
+    claim_type = claim.get("claim_type")
+    if isinstance(claim_type, str) and claim_type not in CLAIM_TYPES:
+        issues.append(
+            Issue(
+                "INVALID_CLAIM_TYPE",
+                "INVALID",
+                str(claim_id) if nonempty_string(claim_id) else item_id,
+                f"claim_type:unknown:{claim_type}",
+            )
+        )
     if "locations" in claim and not string_list(claim.get("locations")):
         issues.append(
             Issue(

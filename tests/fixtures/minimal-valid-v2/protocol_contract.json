@@ -15,7 +15,7 @@
     "uses_test_labels": false,
     "supervised_online_adaptation": false,
     "pre_update_scoring": true,
-    "operational_label_availability": false,
+    "operational_label_availability": true,
     "evaluation_role": "CONFIRMATORY"
   },
   "chronology_test": {
@@ -28,6 +28,7 @@
       "C-ALGORITHM-1"
     ],
     "implementation_relative_path": "implementation/online_algorithm.py",
+    "implementation_symbol": "evaluate_online",
     "implementation_sha256": "5e13fed44b7fe3373fe672e471e5f41c5de0109a72874ad4c24bea33c40603b5"
   }
 }

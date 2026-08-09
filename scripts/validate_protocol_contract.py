@@ -13,6 +13,8 @@ import re
 from typing import Any
 
 from validation_common import (
+    ALGORITHM_CLAIM_TYPES,
+    CLAIM_TYPES,
     Issue,
     StrictJSONError,
     UnsafePathError,
@@ -30,12 +32,6 @@ from validation_common import (
 
 
 ALGORITHM_PROFILES = {"ALGORITHM", "MIXED"}
-ALGORITHM_CLAIM_TYPES = {
-    "ALGORITHM",
-    "ALGORITHM_GUARANTEE",
-    "ALGORITHM_PERFORMANCE",
-    "ONLINE_ALGORITHM",
-}
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
 PREDICTION_UNITS = {"SAMPLE", "BATCH", "BLOCK", "SEQUENCE"}
 UPDATE_UNITS = {"SAMPLE", "BATCH", "BLOCK", "NONE"}
@@ -95,6 +91,7 @@ REQUIRED_CHRONOLOGY_FIELDS = (
     "output_sha256",
     "target_claim_ids",
     "implementation_relative_path",
+    "implementation_symbol",
     "implementation_sha256",
 )
 REQUIRED_COMPARATOR_FIELDS = (
@@ -124,6 +121,22 @@ CHINESE_BUDGET_TERMS = (
     "同预算",
     "相同预算",
     "等预算",
+)
+CANONICAL_BUDGET_RISK_TERMS = {
+    "strong",
+    "strong baseline",
+    "fair",
+    "fair comparison",
+    "matched budget",
+    "same budget",
+    "强基线",
+    "公平",
+    "公平比较",
+    "匹配预算",
+    "同预算",
+}
+CHINESE_FAIR_COMPARISON_PATTERN = re.compile(
+    r"(?:作|做|进行|开展|报告)?\s*公平(?:的|地|性)?\s*(?:比较|对比|基线)"
 )
 
 
@@ -159,6 +172,134 @@ def _implementation_module(raw_path: str) -> str | None:
     return ".".join(parts) if parts else None
 
 
+def python_has_top_level_symbol(data: bytes, symbol: str) -> bool:
+    """Return whether Python source defines the exact public symbol at module level."""
+
+    if not canonical_identifier(symbol):
+        return False
+    try:
+        tree = ast.parse(data.decode("utf-8"))
+    except (UnicodeError, SyntaxError):
+        return False
+    return any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        and node.name == symbol
+        for node in tree.body
+    )
+
+
+def _bound_names_in_scope(node: ast.AST) -> set[str]:
+    """Conservatively collect names local to one module/function lexical scope."""
+
+    names: set[str] = set()
+    body = (
+        node.body
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef))
+        else []
+    )
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        arguments = (
+            list(node.args.posonlyargs)
+            + list(node.args.args)
+            + list(node.args.kwonlyargs)
+        )
+        names.update(argument.arg for argument in arguments)
+        if node.args.vararg:
+            names.add(node.args.vararg.arg)
+        if node.args.kwarg:
+            names.add(node.args.kwarg.arg)
+
+    class Binder(ast.NodeVisitor):
+        def visit_Name(self, child: ast.Name) -> None:
+            if isinstance(child.ctx, (ast.Store, ast.Del)):
+                names.add(child.id)
+
+        def visit_FunctionDef(self, child: ast.FunctionDef) -> None:
+            names.add(child.name)
+
+        def visit_AsyncFunctionDef(self, child: ast.AsyncFunctionDef) -> None:
+            names.add(child.name)
+
+        def visit_ClassDef(self, child: ast.ClassDef) -> None:
+            names.add(child.name)
+
+        def visit_Import(self, child: ast.Import) -> None:
+            for alias in child.names:
+                names.add(alias.asname or alias.name.split(".")[0])
+
+        def visit_ImportFrom(self, child: ast.ImportFrom) -> None:
+            for alias in child.names:
+                names.add(alias.asname or alias.name)
+
+        def visit_ExceptHandler(self, child: ast.ExceptHandler) -> None:
+            if child.name:
+                names.add(child.name)
+            self.generic_visit(child)
+
+        def visit_MatchAs(self, child: ast.MatchAs) -> None:
+            if child.name:
+                names.add(child.name)
+            self.generic_visit(child)
+
+        def visit_MatchStar(self, child: ast.MatchStar) -> None:
+            if child.name:
+                names.add(child.name)
+
+    binder = Binder()
+    for statement in body:
+        binder.visit(statement)
+    return names
+
+
+def _is_literal_false(node: ast.AST) -> bool:
+    return isinstance(node, ast.Constant) and node.value is False
+
+
+def _live_calls_with_scopes(
+    statements: list[ast.stmt], scopes: tuple[set[str], ...]
+) -> list[tuple[ast.Call, tuple[set[str], ...]]]:
+    found: list[tuple[ast.Call, tuple[set[str], ...]]] = []
+
+    def argument_names(arguments: ast.arguments) -> set[str]:
+        names = {
+            argument.arg
+            for argument in (
+                list(arguments.posonlyargs)
+                + list(arguments.args)
+                + list(arguments.kwonlyargs)
+            )
+        }
+        if arguments.vararg:
+            names.add(arguments.vararg.arg)
+        if arguments.kwarg:
+            names.add(arguments.kwarg.arg)
+        return names
+
+    def visit(node: ast.AST, active_scopes: tuple[set[str], ...]) -> None:
+        if isinstance(node, ast.If) and _is_literal_false(node.test):
+            for child in node.orelse:
+                visit(child, active_scopes)
+            return
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            local_names = _bound_names_in_scope(node)
+            for child in node.body:
+                visit(child, active_scopes + (local_names,))
+            return
+        if isinstance(node, ast.Lambda):
+            visit(node.body, active_scopes + (argument_names(node.args),))
+            return
+        if isinstance(node, ast.ClassDef):
+            return  # Class execution/name resolution is deliberately not trusted.
+        if isinstance(node, ast.Call):
+            found.append((node, active_scopes))
+        for child in ast.iter_child_nodes(node):
+            visit(child, active_scopes)
+
+    for statement in statements:
+        visit(statement, scopes)
+    return found
+
+
 def parse_python_test_contract(
     data: bytes,
     test_path: str,
@@ -178,73 +319,121 @@ def parse_python_test_contract(
     except (UnicodeError, SyntaxError) as error:
         return None, [f"executable_test:unparseable:{type(error).__name__}"]
 
-    declarations: list[ast.AST] = []
+    declarations: list[tuple[ast.Assign, ast.AST]] = []
     for statement in tree.body:
-        if isinstance(statement, ast.Assign) and any(
-            isinstance(target, ast.Name) and target.id == "TARGET_CLAIM_IDS"
-            for target in statement.targets
+        if (
+            isinstance(statement, ast.Assign)
+            and len(statement.targets) == 1
+            and isinstance(statement.targets[0], ast.Name)
+            and statement.targets[0].id == "TARGET_CLAIM_IDS"
         ):
-            declarations.append(statement.value)
-        elif (
-            isinstance(statement, ast.AnnAssign)
-            and isinstance(statement.target, ast.Name)
-            and statement.target.id == "TARGET_CLAIM_IDS"
-            and statement.value is not None
-        ):
-            declarations.append(statement.value)
+            declarations.append((statement, statement.value))
     if len(declarations) != 1:
         return None, [
             f"TARGET_CLAIM_IDS:expected_one_top_level_literal;found:{len(declarations)}"
         ]
-    try:
-        raw_targets = ast.literal_eval(declarations[0])
-    except (ValueError, TypeError, SyntaxError):
-        return None, ["TARGET_CLAIM_IDS:expected_literal_list_or_tuple"]
-    if not isinstance(raw_targets, (list, tuple)) or not raw_targets:
-        return None, ["TARGET_CLAIM_IDS:expected_nonempty_literal_list_or_tuple"]
+    declaration, value = declarations[0]
+    if not isinstance(value, ast.Tuple) or not value.elts:
+        return None, ["TARGET_CLAIM_IDS:expected_nonempty_tuple_literal"]
+    if not all(
+        isinstance(item, ast.Constant) and isinstance(item.value, str)
+        for item in value.elts
+    ):
+        return None, ["TARGET_CLAIM_IDS:expected_literal_strings"]
+    raw_targets = tuple(item.value for item in value.elts)
     if not all(canonical_identifier(target) for target in raw_targets):
         return None, ["TARGET_CLAIM_IDS:expected_canonical_strings"]
     if len(set(raw_targets)) != len(raw_targets):
         return None, ["TARGET_CLAIM_IDS:duplicate_claim_id"]
 
-    from_import_names: set[str] = set()
-    module_aliases: set[str] = set()
-    direct_module_import = False
     for node in ast.walk(tree):
+        if (
+            node is declaration
+            or node is declaration.targets[0]
+            or node in value.elts
+            or node is value
+        ):
+            continue
+        if (
+            isinstance(node, ast.Name)
+            and node.id == "TARGET_CLAIM_IDS"
+            and isinstance(node.ctx, (ast.Store, ast.Del))
+        ):
+            return None, ["TARGET_CLAIM_IDS:rebound_or_deleted"]
+        if (
+            isinstance(node, ast.Subscript)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "TARGET_CLAIM_IDS"
+            and isinstance(node.ctx, (ast.Store, ast.Del))
+        ):
+            return None, ["TARGET_CLAIM_IDS:mutated"]
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "TARGET_CLAIM_IDS"
+            and node.func.attr
+            in {"append", "extend", "insert", "pop", "remove", "clear", "sort", "reverse"}
+        ):
+            return None, ["TARGET_CLAIM_IDS:mutation_call_forbidden"]
+
+    bindings: list[tuple[str, str]] = []
+    import_statements: set[ast.stmt] = set()
+    for node in tree.body:
         if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module == module:
             for alias in node.names:
                 if alias.name == implementation_symbol:
-                    from_import_names.add(alias.asname or alias.name)
+                    local = alias.asname or alias.name
+                    bindings.append((local, local))
+                    import_statements.add(node)
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name == module:
                     if alias.asname:
-                        module_aliases.add(alias.asname)
+                        bindings.append((alias.asname, f"{alias.asname}.{implementation_symbol}"))
                     else:
-                        direct_module_import = True
+                        bindings.append(
+                            (module.split(".")[0], f"{module}.{implementation_symbol}")
+                        )
+                    import_statements.add(node)
 
-    called = False
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        function = node.func
-        if isinstance(function, ast.Name) and function.id in from_import_names:
-            called = True
-            continue
-        if isinstance(function, ast.Attribute):
-            dotted = _dotted_name(function)
-            if direct_module_import and dotted == f"{module}.{implementation_symbol}":
-                called = True
-                continue
-            if any(
-                dotted == f"{alias}.{implementation_symbol}"
-                for alias in module_aliases
-            ):
-                called = True
-    if not (from_import_names or module_aliases or direct_module_import):
+    if not bindings:
         return set(raw_targets), [
             f"implementation_import_missing:{module}:{implementation_symbol}"
         ]
+
+    # Remove only the names established by the trusted exact imports. Any other
+    # module-level binder of the same name conservatively shadows the import.
+    other_module_binders: set[str] = set()
+    binding_roots = {root for root, _ in bindings}
+    for statement in tree.body:
+        if statement in import_statements:
+            if isinstance(statement, ast.Import):
+                for alias in statement.names:
+                    local = alias.asname or alias.name.split(".")[0]
+                    if local in binding_roots and alias.name != module:
+                        other_module_binders.add(local)
+            elif isinstance(statement, ast.ImportFrom):
+                for alias in statement.names:
+                    local = alias.asname or alias.name
+                    if local in binding_roots and alias.name != implementation_symbol:
+                        other_module_binders.add(local)
+            continue
+        other_module_binders.update(
+            _bound_names_in_scope(ast.Module(body=[statement], type_ignores=[]))
+        )
+    calls = _live_calls_with_scopes(tree.body, ())
+    called = False
+    for call, scopes in calls:
+        dotted = _dotted_name(call.func)
+        for root, expected in bindings:
+            if root in other_module_binders or any(root in scope for scope in scopes):
+                continue
+            if dotted == expected:
+                called = True
+                break
+        if called:
+            break
     if not called:
         return set(raw_targets), [
             f"implementation_call_missing:{module}:{implementation_symbol}"
@@ -283,10 +472,7 @@ def load_object(
 
 
 def is_algorithm_claim_type(value: Any) -> bool:
-    if not nonempty_string(value):
-        return False
-    normalized = value.strip().upper()
-    return normalized in ALGORITHM_CLAIM_TYPES or "ALGORITHM" in normalized
+    return isinstance(value, str) and value in ALGORITHM_CLAIM_TYPES
 
 
 def collect_algorithm_claims(
@@ -345,7 +531,18 @@ def collect_algorithm_claims(
                 )
             )
             continue
-        if not is_algorithm_claim_type(claim.get("claim_type")):
+        claim_type = claim.get("claim_type")
+        if not isinstance(claim_type, str) or claim_type not in CLAIM_TYPES:
+            issues.append(
+                Issue(
+                    "INVALID_CLAIM_TYPE",
+                    "INVALID",
+                    str(claim.get("claim_id", f"claim[{index}]")),
+                    f"claim_type:unknown:{claim_type}",
+                )
+            )
+            continue
+        if not is_algorithm_claim_type(claim_type):
             continue
         claim_id = claim.get("claim_id")
         if not nonempty_string(claim_id) or claim_id.strip() != claim_id:
@@ -374,17 +571,20 @@ def collect_algorithm_claims(
 
 
 def claim_triggers_budget(claim: dict[str, Any]) -> bool:
-    fragments: list[str] = []
-    statement = claim.get("statement")
-    if isinstance(statement, str):
-        fragments.append(statement)
     risk_terms = claim.get("risk_terms")
     if isinstance(risk_terms, list):
-        fragments.extend(term for term in risk_terms if isinstance(term, str))
-    text = "\n".join(fragments)
+        normalized_risks = {
+            re.sub(r"[-_]+", " ", term.strip().casefold())
+            for term in risk_terms
+            if isinstance(term, str)
+        }
+        if normalized_risks & CANONICAL_BUDGET_RISK_TERMS:
+            return True
+    statement = claim.get("statement")
+    text = statement if isinstance(statement, str) else ""
     return any(pattern.search(text) for pattern in ENGLISH_BUDGET_TERMS) or any(
         term in text for term in CHINESE_BUDGET_TERMS
-    )
+    ) or CHINESE_FAIR_COMPARISON_PATTERN.search(text) is not None
 
 
 def validate_protocol_fields(protocol: dict[str, Any], state_epoch: Any) -> list[Issue]:
@@ -525,6 +725,69 @@ def validate_protocol_fields(protocol: dict[str, Any], state_epoch: Any) -> list
                         "operational_label_availability,and_non_confirmatory_role",
                     )
                 )
+        expected_modes = {
+            "SAMPLE": ("SAMPLE", "PREDICT_THEN_UPDATE", "AFTER_EACH_PREDICTION"),
+            "BATCH": ("BATCH", "BATCH_PREDICT_THEN_UPDATE", "AFTER_BATCH"),
+            "BLOCK": ("BLOCK", "BLOCK_PREDICT_THEN_UPDATE", "AFTER_BLOCK"),
+        }
+        prediction_unit = protocol.get("prediction_unit")
+        if prediction_unit in expected_modes:
+            expected_update, expected_order, expected_label = expected_modes[prediction_unit]
+            if (
+                protocol.get("update_unit") != expected_update
+                or protocol.get("predict_update_order") != expected_order
+            ):
+                issues.append(
+                    Issue(
+                        "INVALID_PROTOCOL_MATRIX",
+                        "INVALID",
+                        "protocol_contract",
+                        f"{prediction_unit}:requires:{expected_update}:{expected_order}",
+                    )
+                )
+            if (
+                semantics.get("uses_test_labels") is True
+                or semantics.get("supervised_online_adaptation") is True
+            ) and protocol.get("label_availability") != expected_label:
+                issues.append(
+                    Issue(
+                        "INVALID_PROTOCOL_MATRIX",
+                        "INVALID",
+                        "update_semantics",
+                        f"{prediction_unit}:supervised_label_requires:{expected_label}",
+                    )
+                )
+        availability = protocol.get("label_availability")
+        operational_expected = availability in {
+            "AFTER_EACH_PREDICTION",
+            "AFTER_BATCH",
+            "AFTER_BLOCK",
+        }
+        if (
+            type(semantics.get("operational_label_availability")) is bool
+            and semantics.get("operational_label_availability")
+            is not operational_expected
+        ):
+            issues.append(
+                Issue(
+                    "INVALID_PROTOCOL_MATRIX",
+                    "INVALID",
+                    "update_semantics",
+                    "operational_label_availability_disagrees_with_label_availability",
+                )
+            )
+        if semantics.get("supervised_online_adaptation") is True and (
+            semantics.get("uses_test_labels") is not True
+            or availability == "NEVER"
+        ):
+            issues.append(
+                Issue(
+                    "INVALID_PROTOCOL_MATRIX",
+                    "INVALID",
+                    "update_semantics",
+                    "supervised_online_adaptation_requires_test_labels_and_available_labels",
+                )
+            )
     return issues
 
 
@@ -600,6 +863,7 @@ def validate_chronology(
     output_path = chronology.get("output_file")
     output_hash = chronology.get("output_sha256")
     implementation_path = chronology.get("implementation_relative_path")
+    implementation_symbol = chronology.get("implementation_symbol")
     implementation_hash = chronology.get("implementation_sha256")
     for field, value in (
         ("output_file", output_path),
@@ -613,15 +877,24 @@ def validate_chronology(
     ):
         if not isinstance(value, str) or SHA256_PATTERN.fullmatch(value) is None:
             issues.append(chronology_issue(f"{field}:expected_lowercase_sha256"))
+    if not canonical_identifier(implementation_symbol):
+        issues.append(chronology_issue("implementation_symbol:expected_canonical_identifier"))
 
     implementation_snapshot = None
     if canonical_relative_path(implementation_path):
         try:
             implementation_snapshot = read_regular_file_at(root_fd, implementation_path)
         except (FileNotFoundError, UnsafePathError, OSError) as error:
-            issues.append(chronology_issue(f"implementation_unavailable:{type(error).__name__}:{error}"))
+            issues.append(
+                chronology_issue(
+                    f"implementation_unavailable:{type(error).__name__}:{error}"
+                )
+            )
         else:
-            if isinstance(implementation_hash, str) and implementation_snapshot.sha256 != implementation_hash:
+            if (
+                isinstance(implementation_hash, str)
+                and implementation_snapshot.sha256 != implementation_hash
+            ):
                 issues.append(
                     chronology_issue(
                         f"implementation_hash_mismatch:declared:{implementation_hash};"
@@ -629,6 +902,7 @@ def validate_chronology(
                     )
                 )
 
+    manifest: dict[str, Any] | None = None
     if canonical_relative_path(output_path):
         try:
             output_snapshot = read_regular_file_at(root_fd, output_path, include_data=True)
@@ -638,7 +912,8 @@ def validate_chronology(
             if isinstance(output_hash, str) and output_snapshot.sha256 != output_hash:
                 issues.append(
                     chronology_issue(
-                        f"output_hash_mismatch:declared:{output_hash};current:{output_snapshot.sha256}"
+                        "output_hash_mismatch:"
+                        f"declared:{output_hash};current:{output_snapshot.sha256}"
                     )
                 )
             assert output_snapshot.data is not None
@@ -649,6 +924,8 @@ def validate_chronology(
             except (StrictJSONError, TypeError) as error:
                 issues.append(chronology_issue(f"output_manifest_invalid:{error}"))
             else:
+                if manifest.get("command") != chronology.get("command"):
+                    issues.append(chronology_issue("output_manifest_command_mismatch"))
                 manifest_exit = manifest.get("exit_code")
                 if type(manifest_exit) is not int:
                     issues.append(
@@ -743,14 +1020,28 @@ def validate_chronology(
     for claim_id in target_ids:
         bindings = trace_bindings.get(claim_id, [])
         if len(bindings) != 1:
-            issues.append(chronology_issue(f"trace_binding_count:{claim_id}:{len(bindings)}", claim_id))
+            issues.append(
+                chronology_issue(
+                    f"trace_binding_count:{claim_id}:{len(bindings)}", claim_id
+                )
+            )
             continue
         binding = bindings[0]
         if (
             binding.get("implementation_relative_path") != implementation_path
+            or binding.get("implementation_symbol") != implementation_symbol
             or binding.get("implementation_sha256") != implementation_hash
+            or binding.get("pass_output_relative_path") != output_path
+            or binding.get("pass_output_sha256") != output_hash
         ):
-            issues.append(chronology_issue("trace_implementation_binding_mismatch", claim_id))
+            issues.append(chronology_issue("trace_and_chronology_evidence_mismatch", claim_id))
+        if isinstance(manifest, dict) and (
+            binding.get("executable_test_relative_path")
+            != manifest.get("executable_test_relative_path")
+            or binding.get("executable_test_sha256")
+            != manifest.get("executable_test_sha256")
+        ):
+            issues.append(chronology_issue("trace_and_chronology_test_mismatch", claim_id))
     if trace is None:
         issues.append(chronology_issue("claim_code_trace_unavailable"))
     return issues

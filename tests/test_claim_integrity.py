@@ -33,6 +33,24 @@ REQUIRED_CLAIM_FIELDS = (
     "validation_epoch",
 )
 
+ALLOWED_CLAIM_TYPES = (
+    "THEOREM",
+    "LEMMA",
+    "COROLLARY",
+    "PROPOSITION",
+    "DEFINITION",
+    "ALGORITHM",
+    "ALGORITHM_GUARANTEE",
+    "ALGORITHM_PERFORMANCE",
+    "ONLINE_ALGORITHM",
+    "METHOD",
+    "ONLINE",
+    "PROTOCOL",
+    "EMPIRICAL",
+    "BASELINE",
+    "COMPLEXITY",
+)
+
 
 def load_claim_validator_module():
     module_path = REPOSITORY_ROOT / "scripts" / "validate_claim_inventory.py"
@@ -124,6 +142,31 @@ class ClaimInventoryTests(unittest.TestCase):
 
         self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
         self.assertIn("UNREGISTERED_HIGH_RISK_CLAIM", completed.stdout)
+
+    def test_claim_type_is_a_closed_enum(self) -> None:
+        _, project = self.make_project()
+        inventory = load_json(project / "claim_inventory.json")
+        inventory["claims"][1]["claim_type"] = "NOT_ALGORITHM"
+        write_json(project / "claim_inventory.json", inventory)
+
+        completed = run_script("validate_claim_inventory.py", project)
+
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("INVALID_CLAIM_TYPE", completed.stdout)
+
+    def test_documented_claim_type_enum_members_are_accepted(self) -> None:
+        for claim_type in ALLOWED_CLAIM_TYPES:
+            with self.subTest(claim_type=claim_type):
+                _, project = self.make_project()
+                inventory = load_json(project / "claim_inventory.json")
+                inventory["claims"][1]["claim_type"] = claim_type
+                write_json(project / "claim_inventory.json", inventory)
+
+                completed = run_script("validate_claim_inventory.py", project)
+
+                self.assertEqual(
+                    0, completed.returncode, completed.stdout + completed.stderr
+                )
 
     def test_english_terms_are_case_insensitive(self) -> None:
         for term in ("EXACT", "Universal", "BoUnDeD"):

@@ -13,6 +13,39 @@ import stat
 from typing import Any
 
 
+CLAIM_TYPES = frozenset(
+    {
+        "THEOREM",
+        "LEMMA",
+        "COROLLARY",
+        "PROPOSITION",
+        "DEFINITION",
+        "ALGORITHM",
+        "ALGORITHM_GUARANTEE",
+        "ALGORITHM_PERFORMANCE",
+        "ONLINE_ALGORITHM",
+        "METHOD",
+        "ONLINE",
+        "PROTOCOL",
+        "EMPIRICAL",
+        "BASELINE",
+        "COMPLEXITY",
+    }
+)
+ALGORITHM_CLAIM_TYPES = frozenset(
+    {
+        "ALGORITHM",
+        "ALGORITHM_GUARANTEE",
+        "ALGORITHM_PERFORMANCE",
+        "ONLINE_ALGORITHM",
+        "METHOD",
+        "ONLINE",
+        "PROTOCOL",
+        "COMPLEXITY",
+    }
+)
+
+
 class ExitCode(IntEnum):
     READY = 0
     INVALID = 1
