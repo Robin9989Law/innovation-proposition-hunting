@@ -19,11 +19,11 @@
     "evaluation_role": "CONFIRMATORY"
   },
   "chronology_test": {
-    "command": "python3 checks/check_online_chronology.py",
+    "command": "python3 -m checks.check_online_chronology",
     "status": "PASS",
     "exit_code": 0,
     "output_file": "test_outputs/online_chronology_pass.json",
-    "output_sha256": "59ebe2f48676478301ca0c1a3e7776ad2be309830bed7219f572236f3db11801",
+    "output_sha256": "abfc2d7fa7928129ea4f187f584bfccf6d09a8282f04500460857845babccfdb",
     "target_claim_ids": [
       "C-ALGORITHM-1"
     ],

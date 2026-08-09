@@ -2,12 +2,12 @@
   "schema_version": "2.0",
   "status": "PASS",
   "exit_code": 0,
-  "command": "python3 checks/check_online_chronology.py",
+  "command": "python3 -m checks.check_online_chronology",
   "target_claim_ids": [
     "C-ALGORITHM-1"
   ],
   "implementation_relative_path": "implementation/online_algorithm.py",
   "implementation_sha256": "5e13fed44b7fe3373fe672e471e5f41c5de0109a72874ad4c24bea33c40603b5",
   "executable_test_relative_path": "checks/check_online_chronology.py",
-  "executable_test_sha256": "fb66c03c617f2d8f7d40510150b97b9a8f39c29c1620d41482c9fd08f2af272e"
+  "executable_test_sha256": "7b3edae007f104a1f6064954f1dce5c38ac562241a8c9f1386678d438861a654"
 }

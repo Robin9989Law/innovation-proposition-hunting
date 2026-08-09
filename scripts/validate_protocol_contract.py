@@ -223,27 +223,31 @@ def parse_python_test_contract(
                     else:
                         direct_module_import = True
 
-    referenced = False
+    called = False
     for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
-            if node.id in from_import_names:
-                referenced = True
-        elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
-            dotted = _dotted_name(node)
-            if dotted == f"{module}.{implementation_symbol}":
-                referenced = direct_module_import
+        if not isinstance(node, ast.Call):
+            continue
+        function = node.func
+        if isinstance(function, ast.Name) and function.id in from_import_names:
+            called = True
+            continue
+        if isinstance(function, ast.Attribute):
+            dotted = _dotted_name(function)
+            if direct_module_import and dotted == f"{module}.{implementation_symbol}":
+                called = True
+                continue
             if any(
                 dotted == f"{alias}.{implementation_symbol}"
                 for alias in module_aliases
             ):
-                referenced = True
+                called = True
     if not (from_import_names or module_aliases or direct_module_import):
         return set(raw_targets), [
             f"implementation_import_missing:{module}:{implementation_symbol}"
         ]
-    if not referenced:
+    if not called:
         return set(raw_targets), [
-            f"implementation_reference_missing:{module}:{implementation_symbol}"
+            f"implementation_call_missing:{module}:{implementation_symbol}"
         ]
     return set(raw_targets), []
 

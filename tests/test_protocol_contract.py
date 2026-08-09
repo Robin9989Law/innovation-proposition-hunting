@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+import shlex
 import subprocess
 import unittest
 from pathlib import Path
@@ -427,6 +429,88 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertIn("ONLINE_CHRONOLOGY_UNVERIFIED", protocol_result.stdout)
         self.assertIn("TRACE_TEST_IMPLEMENTATION_MISMATCH", trace_result.stdout)
 
+    def test_bare_block_reference_cannot_hide_actual_online_call(self) -> None:
+        project = self.make_project()
+        test_path = project / "checks/check_online_chronology.py"
+        test_path.write_text(
+            "from implementation.block_algorithm import evaluate_in_blocks\n"
+            "from implementation.online_algorithm import evaluate_online\n\n"
+            'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n\n'
+            "evaluate_in_blocks\n\n"
+            "def call_the_other_implementation():\n"
+            "    evaluate_online(None, [], [])\n",
+            encoding="utf-8",
+        )
+        block_path = project / "implementation/block_algorithm.py"
+        block_hash = sha256(block_path)
+        output_path = project / "test_outputs/online_chronology_pass.json"
+        manifest = load_json(output_path)
+        manifest["implementation_relative_path"] = "implementation/block_algorithm.py"
+        manifest["implementation_sha256"] = block_hash
+        write_json(output_path, manifest)
+        protocol = load_json(project / PROTOCOL)
+        chronology = protocol["chronology_test"]
+        chronology["implementation_relative_path"] = "implementation/block_algorithm.py"
+        chronology["implementation_sha256"] = block_hash
+        write_json(project / PROTOCOL, protocol)
+        trace = load_json(project / TRACE)
+        binding = trace["traces"][0]
+        binding["implementation_relative_path"] = "implementation/block_algorithm.py"
+        binding["implementation_symbol"] = "evaluate_in_blocks"
+        binding["implementation_sha256"] = block_hash
+        write_json(project / TRACE, trace)
+        self.refresh_test_and_output_hashes(project)
+
+        protocol_result = self.run_protocol(project)
+        trace_result = self.run_trace(project)
+
+        self.assertEqual(1, protocol_result.returncode)
+        self.assertEqual(1, trace_result.returncode)
+        self.assertIn("ONLINE_CHRONOLOGY_UNVERIFIED", protocol_result.stdout)
+        self.assertIn("TRACE_TEST_IMPLEMENTATION_MISMATCH", trace_result.stdout)
+
+    def test_bound_implementation_alias_call_is_accepted(self) -> None:
+        variants = (
+            (
+                "from implementation.online_algorithm import evaluate_online as bound\n",
+                "bound(None, [], [])",
+            ),
+            (
+                "import implementation.online_algorithm as bound_module\n",
+                "bound_module.evaluate_online(None, [], [])",
+            ),
+            (
+                "import implementation.online_algorithm\n",
+                "implementation.online_algorithm.evaluate_online(None, [], [])",
+            ),
+        )
+        for import_line, call_line in variants:
+            with self.subTest(import_line=import_line):
+                project = self.make_project()
+                test_path = project / "checks/check_online_chronology.py"
+                test_path.write_text(
+                    import_line
+                    + '\nTARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n\n'
+                    + "def prove_binding():\n"
+                    + f"    {call_line}\n",
+                    encoding="utf-8",
+                )
+                self.refresh_test_and_output_hashes(project)
+
+                protocol_result = self.run_protocol(project)
+                trace_result = self.run_trace(project)
+
+                self.assertEqual(
+                    0,
+                    protocol_result.returncode,
+                    protocol_result.stdout + protocol_result.stderr,
+                )
+                self.assertEqual(
+                    0,
+                    trace_result.returncode,
+                    trace_result.stdout + trace_result.stderr,
+                )
+
     def test_pass_manifest_must_list_target_claim_and_pass(self) -> None:
         project = self.make_project()
         output_path = project / "test_outputs/online_chronology_pass.json"
@@ -618,6 +702,29 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertIn("INVALID_BASELINE_BUDGET_JSON", completed.stdout)
         self.assertNotIn("PROTOCOL_CONTRACT_REQUIRED", completed.stdout)
         self.assertNotIn("CLAIM_CODE_TRACE_REQUIRED", completed.stdout)
+
+    def test_fixture_recorded_chronology_command_runs_and_matches_manifest(self) -> None:
+        project = self.make_project()
+        protocol = load_json(project / PROTOCOL)
+        command = protocol["chronology_test"]["command"]
+
+        completed = subprocess.run(
+            shlex.split(command),
+            cwd=project,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual("", completed.stderr)
+        generated_manifest = json.loads(completed.stdout)
+        recorded_manifest = load_json(
+            project / protocol["chronology_test"]["output_file"]
+        )
+        self.assertEqual(recorded_manifest, generated_manifest)
+        self.assertEqual(command, generated_manifest["command"])
 
 
 if __name__ == "__main__":
