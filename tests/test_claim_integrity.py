@@ -151,6 +151,7 @@ class ClaimInventoryTests(unittest.TestCase):
             ("first_class", "我们提出第一类无需标签的方法。", ("第一",)),
             ("first_instance", "这是第一个满足该界的算法。", ("第一",)),
             ("first_suite", "我们开发了第一套公开评测协议。", ("第一",)),
+            ("first_gait_model", "我们提出第一步态识别模型。", ("第一",)),
             ("first_step", "第一步是整理数据。", ()),
             ("first_step_with_claim_cue", "第一步提出候选方法。", ()),
             ("first_chapter", "第一章介绍背景。", ()),
