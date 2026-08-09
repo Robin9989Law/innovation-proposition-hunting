@@ -356,6 +356,173 @@ class TheoryObligationTests(unittest.TestCase):
                 )
                 self.assertIn(expected_code, completed.stdout)
 
+    def test_random_property_na_requires_canonical_nonempty_unique_audit_authors(self) -> None:
+        malformed_authors = (
+            ("missing", None),
+            ("null", None),
+            ("empty", []),
+            ("not_list", "agent-a"),
+            ("blank", [""]),
+            ("whitespace", [" agent-a"]),
+            ("duplicate", ["agent-a", "agent-a"]),
+            ("non_string", ["agent-a", {}]),
+        )
+        for label, authors in malformed_authors:
+            with self.subTest(label=label):
+                project = self.make_project()
+                state = load_json(project / "workflow_state.json")
+                if label == "missing":
+                    del state["independent_audit"]["author_agent_ids"]
+                else:
+                    state["independent_audit"]["author_agent_ids"] = authors
+                write_json(project / "workflow_state.json", state)
+                obligations = load_obligations(project)
+                obligation = first_obligation(obligations)
+                obligation["witnesses"] = [
+                    witness
+                    for witness in obligation["witnesses"]
+                    if witness["kind"] != "RANDOM_PROPERTY"
+                ]
+                obligation["random_property"] = {
+                    "status": "NOT_APPLICABLE",
+                    "mathematical_reason": "Finite exhaustive proof.",
+                    "independent_audit_acceptance": {
+                        "accepted": True,
+                        "reviewer_agent_id": "agent-b",
+                    },
+                }
+                write_obligations(project, obligations)
+
+                completed = self.run_theory(project)
+
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("INVALID_RANDOM_PROPERTY_AUDIT_AUTHORS", completed.stdout)
+                self.assertNotIn("VALIDATOR_ERROR", completed.stdout)
+                self.assertNotIn("Traceback", completed.stderr)
+
+    def test_random_property_na_requires_canonical_independent_reviewer(self) -> None:
+        reviewer_cases = (
+            ("missing", None, "agent-b"),
+            ("blank", "", ""),
+            ("whitespace", " agent-b", " agent-b"),
+            ("non_string", {}, {}),
+            ("self_review", "agent-a", "agent-a"),
+            ("acceptance_mismatch", "agent-b", "agent-c"),
+        )
+        for label, state_reviewer, acceptance_reviewer in reviewer_cases:
+            with self.subTest(label=label):
+                project = self.make_project()
+                state = load_json(project / "workflow_state.json")
+                if label == "missing":
+                    del state["independent_audit"]["reviewer_agent_id"]
+                else:
+                    state["independent_audit"]["reviewer_agent_id"] = state_reviewer
+                write_json(project / "workflow_state.json", state)
+                obligations = load_obligations(project)
+                obligation = first_obligation(obligations)
+                obligation["witnesses"] = [
+                    witness
+                    for witness in obligation["witnesses"]
+                    if witness["kind"] != "RANDOM_PROPERTY"
+                ]
+                obligation["random_property"] = {
+                    "status": "NOT_APPLICABLE",
+                    "mathematical_reason": "Finite exhaustive proof.",
+                    "independent_audit_acceptance": {
+                        "accepted": True,
+                        "reviewer_agent_id": acceptance_reviewer,
+                    },
+                }
+                write_obligations(project, obligations)
+
+                completed = self.run_theory(project)
+
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("INVALID_RANDOM_PROPERTY_AUDIT_REVIEWER", completed.stdout)
+                self.assertNotIn("VALIDATOR_ERROR", completed.stdout)
+                self.assertNotIn("Traceback", completed.stderr)
+
+    def test_unhashable_theory_enum_values_are_field_errors(self) -> None:
+        for malformed in ([], {}):
+            with self.subTest(field="claim_type", malformed=malformed):
+                project = self.make_project()
+                inventory = load_json(project / "claim_inventory.json")
+                inventory["claims"][0]["claim_type"] = malformed
+                write_json(project / "claim_inventory.json", inventory)
+                completed = self.run_theory(project)
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("INVALID_CLAIM_INVENTORY", completed.stdout)
+                self.assertIn("claim_type:expected_nonempty_string", completed.stdout)
+                self.assertNotIn("VALIDATOR_ERROR", completed.stdout)
+                self.assertNotIn("Traceback", completed.stderr)
+
+            for field in ("kind", "expected", "observed"):
+                with self.subTest(field=field, malformed=malformed):
+                    project = self.make_project()
+                    obligations = load_obligations(project)
+                    first_obligation(obligations)["witnesses"][0][field] = malformed
+                    write_obligations(project, obligations)
+                    completed = self.run_theory(project)
+                    self.assertEqual(1, completed.returncode)
+                    expected_code = (
+                        "INVALID_WITNESS_KIND"
+                        if field == "kind"
+                        else "INVALID_WITNESS_FIELD"
+                    )
+                    self.assertIn(expected_code, completed.stdout)
+                    self.assertNotIn("VALIDATOR_ERROR", completed.stdout)
+                    self.assertNotIn("Traceback", completed.stderr)
+
+            with self.subTest(field="random_property.status", malformed=malformed):
+                project = self.make_project()
+                obligations = load_obligations(project)
+                obligation = first_obligation(obligations)
+                obligation["witnesses"] = [
+                    witness
+                    for witness in obligation["witnesses"]
+                    if witness["kind"] != "RANDOM_PROPERTY"
+                ]
+                obligation["random_property"] = {
+                    "status": malformed,
+                    "mathematical_reason": "Finite exhaustive proof.",
+                    "independent_audit_acceptance": {
+                        "accepted": True,
+                        "reviewer_agent_id": "agent-b",
+                    },
+                }
+                write_obligations(project, obligations)
+                completed = self.run_theory(project)
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("INVALID_RANDOM_PROPERTY_NA", completed.stdout)
+                self.assertNotIn("VALIDATOR_ERROR", completed.stdout)
+                self.assertNotIn("Traceback", completed.stderr)
+
+            with self.subTest(field="claim_profile", malformed=malformed):
+                project = self.make_project()
+                state = load_json(project / "workflow_state.json")
+                state["claim_profile"] = malformed
+                write_json(project / "workflow_state.json", state)
+                completed = self.run_theory(project)
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("INVALID_CLAIM_PROFILE", completed.stdout)
+                self.assertNotIn("VALIDATOR_ERROR", completed.stdout)
+                self.assertNotIn("Traceback", completed.stderr)
+
+    def test_validate_all_aggregates_unhashable_claim_profile_schema_issue(self) -> None:
+        for malformed in ([], {}):
+            with self.subTest(malformed=malformed):
+                project = self.make_project()
+                state = load_json(project / "workflow_state.json")
+                state["claim_profile"] = malformed
+                write_json(project / "workflow_state.json", state)
+
+                completed = run_all_validator(project)
+
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("INVALID_CLAIM_PROFILE", completed.stdout)
+                self.assertIn("validation_suite_status=INVALID", completed.stdout)
+                self.assertNotIn("Traceback", completed.stderr)
+
     def test_output_paths_must_be_canonical_relative_regular_files(self) -> None:
         outside = TemporaryDirectory(prefix="outside-theory-output-")
         self.addCleanup(outside.cleanup)

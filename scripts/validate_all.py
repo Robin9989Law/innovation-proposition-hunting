@@ -220,8 +220,10 @@ def main() -> int:
         print("=== claim_inventory ===")
         print(f"SKIP\tnot_required_at_state:{effective_state}")
 
+    claim_profile = state.get("claim_profile")
     theory_required = (
-        state.get("claim_profile") in THEORY_PROFILES
+        isinstance(claim_profile, str)
+        and claim_profile in THEORY_PROFILES
         and dispatch_state in THEORY_OBLIGATION_REQUIRED_STATES
     )
     run_theory_obligations = theory_obligations.exists() or theory_required

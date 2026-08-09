@@ -50,6 +50,10 @@ def statement_sha256(statement: str) -> str:
     return hashlib.sha256(statement.encode("utf-8")).hexdigest()
 
 
+def canonical_identifier(value: Any) -> bool:
+    return nonempty_string(value) and value.strip() == value
+
+
 def missing_issue(code: str, item_id: str, field: str) -> Issue:
     return Issue(code, "INVALID", item_id, f"missing_or_empty:{field}")
 
@@ -146,6 +150,16 @@ def collect_theorem_claims(
             )
             continue
         claim_type = claim.get("claim_type")
+        if not nonempty_string(claim_type):
+            issues.append(
+                Issue(
+                    "INVALID_CLAIM_INVENTORY",
+                    "INVALID",
+                    f"claim[{index}]",
+                    "claim_type:expected_nonempty_string",
+                )
+            )
+            continue
         if claim_type not in THEOREM_CLAIM_TYPES:
             continue
         claim_id = claim.get("claim_id")
@@ -250,12 +264,41 @@ def validate_random_property_na(
     state_authors = (
         state_audit.get("author_agent_ids") if isinstance(state_audit, dict) else None
     )
-    author_ids = state_authors if isinstance(state_authors, list) else []
+    valid_authors = (
+        isinstance(state_authors, list)
+        and bool(state_authors)
+        and all(canonical_identifier(author) for author in state_authors)
+        and len(set(state_authors)) == len(state_authors)
+    )
+    author_ids = state_authors if valid_authors else []
+    if not valid_authors:
+        issues.append(
+            Issue(
+                "INVALID_RANDOM_PROPERTY_AUDIT_AUTHORS",
+                "INVALID",
+                item_id,
+                "author_agent_ids:expected_nonempty_unique_canonical_string_list",
+            )
+        )
+    valid_reviewer = (
+        canonical_identifier(state_reviewer)
+        and canonical_identifier(acceptance_reviewer)
+        and state_reviewer == acceptance_reviewer
+        and valid_authors
+        and state_reviewer not in author_ids
+    )
+    if not valid_reviewer:
+        issues.append(
+            Issue(
+                "INVALID_RANDOM_PROPERTY_AUDIT_REVIEWER",
+                "INVALID",
+                item_id,
+                "reviewer_must_be_canonical_matching_and_independent",
+            )
+        )
     audit_accepts = (
         accepted
-        and nonempty_string(acceptance_reviewer)
-        and acceptance_reviewer == state_reviewer
-        and acceptance_reviewer not in author_ids
+        and valid_reviewer
         and isinstance(state_audit, dict)
         and state_audit.get("capability_available") is True
         and state_audit.get("verdict") == "PASS"
@@ -336,7 +379,7 @@ def validate_witnesses(
                 issues.append(
                     missing_issue(f"MISSING_WITNESS_{field.upper()}", witness_id, field)
                 )
-            elif value not in {"PASS", "FAIL"}:
+            elif not isinstance(value, str) or value not in {"PASS", "FAIL"}:
                 issues.append(
                     Issue(
                         "INVALID_WITNESS_FIELD",
@@ -382,7 +425,7 @@ def validate_witnesses(
                     "requires_expected_FAIL_observed_FAIL_and_nonzero_exit",
                 )
             )
-        elif kind in PASS_WITNESSES and (
+        elif isinstance(kind, str) and kind in PASS_WITNESSES and (
             witness.get("expected") != "PASS"
             or witness.get("observed") != "PASS"
             or isinstance(exit_code, bool)
@@ -776,7 +819,11 @@ def main() -> int:
         )
         state = read_json_object_at(root_fd, state_relative, "workflow_state")
         profile = state.get("claim_profile")
-        if profile not in {"THEORY", "MIXED", "ALGORITHM"}:
+        if not isinstance(profile, str) or profile not in {
+            "THEORY",
+            "MIXED",
+            "ALGORITHM",
+        }:
             issues = [
                 Issue(
                     "INVALID_CLAIM_PROFILE",
