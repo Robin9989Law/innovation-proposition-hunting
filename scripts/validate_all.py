@@ -11,6 +11,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from validation_common import ExitCode, Issue, choose_exit, render
+from validate_schema_v2 import validate as validate_schema_v2
+
 
 EVIDENCE_REQUIRED_STATES = {
     "EVIDENCE_VALIDATE",
@@ -42,6 +45,22 @@ def run(label: str, command: list[str]) -> int:
     return completed.returncode
 
 
+def issue_for_exit(label: str, exit_code: int) -> Issue | None:
+    if exit_code == ExitCode.READY:
+        return None
+    severity = {
+        ExitCode.INVALID: "INVALID",
+        ExitCode.BLOCKED: "BLOCKED",
+        ExitCode.MIGRATION_REQUIRED: "MIGRATION",
+    }.get(exit_code, "INVALID")
+    code = (
+        "VALIDATOR_ERROR"
+        if exit_code not in set(ExitCode)
+        else f"{label.upper()}_FAILED"
+    )
+    return Issue(code, severity, label, f"exit_code:{exit_code}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
@@ -71,98 +90,120 @@ def main() -> int:
         else root / "output_claim_support.json"
     )
 
-    failures = 0
-    failures += bool(
-        run(
-            "workflow_state",
-            [
-                sys.executable,
-                str(script_dir / "validate_workflow_state.py"),
-                "--root",
-                str(root),
-                "--state",
-                str(state_path),
-                "--current-year",
-                str(args.current_year),
-            ],
-        )
-    )
-    if failures:
-        print("validation_suite_failures=1")
-        return 1
+    try:
+        state = load_state(state_path)
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        issues = [Issue("VALIDATOR_ERROR", "INVALID", "workflow_state", str(error))]
+        print(render("validation_suite", issues))
+        return int(choose_exit(issues))
 
-    state = load_state(state_path)
+    suite_issues = validate_schema_v2(root, state)
+    print("=== schema_v2 ===")
+    print(render("schema_v2", suite_issues))
+    if choose_exit(suite_issues) == ExitCode.MIGRATION_REQUIRED:
+        print(render("validation_suite", suite_issues))
+        return int(ExitCode.MIGRATION_REQUIRED)
+
+    workflow_exit = run(
+        "workflow_state",
+        [
+            sys.executable,
+            str(script_dir / "validate_workflow_state.py"),
+            "--root",
+            str(root),
+            "--state",
+            str(state_path),
+            "--current-year",
+            str(args.current_year),
+        ],
+    )
+    workflow_issue = issue_for_exit("workflow_state", workflow_exit)
+    if workflow_issue:
+        suite_issues.append(workflow_issue)
+
     active_state = state.get("active_state")
     effective_state = (
         state.get("resume_state") if active_state == "BLOCKED" else active_state
     )
     gates = state.get("gates") if isinstance(state.get("gates"), dict) else {}
 
-    run_literature = bool(gates.get("literature_registry_valid")) or (
-        effective_state in LITERATURE_REQUIRED_STATES
+    run_literature = (
+        literature.is_file()
+        or bool(gates.get("literature_registry_valid"))
+        or effective_state in LITERATURE_REQUIRED_STATES
     )
-    run_evidence = bool(gates.get("evidence_validated")) or (
-        effective_state in EVIDENCE_REQUIRED_STATES
+    evidence_paths = (literature, claims, outputs)
+    run_evidence = (
+        any(path.exists() for path in evidence_paths)
+        or bool(gates.get("evidence_validated"))
+        or effective_state in EVIDENCE_REQUIRED_STATES
     )
 
     if run_literature:
         if not literature.is_file():
             print(f"LITERATURE_REQUIRED\tmissing:{literature}")
-            failures += 1
-        else:
-            failures += bool(
-                run(
+            suite_issues.append(
+                Issue(
+                    "LITERATURE_REQUIRED",
+                    "INVALID",
                     "literature_registry",
-                    [
-                        sys.executable,
-                        str(script_dir / "validate_literature_registry.py"),
-                        "--root",
-                        str(root),
-                        "--registry",
-                        str(literature),
-                    ],
+                    str(literature),
                 )
             )
+        else:
+            literature_exit = run(
+                "literature_registry",
+                [
+                    sys.executable,
+                    str(script_dir / "validate_literature_registry.py"),
+                    "--root",
+                    str(root),
+                    "--registry",
+                    str(literature),
+                ],
+            )
+            literature_issue = issue_for_exit("literature_registry", literature_exit)
+            if literature_issue:
+                suite_issues.append(literature_issue)
     else:
         print("=== literature_registry ===")
         print(f"SKIP\tnot_required_at_state:{effective_state}")
 
     if run_evidence:
-        missing = [
-            str(path)
-            for path in (literature, claims, outputs)
-            if not path.is_file()
-        ]
+        missing = [str(path) for path in evidence_paths if not path.is_file()]
         if missing:
             for path in missing:
                 print(f"EVIDENCE_REQUIRED\tmissing:{path}")
-            failures += 1
-        else:
-            failures += bool(
-                run(
-                    "evidence_chain",
-                    [
-                        sys.executable,
-                        str(script_dir / "validate_evidence_chain.py"),
-                        "--root",
-                        str(root),
-                        "--literature-registry",
-                        str(literature),
-                        "--claim-registry",
-                        str(claims),
-                        "--output-support",
-                        str(outputs),
-                        "--current-year",
-                        str(args.current_year),
-                    ],
+                suite_issues.append(
+                    Issue("EVIDENCE_REQUIRED", "INVALID", "evidence_chain", path)
                 )
+        else:
+            evidence_exit = run(
+                "evidence_chain",
+                [
+                    sys.executable,
+                    str(script_dir / "validate_evidence_chain.py"),
+                    "--root",
+                    str(root),
+                    "--literature-registry",
+                    str(literature),
+                    "--claim-registry",
+                    str(claims),
+                    "--output-support",
+                    str(outputs),
+                    "--current-year",
+                    str(args.current_year),
+                ],
             )
+            evidence_issue = issue_for_exit("evidence_chain", evidence_exit)
+            if evidence_issue:
+                suite_issues.append(evidence_issue)
     else:
         print("=== evidence_chain ===")
         print(f"SKIP\tnot_required_at_state:{effective_state}")
 
-    print(f"validation_suite_failures={failures}")
-    return 1 if failures else 0
+    print(render("validation_suite", suite_issues))
+    return int(choose_exit(suite_issues))
 
 
 if __name__ == "__main__":

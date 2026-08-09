@@ -9,6 +9,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from validation_common import Issue, choose_exit, render
+from validate_schema_v2 import validate as validate_schema_v2
+
 
 STATES = {
     "BOOT",
@@ -23,7 +26,14 @@ STATES = {
     "EVIDENCE_VALIDATE",
     "LAYER_DECISION",
     "N0_AUDIT",
+    "CLAIM_FREEZE",
+    "VALIDITY_AUDIT",
+    "INDEPENDENT_REVIEW",
+    "DIRECTION_LOCK",
     "COMPUTE",
+    "POSTCOMPUTE_CLAIM_FREEZE",
+    "FINAL_VALIDITY_AUDIT",
+    "FINAL_LOCK",
     "BLOCKED",
     "COMPLETE",
 }
@@ -187,9 +197,6 @@ def validate(
     ):
         if not nonempty(state.get(field)):
             add(errors, "FIELD", f"missing_or_empty:{field}")
-    if state.get("schema_version") != "1.0":
-        add(errors, "SCHEMA", f"unsupported:{state.get('schema_version')}")
-
     current_year = state.get("current_year")
     if current_year != expected_year:
         add(errors, "YEAR", f"current_year:{current_year};expected:{expected_year}")
@@ -408,11 +415,30 @@ def main() -> int:
         print(f"STATE_PATH\toutside_root:{state_path}")
         return 1
 
-    errors = validate(root, load_json(state_path), args.current_year)
-    print(f"workflow_state_errors={len(errors)}")
-    for error in errors:
-        print(error)
-    return 1 if errors else 0
+    try:
+        state = load_json(state_path)
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        issues = [Issue("VALIDATOR_ERROR", "INVALID", "workflow_state", str(error))]
+        print(render("workflow_state", issues))
+        return int(choose_exit(issues))
+
+    schema_issues = validate_schema_v2(root, state)
+    if any(issue.severity == "MIGRATION" for issue in schema_issues):
+        print(render("workflow_state", schema_issues))
+        return int(choose_exit(schema_issues))
+
+    errors = validate(root, state, args.current_year)
+    issues = schema_issues + [
+        Issue(
+            error.split("\t", 1)[0],
+            "INVALID",
+            "workflow_state",
+            error.split("\t", 1)[1] if "\t" in error else error,
+        )
+        for error in errors
+    ]
+    print(render("workflow_state", issues))
+    return int(choose_exit(issues))
 
 
 if __name__ == "__main__":
