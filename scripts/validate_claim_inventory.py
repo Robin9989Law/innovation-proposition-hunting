@@ -59,32 +59,47 @@ CHINESE_RISK_TERMS = (
 CHINESE_RISK_PATTERN = re.compile(
     "|".join(re.escape(term) for term in CHINESE_RISK_TERMS)
 )
-CHINESE_LEXICAL_CONTEXT_RULES = {
-    "保证": (
-        ("保证金融", True),
-        ("保证金", False),
+CHINESE_NON_RISK_CONTEXT_PATTERNS = {
+    "充分": (
+        re.compile(
+            r"^充分利用(?:率)?"
+            r"(?=$|[了着中内\s，。；：、！？）】]|缓存|资源|数据|信息|优势|能力|空间|时间)"
+        ),
     ),
-    "充分": (("充分利用", False),),
     "在线": (
-        ("在线性能", True),
-        ("在线下界", True),
-        ("在线性模型", False),
-        ("在线性回归", False),
-        ("在线性方程", False),
-        ("在线性代数", False),
-        ("在线性系统", False),
-        ("在线下实验", False),
-        ("在线下场景", False),
-        ("在线下环境", False),
-        ("在线下测试", False),
-        ("在线下设置", False),
-        ("在线下数据", False),
-        ("在线下进行", False),
+        re.compile(
+            r"^在线性(?:模型|回归|方程|代数|系统)"
+            r"(?=$|[中内里下上\s，。；：、！？）】])"
+        ),
+        re.compile(
+            r"^在线下(?:实验|场景|环境|测试|设置|数据)"
+            r"(?=$|[中内里下上\s，。；：、！？）】])"
+        ),
+        re.compile(
+            r"^在线下进行(?:实验|测试|评测|采集|训练)"
+            r"(?=$|[中内里下上\s，。；：、！？）】])"
+        ),
     ),
-    "必要": (("必要时", False),),
-    "精确": (("精确率", False),),
+    "必要": (
+        re.compile(
+            r"^必要时"
+            r"(?=$|[\s，。；：、！？）】]|重试|执行|进行|启动|停止|更新|返回|使用|调用)"
+        ),
+    ),
+    "精确": (
+        re.compile(
+            r"^精确率"
+            r"(?=$|[为是\s，。；：、！？）】]|指标|度量|分数|计算|达到|提升|下降|上升|无关|作为)"
+        ),
+    ),
 }
-FIRST_CLAIM_CLASSIFIERS = ("种", "个", "项", "篇", "套", "款")
+GUARANTEE_DEPOSIT_PATTERN = re.compile(
+    r"^保证金(?P<deposit_noun>额|制度|账户|比例|要求|条款|支付|退还|缴纳|收取)?"
+    r"(?=$|[中内的\s，。；：、！？）】])"
+)
+GUARANTEE_DEPOSIT_VERB = re.compile(
+    r"(?:缴纳|交纳|收取|退还|支付|扣除|返还|没收)[^，。；：、！？]{0,6}$"
+)
 FIRST_CLAIM_CUES = (
     "提出",
     "开发",
@@ -98,27 +113,15 @@ FIRST_CLAIM_CUES = (
     "首创",
     "开创",
 )
-FIRST_CLAIM_OBJECTS = (
-    "方法",
-    "算法",
-    "模型",
-    "定理",
-    "引理",
-    "推论",
-    "结论",
-    "结果",
-    "协议",
-    "框架",
-    "系统",
-    "工具",
-    "数据集",
-    "基准",
-    "评测",
-    "证明",
-    "理论",
-    "机制",
-    "贡献",
-    "方案",
+FIRST_ORDINAL_CONTEXT_PATTERNS = (
+    re.compile(
+        r"^第一(?:步|章|节|阶段|轮|部分)"
+        r"(?=$|[\s，。；：、！？）】]|是|为|需|介绍|讨论|收集|整理|执行|进行)"
+    ),
+    re.compile(r"^第一项实验(?=$|[\s，。；：、！？）】]|检查|用于|比较|测量|验证|评估)"),
+    re.compile(r"^第一篇文章(?=$|[\s，。；：、！？）】]|介绍|讨论|回顾|总结)"),
+    re.compile(r"^第一套参数(?=$|[\s，。；：、！？）】]|用于|作为|包含|取值)"),
+    re.compile(r"^第一款规定(?=$|[\s，。；：、！？）】]|适用|要求|说明)"),
 )
 
 MARKDOWN_THEOREM_HEADING = re.compile(
@@ -308,38 +311,30 @@ def matches_for_line(line: str) -> list[tuple[int, str]]:
         matches.extend((match.start(), canonical_term) for match in pattern.finditer(line))
     for match in CHINESE_RISK_PATTERN.finditer(line):
         term = match.group(0)
-        following = line[match.end() :]
-        if term == "第一":
-            classifier = next(
-                (
-                    candidate
-                    for candidate in FIRST_CLAIM_CLASSIFIERS
-                    if following.startswith(candidate)
-                ),
-                None,
-            )
-            if classifier is None:
-                continue
-            remainder = following[len(classifier) :]
-            if not any(cue in line for cue in FIRST_CLAIM_CUES) and not any(
-                research_object in remainder
-                for research_object in FIRST_CLAIM_OBJECTS
+        lexical_context = line[match.start() :]
+        if term == "保证":
+            deposit_match = GUARANTEE_DEPOSIT_PATTERN.match(lexical_context)
+            preceding_context = line[: match.start()]
+            if deposit_match and (
+                deposit_match.group("deposit_noun") is not None
+                or GUARANTEE_DEPOSIT_VERB.search(preceding_context)
+                or deposit_match.end() == len(lexical_context)
+                or lexical_context[deposit_match.end()] in "，。；：、！？）】"
             ):
                 continue
-        lexical_context = line[match.start() :]
-        context_decision = next(
-            (
-                is_risk
-                for context, is_risk in sorted(
-                    CHINESE_LEXICAL_CONTEXT_RULES.get(term, ()),
-                    key=lambda rule: len(rule[0]),
-                    reverse=True,
-                )
-                if lexical_context.startswith(context)
-            ),
-            True,
-        )
-        if not context_decision:
+        if (
+            term == "第一"
+            and not any(cue in line for cue in FIRST_CLAIM_CUES)
+            and any(
+                pattern.match(lexical_context)
+                for pattern in FIRST_ORDINAL_CONTEXT_PATTERNS
+            )
+        ):
+            continue
+        if any(
+            pattern.match(lexical_context)
+            for pattern in CHINESE_NON_RISK_CONTEXT_PATTERNS.get(term, ())
+        ):
             continue
         matches.append((match.start(), term))
     for pattern in (
