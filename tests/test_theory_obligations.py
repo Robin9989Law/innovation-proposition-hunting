@@ -44,6 +44,36 @@ def find_witness(obligation: dict[str, Any], kind: str) -> dict[str, Any]:
     return next(witness for witness in obligation["witnesses"] if witness["kind"] == kind)
 
 
+def configure_random_property_na(
+    project: Path,
+    *,
+    accepted: Any,
+    capability_available: Any,
+    verdict: Any,
+) -> dict[str, Any]:
+    state = load_json(project / "workflow_state.json")
+    state["independent_audit"]["capability_available"] = capability_available
+    state["independent_audit"]["verdict"] = verdict
+    write_json(project / "workflow_state.json", state)
+    obligations = load_obligations(project)
+    obligation = first_obligation(obligations)
+    obligation["witnesses"] = [
+        witness
+        for witness in obligation["witnesses"]
+        if witness["kind"] != "RANDOM_PROPERTY"
+    ]
+    obligation["random_property"] = {
+        "status": "NOT_APPLICABLE",
+        "mathematical_reason": "The finite domain is exhausted symbolically.",
+        "independent_audit_acceptance": {
+            "accepted": accepted,
+            "reviewer_agent_id": "agent-b",
+        },
+    }
+    write_obligations(project, obligations)
+    return obligation
+
+
 class TheoryObligationTests(unittest.TestCase):
     def make_project(
         self, *, claim_profile: str = "THEORY", validity_level: str = "V3"
@@ -628,6 +658,148 @@ class TheoryObligationTests(unittest.TestCase):
                 self.assertEqual(1, completed.returncode)
                 self.assertIn(code, completed.stdout)
                 self.assertNotIn("Traceback", completed.stderr)
+
+    def test_duplicate_json_keys_are_rejected_at_every_theory_input_depth(self) -> None:
+        cases = (
+            (
+                REGISTRY_NAME,
+                '  "schema_version": "2.0",\n',
+                '  "schema_version": "2.0",\n  "schema_version": "2.0",\n',
+                "INVALID_THEORY_REGISTRY_JSON",
+                "DUPLICATE_KEY:$.schema_version",
+            ),
+            (
+                REGISTRY_NAME,
+                '      "claim_id": "C-THEOREM-1",\n',
+                '      "claim_id": "C-THEOREM-1",\n      "claim_id": "C-THEOREM-1",\n',
+                "INVALID_THEORY_REGISTRY_JSON",
+                "DUPLICATE_KEY:$.obligations[0].claim_id",
+            ),
+            (
+                REGISTRY_NAME,
+                '          "kind": "MINIMAL_POSITIVE",\n',
+                '          "kind": "MINIMAL_POSITIVE",\n          "kind": "MINIMAL_POSITIVE",\n',
+                "INVALID_THEORY_REGISTRY_JSON",
+                "DUPLICATE_KEY:$.obligations[0].witnesses[0].kind",
+            ),
+            (
+                "claim_inventory.json",
+                '      "statement": "For every real x, if x >= 0, then x + 1 > 0.",\n',
+                '      "statement": "For every real x, if x >= 0, then x + 1 > 0.",\n'
+                '      "statement": "For every real x, if x >= 0, then x + 1 > 0.",\n',
+                "INVALID_CLAIM_INVENTORY_JSON",
+                "DUPLICATE_KEY:$.claims[0].statement",
+            ),
+            (
+                "workflow_state.json",
+                '  "claim_profile": "THEORY",\n',
+                '  "claim_profile": "THEORY",\n  "claim_profile": "THEORY",\n',
+                "INVALID_WORKFLOW_STATE_JSON",
+                "DUPLICATE_KEY:$.claim_profile",
+            ),
+        )
+        for file_name, needle, replacement, code, path in cases:
+            with self.subTest(file_name=file_name, path=path):
+                project = self.make_project()
+                artifact = project / file_name
+                raw = artifact.read_text(encoding="utf-8")
+                self.assertEqual(1, raw.count(needle))
+                artifact.write_text(raw.replace(needle, replacement), encoding="utf-8")
+
+                completed = self.run_theory(project)
+
+                self.assertEqual(1, completed.returncode)
+                self.assertIn(code, completed.stdout)
+                self.assertIn(path, completed.stdout)
+                self.assertNotIn("VALIDATOR_ERROR", completed.stdout)
+                self.assertNotIn("Traceback", completed.stderr)
+
+    def test_nonstandard_json_constants_and_utf8_bom_are_rejected(self) -> None:
+        project = self.make_project()
+        registry_path = project / REGISTRY_NAME
+        raw = registry_path.read_text(encoding="utf-8")
+        registry_path.write_text(
+            raw.replace('  "validation_epoch": 1,\n', '  "validation_epoch": NaN,\n', 1),
+            encoding="utf-8",
+        )
+
+        completed = self.run_theory(project)
+
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("INVALID_THEORY_REGISTRY_JSON", completed.stdout)
+        self.assertIn("NONSTANDARD_CONSTANT:$.validation_epoch:NaN", completed.stdout)
+        self.assertNotIn("Traceback", completed.stderr)
+
+        project = self.make_project()
+        state_path = project / "workflow_state.json"
+        state_path.write_bytes(b"\xef\xbb\xbf" + state_path.read_bytes())
+
+        completed = self.run_theory(project)
+
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("INVALID_WORKFLOW_STATE_JSON", completed.stdout)
+        self.assertIn("UTF8_BOM:$", completed.stdout)
+        self.assertNotIn("Traceback", completed.stderr)
+
+    def test_unavailable_reviewer_capability_preserves_blocked_na(self) -> None:
+        project = self.make_project()
+        configure_random_property_na(
+            project,
+            accepted=False,
+            capability_available=False,
+            verdict="BLOCKED",
+        )
+
+        completed = self.run_theory(project)
+
+        self.assertEqual(2, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("BLOCKED_CAPABILITY", completed.stdout)
+        self.assertNotIn("INVALID\t", completed.stdout)
+        self.assertNotIn("RANDOM_PROPERTY_NA_NOT_AUDIT_ACCEPTED", completed.stdout)
+
+        completed = run_all_validator(project)
+
+        self.assertEqual(2, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("BLOCKED_CAPABILITY", completed.stdout)
+        self.assertIn("validation_suite_status=BLOCKED", completed.stdout)
+
+    def test_unavailable_capability_does_not_hide_local_na_invalidity(self) -> None:
+        cases = (
+            ("accepted_true", "RANDOM_PROPERTY_NA_NOT_AUDIT_ACCEPTED"),
+            ("bad_status", "INVALID_RANDOM_PROPERTY_NA"),
+            ("blank_reason", "RANDOM_PROPERTY_NA_REASON_REQUIRED"),
+            ("self_review", "INVALID_RANDOM_PROPERTY_AUDIT_REVIEWER"),
+            ("bad_verdict", "INVALID_RANDOM_PROPERTY_AUDIT_VERDICT"),
+        )
+        for label, code in cases:
+            with self.subTest(label=label):
+                project = self.make_project()
+                obligation = configure_random_property_na(
+                    project,
+                    accepted=label == "accepted_true",
+                    capability_available=False,
+                    verdict="PASS" if label == "bad_verdict" else "BLOCKED",
+                )
+                if label == "bad_status":
+                    obligation["random_property"]["status"] = []
+                elif label == "blank_reason":
+                    obligation["random_property"]["mathematical_reason"] = ""
+                elif label == "self_review":
+                    state = load_json(project / "workflow_state.json")
+                    state["independent_audit"]["reviewer_agent_id"] = "agent-a"
+                    write_json(project / "workflow_state.json", state)
+                    obligation["random_property"]["independent_audit_acceptance"][
+                        "reviewer_agent_id"
+                    ] = "agent-a"
+                write_obligations(project, load_obligations(project) | {
+                    "obligations": [obligation]
+                })
+
+                completed = self.run_theory(project)
+
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("BLOCKED_CAPABILITY", completed.stdout)
+                self.assertIn(code, completed.stdout)
 
     def test_profile_routing_requires_theory_artifacts_only_for_theory_and_mixed(self) -> None:
         for profile, expected_exit in (("THEORY", 1), ("MIXED", 1), ("ALGORITHM", 0)):

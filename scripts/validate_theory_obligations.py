@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 from collections import Counter, defaultdict
 import hashlib
-import json
 import os
 from pathlib import Path
 import re
@@ -14,6 +13,7 @@ from typing import Any
 
 from validation_common import (
     Issue,
+    StrictJSONError,
     UnsafePathError,
     canonical_relative_path,
     choose_exit,
@@ -21,9 +21,9 @@ from validation_common import (
     nonempty_string,
     open_root_fd,
     positive_integer,
-    read_json_object_at,
     read_regular_file_at,
     render,
+    strict_json_load_bytes,
     string_list,
 )
 
@@ -44,6 +44,16 @@ PASS_WITNESSES = {
 }
 ALLOWED_WITNESSES = REQUIRED_WITNESSES | {"RANDOM_PROPERTY"}
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
+JSON_ERROR_CODES = {
+    "workflow_state": "INVALID_WORKFLOW_STATE_JSON",
+    "claim_inventory": "INVALID_CLAIM_INVENTORY_JSON",
+    "theory_obligation_registry": "INVALID_THEORY_REGISTRY_JSON",
+}
+JSON_OBJECT_ERROR_CODES = {
+    "workflow_state": "INVALID_WORKFLOW_STATE",
+    "claim_inventory": "INVALID_CLAIM_INVENTORY",
+    "theory_obligation_registry": "INVALID_THEORY_REGISTRY",
+}
 
 
 def statement_sha256(statement: str) -> str:
@@ -73,21 +83,20 @@ def load_required_json(
         ]
     assert snapshot.data is not None
     try:
-        payload = json.loads(snapshot.data.decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeError) as error:
-        code = (
-            "INVALID_THEORY_REGISTRY_JSON"
-            if label == "theory_obligation_registry"
-            else "INVALID_CLAIM_INVENTORY_JSON"
-        )
-        return None, [Issue(code, "INVALID", label, type(error).__name__)]
+        payload = strict_json_load_bytes(snapshot.data)
+    except StrictJSONError as error:
+        return None, [
+            Issue(JSON_ERROR_CODES[label], "INVALID", label, str(error))
+        ]
     if not isinstance(payload, dict):
-        code = (
-            "INVALID_THEORY_REGISTRY"
-            if label == "theory_obligation_registry"
-            else "INVALID_CLAIM_INVENTORY"
-        )
-        return None, [Issue(code, "INVALID", label, "top_level_not_object")]
+        return None, [
+            Issue(
+                JSON_OBJECT_ERROR_CODES[label],
+                "INVALID",
+                label,
+                "top_level_not_object",
+            )
+        ]
     return payload, []
 
 
@@ -254,7 +263,17 @@ def validate_random_property_na(
 
     acceptance = random_property.get("independent_audit_acceptance")
     state_audit = state.get("independent_audit")
-    accepted = isinstance(acceptance, dict) and acceptance.get("accepted") is True
+    accepted_value = acceptance.get("accepted") if isinstance(acceptance, dict) else None
+    valid_accepted_type = type(accepted_value) is bool
+    if not isinstance(acceptance, dict) or not valid_accepted_type:
+        issues.append(
+            Issue(
+                "INVALID_RANDOM_PROPERTY_AUDIT_ACCEPTANCE",
+                "INVALID",
+                item_id,
+                "accepted:expected_boolean",
+            )
+        )
     acceptance_reviewer = (
         acceptance.get("reviewer_agent_id") if isinstance(acceptance, dict) else None
     )
@@ -296,14 +315,59 @@ def validate_random_property_na(
                 "reviewer_must_be_canonical_matching_and_independent",
             )
         )
-    audit_accepts = (
-        accepted
-        and valid_reviewer
-        and isinstance(state_audit, dict)
-        and state_audit.get("capability_available") is True
-        and state_audit.get("verdict") == "PASS"
+    capability = (
+        state_audit.get("capability_available")
+        if isinstance(state_audit, dict)
+        else None
     )
-    if not audit_accepts:
+    valid_capability = type(capability) is bool
+    if not valid_capability:
+        issues.append(
+            Issue(
+                "INVALID_RANDOM_PROPERTY_AUDIT_CAPABILITY",
+                "INVALID",
+                item_id,
+                "capability_available:expected_boolean",
+            )
+        )
+    blocked_capability = capability is False
+    if blocked_capability:
+        issues.append(
+            Issue(
+                "BLOCKED_CAPABILITY",
+                "BLOCKED",
+                item_id,
+                "independent_random_property_na_review_unavailable",
+            )
+        )
+
+    verdict = state_audit.get("verdict") if isinstance(state_audit, dict) else None
+    expected_verdict = "BLOCKED" if blocked_capability else "PASS"
+    valid_verdict = isinstance(verdict, str) and verdict == expected_verdict
+    if not valid_verdict:
+        issues.append(
+            Issue(
+                "INVALID_RANDOM_PROPERTY_AUDIT_VERDICT",
+                "INVALID",
+                item_id,
+                f"verdict:expected_{expected_verdict}",
+            )
+        )
+
+    audit_accepts = (
+        capability is True
+        and valid_verdict
+        and accepted_value is True
+        and valid_reviewer
+    )
+    valid_blocked_declaration = (
+        blocked_capability
+        and valid_verdict
+        and accepted_value is False
+        and valid_accepted_type
+        and valid_reviewer
+    )
+    if not audit_accepts and not valid_blocked_declaration:
         issues.append(
             Issue(
                 "RANDOM_PROPERTY_NA_NOT_AUDIT_ACCEPTED",
@@ -817,59 +881,71 @@ def main() -> int:
         registry_relative = lexical_relative_cli_path(
             args.root, registry_path, "registry"
         )
-        state = read_json_object_at(root_fd, state_relative, "workflow_state")
-        profile = state.get("claim_profile")
-        if not isinstance(profile, str) or profile not in {
-            "THEORY",
-            "MIXED",
-            "ALGORITHM",
-        }:
-            issues = [
+        state, state_issues = load_required_json(
+            root_fd, state_relative, "workflow_state"
+        )
+        if state is None:
+            issues = state_issues or [
                 Issue(
-                    "INVALID_CLAIM_PROFILE",
+                    "WORKFLOW_STATE_REQUIRED",
                     "INVALID",
                     "workflow_state",
-                    f"claim_profile:{profile}",
+                    state_relative,
                 )
             ]
         else:
-            registry, registry_issues = load_required_json(
-                root_fd, registry_relative, "theory_obligation_registry"
-            )
-            if registry is None and not registry_issues:
-                issues = (
-                    [
-                        Issue(
-                            "THEORY_OBLIGATION_REGISTRY_REQUIRED",
-                            "INVALID",
-                            "theory_obligation_registry",
-                            registry_relative,
-                        )
-                    ]
-                    if profile in THEORY_PROFILES
-                    else []
-                )
-            elif registry is None:
-                issues = registry_issues
-            else:
-                inventory, inventory_issues = load_required_json(
-                    root_fd, inventory_relative, "claim_inventory"
-                )
-                if inventory is None and not inventory_issues:
-                    issues = [
-                        Issue(
-                            "CLAIM_INVENTORY_REQUIRED",
-                            "INVALID",
-                            "claim_inventory",
-                            inventory_relative,
-                        )
-                    ]
-                elif inventory is None:
-                    issues = inventory_issues
-                else:
-                    issues = registry_issues + inventory_issues + validate(
-                        root_fd, state, inventory, registry
+            profile = state.get("claim_profile")
+            if not isinstance(profile, str) or profile not in {
+                "THEORY",
+                "MIXED",
+                "ALGORITHM",
+            }:
+                issues = [
+                    Issue(
+                        "INVALID_CLAIM_PROFILE",
+                        "INVALID",
+                        "workflow_state",
+                        f"claim_profile:{profile}",
                     )
+                ]
+            else:
+                registry, registry_issues = load_required_json(
+                    root_fd, registry_relative, "theory_obligation_registry"
+                )
+                if registry is None and not registry_issues:
+                    issues = (
+                        [
+                            Issue(
+                                "THEORY_OBLIGATION_REGISTRY_REQUIRED",
+                                "INVALID",
+                                "theory_obligation_registry",
+                                registry_relative,
+                            )
+                        ]
+                        if profile in THEORY_PROFILES
+                        else []
+                    )
+                elif registry is None:
+                    issues = registry_issues
+                else:
+                    inventory, inventory_issues = load_required_json(
+                        root_fd, inventory_relative, "claim_inventory"
+                    )
+                    if inventory is None and not inventory_issues:
+                        issues = [
+                            Issue(
+                                "CLAIM_INVENTORY_REQUIRED",
+                                "INVALID",
+                                "claim_inventory",
+                                inventory_relative,
+                            )
+                        ]
+                    elif inventory is None:
+                        issues = inventory_issues
+                    else:
+                        issues = registry_issues + inventory_issues + validate(
+                            root_fd, state, inventory, registry
+                        )
     except Exception as error:
         issues = [
             Issue(

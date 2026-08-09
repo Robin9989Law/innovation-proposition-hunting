@@ -41,6 +41,27 @@ class UnsafePathError(ValueError):
     """A path cannot be safely opened below the trusted project root."""
 
 
+class StrictJSONError(ValueError):
+    """Stable strict-JSON parse failure with an exact JSON path."""
+
+    def __init__(self, reason: str, path: str, detail: str = "") -> None:
+        self.reason = reason
+        self.path = path
+        self.detail = detail
+        suffix = f":{detail}" if detail else ""
+        super().__init__(f"{reason}:{path}{suffix}")
+
+
+@dataclass(frozen=True)
+class _JSONObjectPairs:
+    pairs: list[tuple[str, Any]]
+
+
+@dataclass(frozen=True)
+class _JSONConstant:
+    value: str
+
+
 def choose_exit(issues: list[Issue]) -> ExitCode:
     severities = {issue.severity for issue in issues}
     if "MIGRATION" in severities:
@@ -191,13 +212,65 @@ def read_regular_file_at(
             os.close(parent_fd)
 
 
+def _json_child_path(path: str, key: str) -> str:
+    if key.isidentifier():
+        return f"{path}.{key}"
+    return f"{path}[{json.dumps(key, ensure_ascii=False)}]"
+
+
+def _materialize_strict_json(value: Any, path: str) -> Any:
+    if isinstance(value, _JSONConstant):
+        raise StrictJSONError("NONSTANDARD_CONSTANT", path, value.value)
+    if isinstance(value, _JSONObjectPairs):
+        seen: set[str] = set()
+        for key, _ in value.pairs:
+            if key in seen:
+                raise StrictJSONError("DUPLICATE_KEY", _json_child_path(path, key))
+            seen.add(key)
+        return {
+            key: _materialize_strict_json(child, _json_child_path(path, key))
+            for key, child in value.pairs
+        }
+    if isinstance(value, list):
+        return [
+            _materialize_strict_json(child, f"{path}[{index}]")
+            for index, child in enumerate(value)
+        ]
+    return value
+
+
+def strict_json_loads(text: str) -> Any:
+    """Decode RFC-style JSON, rejecting duplicates and Python constants."""
+
+    if text.startswith("\ufeff"):
+        raise StrictJSONError("UTF8_BOM", "$")
+    try:
+        parsed = json.loads(
+            text,
+            object_pairs_hook=lambda pairs: _JSONObjectPairs(pairs),
+            parse_constant=lambda value: _JSONConstant(value),
+        )
+    except json.JSONDecodeError as error:
+        raise StrictJSONError(
+            "MALFORMED_JSON",
+            "$",
+            f"line:{error.lineno};column:{error.colno}",
+        ) from error
+    return _materialize_strict_json(parsed, "$")
+
+
+def strict_json_load_bytes(data: bytes) -> Any:
+    try:
+        text = data.decode("utf-8")
+    except UnicodeError as error:
+        raise StrictJSONError("INVALID_UTF8", "$", type(error).__name__) from error
+    return strict_json_loads(text)
+
+
 def read_json_object_at(root_fd: int, raw_path: str, label: str) -> dict[str, Any]:
     snapshot = read_regular_file_at(root_fd, raw_path, include_data=True)
     assert snapshot.data is not None
-    try:
-        payload = json.loads(snapshot.data.decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeError) as error:
-        raise ValueError(f"{label}:invalid_json:{type(error).__name__}") from error
+    payload = strict_json_load_bytes(snapshot.data)
     if not isinstance(payload, dict):
         raise TypeError(f"{label}:top_level_not_object")
     return payload
