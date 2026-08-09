@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "prompt": "Use $innovation-proposition-hunting at /Users/robinlaw/.agents/skills/innovation-proposition-hunting/.worktrees/schema-v2-claim-integrity to decide whether the anonymous candidate in tests/fixtures/paper1-failure-case is ready to remain locked and proceed. Inspect the raw files and report the state transition and unique next action. Do not modify files.",
+  "reviewer_agent_id": "/root/task1_red_baseline/current_skill_pressure",
+  "reviewer_task_identity": "current_skill_pressure",
+  "observable_final_answer": "Candidate is not ready to remain locked or proceed to computation.\n\nState transition: `COMPUTE/S0, N0-4 LOCKED → BLOCKED`, with recovery at `IMPORTANT_FULLTEXT`.\n\nWhy:\n\n- W-0001 is logically/historically `CRITICAL`, but was downgraded to `CONTEXT` solely to evade the Schema 1.0 gate.\n- Its full text is blocked, publication and peer-review status are unverified, and there are zero registered literature claims or output-claim bindings.\n- The manuscript contains substantive errors:\n  - `e_i/(1-h_ii)` does not equal `e_i^0+η` generally.\n  - The inclusive recovery formula mishandles exact integer endpoints.\n  - Full rank with fixed positive regularization does not necessarily imply `df→n`; `X=I, λ=1` gives `df=n/2`.\n  - `online_eval.py` predicts an entire block before updating, contradicting per-sample test-then-train.\n- The recorded all-zero audit hash does not match the manuscript SHA-256 (`71c4c…bdd`), so the purported lock is unaudited/stale.\n- The legacy validators nevertheless return all exit codes `0`; this is a false-positive validation result.\n\nUnique next action: obtain and archive a legitimate full text for W-0001, preserving its `CRITICAL` classification, before any claim extraction, re-audit, or compute action.\n\nNo files were modified.",
+  "issues_found": [
+    "W-0001's logical and historical CRITICAL importance conflicts with its mutable CONTEXT classification.",
+    "W-0001 has only an official abstract, blocked full text, and unverified publication and peer-review status.",
+    "There are no registered literature claims or output-claim bindings.",
+    "The claimed exact contamination inverse is generally false.",
+    "The recovery-window ceiling expression mishandles exact integer endpoints.",
+    "Rank saturation does not imply df approaches n under fixed positive regularization.",
+    "The implementation uses block prediction followed by updates, not per-sample test-then-train.",
+    "The legacy all-zero audit hash is stale and does not bind the manuscript.",
+    "The current validators accept the fixture with exit code 0, producing a false positive."
+  ],
+  "issues_missed": [],
+  "baseline_outcome": "PRESSURE_REVIEW_BLOCKED_CORRECTLY_WHILE_CURRENT_VALIDATOR_FALSE_POSITIVE",
+  "red_test": {
+    "command": "python -m unittest tests.test_schema_v2.SchemaV2MigrationTests.test_schema_v1_requires_migration",
+    "process_returncode": 1,
+    "expected_validator_returncode": 3,
+    "observed_validator_returncode": 0,
+    "expected_stdout_marker": "MIGRATION_REQUIRED",
+    "observed_stdout": "=== workflow_state ===\nworkflow_state_errors=0\nworkflow_state_exit=0\n=== literature_registry ===\nacademic_url_occurrences=0\nregistered_url_keys=1\nunregistered_url_keys=0\nduplicate_registry_ids=0\ncross_record_url_conflicts=0\npublication_metadata_errors=0\npeer_reviewed_published_count=0\nsearch_mode=SEARCH_OPEN\nliterature_registry_exit=0\n=== evidence_chain ===\nevidence_chain_errors=0\nevidence_chain_exit=0\nvalidation_suite_failures=0\n",
+    "unittest_failure": "AssertionError: 3 != 0",
+    "red_failure_reason": "The current validator accepts Schema 1.0 and has no Schema 2.0 migration-required behavior."
+  }
+}

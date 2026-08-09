@@ -1,0 +1,61 @@
+{
+  "schema_version": "1.0",
+  "workflow_id": "anonymous-paper1",
+  "updated_at": "2026-08-10T09:00:00+08:00",
+  "current_year": 2026,
+  "recent_window": {
+    "start_year": 2024,
+    "end_year": 2026,
+    "status": "COMPLETE",
+    "snapshot_mode": "REUSED_VERIFIED_SNAPSHOT"
+  },
+  "output_type": "JOURNAL_ARTICLE",
+  "contribution_contract": "ONE_MAIN_M",
+  "active_layer": "L3",
+  "active_contribution": "M",
+  "active_state": "COMPUTE",
+  "resume_state": "COMPUTE",
+  "last_completed_state": "N0_AUDIT",
+  "search_mode": "SEARCH_OPEN",
+  "compute_stage": "S0",
+  "collision_round": 1,
+  "next_required_action": "Run the current S0 compute-readiness check.",
+  "blocked_reasons": [],
+  "gates": {
+    "scope_locked": true,
+    "prior_claims_drained": true,
+    "recent_frontier_complete": true,
+    "literature_registry_valid": true,
+    "important_fulltext_complete": true,
+    "source_claims_complete": true,
+    "output_claims_traced": true,
+    "evidence_validated": true,
+    "l1_frozen": true,
+    "l2_frozen": true,
+    "architecture_frozen": true,
+    "n0_4_locked": true,
+    "compute_authorized": true
+  },
+  "n0_4_status": "LOCKED",
+  "compute_readiness": "CURRENT",
+  "n0_audit_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "artifacts": {
+    "scope_lock": "scope_lock.md",
+    "hierarchy_status": "hierarchy_status.md",
+    "literature_registry": "near_neighbor_registry.json",
+    "literature_archive": "literature_archive",
+    "claim_registry": "literature_claim_registry.json",
+    "output_support": "output_claim_support.json",
+    "validation_log": "validation.log",
+    "l1_card": "l1_card.md",
+    "l2_card": "l2_card.md",
+    "contribution_architecture": "contribution_architecture.md",
+    "hierarchy_novelty_audit": "hierarchy_novelty_audit.json"
+  },
+  "decision_log": [
+    {
+      "at": "2026-08-10T08:55:00+08:00",
+      "decision": "N0-N4 locked under the prior audit snapshot."
+    }
+  ]
+}

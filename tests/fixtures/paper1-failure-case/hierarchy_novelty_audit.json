@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "audit_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "audited_at": "2026-08-10T08:40:00+08:00",
+  "statuses": {
+    "N0": "LOCKED",
+    "N1": "LOCKED",
+    "N2": "LOCKED",
+    "N3": "LOCKED",
+    "N4": "LOCKED"
+  },
+  "compute_readiness": "CURRENT"
+}

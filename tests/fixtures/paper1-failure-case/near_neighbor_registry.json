@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0",
+  "current_year": 2026,
+  "recent_window": {
+    "start_year": 2024,
+    "end_year": 2026,
+    "status": "COMPLETE",
+    "completed_at": "2026-08-09T17:00:00+08:00",
+    "queries": [
+      "online residual contamination leverage regularization"
+    ]
+  },
+  "current_collision_round": 1,
+  "peer_reviewed_published_count": 0,
+  "synthesis_lock_threshold": 100,
+  "search_mode": "SEARCH_OPEN",
+  "records": [
+    {
+      "registry_id": "W-0001",
+      "canonical_title": "A Historically Critical Near Neighbor",
+      "authors": [
+        "Anonymous Author"
+      ],
+      "year": 2025,
+      "canonical_url": "https://example.com/official-abstract/w-0001",
+      "alternate_urls": [],
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://example.com/official-abstract/w-0001",
+      "identity_verified_at": "2026-08-09T15:00:00+08:00",
+      "publication_status": "STATUS_UNVERIFIED",
+      "publication_verification_url": "https://example.com/official-abstract/w-0001",
+      "terminal_rejection_eligibility": "NOT_QUALIFIED",
+      "peer_review_status": "PEER_REVIEW_STATUS_UNVERIFIED",
+      "peer_review_verification_url": "https://example.com/official-abstract/w-0001",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "CONTEXT",
+      "historical_importance": "CRITICAL",
+      "logical_importance": "CRITICAL",
+      "importance_history": [
+        {
+          "importance": "CRITICAL",
+          "recorded_at": "2026-08-09T15:30:00+08:00",
+          "reason": "Directly bears on the central residual and recovery claims."
+        },
+        {
+          "importance": "CONTEXT",
+          "recorded_at": "2026-08-09T16:30:00+08:00",
+          "reason": "Mutable current classification used by the Schema 1.0 gate."
+        }
+      ],
+      "available_evidence": "OFFICIAL_ABSTRACT_ONLY",
+      "download": {
+        "status": "BLOCKED",
+        "source_url": "https://example.com/fulltext/w-0001",
+        "blocked_reason": "Publisher full text is inaccessible; only the official abstract is available."
+      },
+      "claim_extraction_status": "BLOCKED_FULLTEXT"
+    }
+  ]
+}
