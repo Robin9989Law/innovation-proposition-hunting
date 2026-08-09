@@ -7,8 +7,9 @@ import argparse
 from copy import deepcopy
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
-from shutil import copy2
+import tempfile
 from typing import Any
 
 
@@ -25,7 +26,9 @@ def migrate(state: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(gates, dict):
         gates = {}
         migrated["gates"] = gates
-    old_n0_locked = bool(gates.get("n0_4_locked")) or (
+    if "n0_4_locked" in gates and type(gates["n0_4_locked"]) is not bool:
+        raise ValueError("n0_4_locked_not_boolean")
+    old_n0_locked = gates.get("n0_4_locked") is True or (
         migrated.get("n0_4_status") == "LOCKED"
     )
 
@@ -46,12 +49,53 @@ def migrate(state: dict[str, Any]) -> dict[str, Any]:
     return migrated
 
 
-def write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    serialized = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode(
+        "utf-8"
     )
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temporary_path = Path(temporary_name)
+    descriptor_open = True
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            descriptor_open = False
+            handle.write(serialized)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+    except BaseException:
+        if descriptor_open:
+            os.close(descriptor)
+        temporary_path.unlink(missing_ok=True)
+        raise
+
+
+def create_exclusive_backup(source: Path, backup: Path) -> None:
+    descriptor = os.open(
+        backup,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+        source.stat().st_mode & 0o777,
+    )
+    backup_open = True
+    try:
+        with os.fdopen(descriptor, "wb") as destination:
+            backup_open = False
+            with source.open("rb") as source_handle:
+                for chunk in iter(lambda: source_handle.read(1024 * 1024), b""):
+                    destination.write(chunk)
+            destination.flush()
+            os.fsync(destination.fileno())
+    except BaseException:
+        if backup_open:
+            os.close(descriptor)
+        backup.unlink(missing_ok=True)
+        raise
+
+
+def is_schema_1_x(value: Any) -> bool:
+    return isinstance(value, str) and (value == "1" or value.startswith("1."))
 
 
 def main() -> int:
@@ -68,8 +112,9 @@ def main() -> int:
     try:
         state_path.relative_to(root)
         source = load_json(state_path)
-        if source.get("schema_version") == "2.0":
-            raise ValueError("state is already Schema 2.0")
+        if not is_schema_1_x(source.get("schema_version")):
+            raise ValueError("source_schema_not_1_x")
+        migrated = migrate(source)
         output_path = (
             state_path
             if args.in_place
@@ -78,15 +123,19 @@ def main() -> int:
             else root / "workflow_state.v2.json"
         )
         output_path.relative_to(root)
-        migrated = migrate(source)
         if args.in_place:
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
             backup = state_path.with_name(
                 f"{state_path.name}.v1-backup-{timestamp}"
             )
-            copy2(state_path, backup)
+            create_exclusive_backup(state_path, backup)
             print(f"migration_backup={backup}")
-        write_json(output_path, migrated)
+        else:
+            if output_path == state_path:
+                raise ValueError("output_equals_state")
+            if os.path.lexists(output_path):
+                raise ValueError("output_exists")
+        atomic_write_json(output_path, migrated)
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(f"migration_status=INVALID\nmigration_error={error}")
         return 1

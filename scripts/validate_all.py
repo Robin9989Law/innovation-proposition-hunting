@@ -61,6 +61,13 @@ def issue_for_exit(label: str, exit_code: int) -> Issue | None:
     return Issue(code, severity, label, f"exit_code:{exit_code}")
 
 
+def require_within_root(root: Path, path: Path, label: str) -> None:
+    try:
+        path.relative_to(root)
+    except ValueError as error:
+        raise ValueError(f"{label}:outside_root:{path}") from error
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
@@ -91,13 +98,27 @@ def main() -> int:
     )
 
     try:
+        if not root.is_dir():
+            raise ValueError(f"root:not_directory:{root}")
+        for label, path in (
+            ("state", state_path),
+            ("literature_registry", literature),
+            ("claim_registry", claims),
+            ("output_support", outputs),
+        ):
+            require_within_root(root, path, label)
         state = load_state(state_path)
-    except (OSError, ValueError, json.JSONDecodeError) as error:
+    except Exception as error:
         issues = [Issue("VALIDATOR_ERROR", "INVALID", "workflow_state", str(error))]
         print(render("validation_suite", issues))
         return int(choose_exit(issues))
 
-    suite_issues = validate_schema_v2(root, state)
+    try:
+        suite_issues = validate_schema_v2(root, state)
+    except Exception as error:
+        suite_issues = [
+            Issue("VALIDATOR_ERROR", "INVALID", "workflow_state", str(error))
+        ]
     print("=== schema_v2 ===")
     print(render("schema_v2", suite_issues))
     if choose_exit(suite_issues) == ExitCode.MIGRATION_REQUIRED:
@@ -125,18 +146,19 @@ def main() -> int:
     effective_state = (
         state.get("resume_state") if active_state == "BLOCKED" else active_state
     )
+    dispatch_state = effective_state if isinstance(effective_state, str) else ""
     gates = state.get("gates") if isinstance(state.get("gates"), dict) else {}
 
     run_literature = (
         literature.is_file()
         or bool(gates.get("literature_registry_valid"))
-        or effective_state in LITERATURE_REQUIRED_STATES
+        or dispatch_state in LITERATURE_REQUIRED_STATES
     )
     evidence_paths = (literature, claims, outputs)
     run_evidence = (
         any(path.exists() for path in evidence_paths)
         or bool(gates.get("evidence_validated"))
-        or effective_state in EVIDENCE_REQUIRED_STATES
+        or dispatch_state in EVIDENCE_REQUIRED_STATES
     )
 
     if run_literature:
@@ -160,6 +182,7 @@ def main() -> int:
                     str(root),
                     "--registry",
                     str(literature),
+                    "--read-only",
                 ],
             )
             literature_issue = issue_for_exit("literature_registry", literature_exit)

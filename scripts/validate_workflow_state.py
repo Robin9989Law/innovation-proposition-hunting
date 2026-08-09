@@ -417,7 +417,7 @@ def main() -> int:
 
     try:
         state = load_json(state_path)
-    except (OSError, ValueError, json.JSONDecodeError) as error:
+    except Exception as error:
         issues = [Issue("VALIDATOR_ERROR", "INVALID", "workflow_state", str(error))]
         print(render("workflow_state", issues))
         return int(choose_exit(issues))
@@ -427,7 +427,13 @@ def main() -> int:
         print(render("workflow_state", schema_issues))
         return int(choose_exit(schema_issues))
 
-    errors = validate(root, state, args.current_year)
+    try:
+        errors = validate(root, state, args.current_year)
+    except Exception as error:
+        errors = []
+        schema_issues.append(
+            Issue("VALIDATOR_ERROR", "INVALID", "workflow_state", str(error))
+        )
     issues = schema_issues + [
         Issue(
             error.split("\t", 1)[0],

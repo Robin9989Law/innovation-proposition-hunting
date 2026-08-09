@@ -192,6 +192,11 @@ def main() -> int:
     parser.add_argument(
         "--ledger-output", type=Path, default=Path("near_neighbor_url_ledger.csv")
     )
+    parser.add_argument(
+        "--read-only",
+        action="store_true",
+        help="Validate without creating or replacing the URL ledger.",
+    )
     args = parser.parse_args()
 
     root = args.root.resolve()
@@ -247,25 +252,26 @@ def main() -> int:
         )
     rows = scan(root, {registry, ledger})
 
-    ledger.parent.mkdir(parents=True, exist_ok=True)
-    with ledger.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(
-            handle,
-            fieldnames=[
-                "url",
-                "canonical_key",
-                "source_file",
-                "line",
-                "registry_id",
-                "registered",
-            ],
-        )
-        writer.writeheader()
-        for row in rows:
-            key = str(row["canonical_key"])
-            row["registry_id"] = owners.get(key, "")
-            row["registered"] = "YES" if key in registered_keys else "NO"
-            writer.writerow(row)
+    if not args.read_only:
+        ledger.parent.mkdir(parents=True, exist_ok=True)
+        with ledger.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(
+                handle,
+                fieldnames=[
+                    "url",
+                    "canonical_key",
+                    "source_file",
+                    "line",
+                    "registry_id",
+                    "registered",
+                ],
+            )
+            writer.writeheader()
+            for row in rows:
+                key = str(row["canonical_key"])
+                row["registry_id"] = owners.get(key, "")
+                row["registered"] = "YES" if key in registered_keys else "NO"
+                writer.writerow(row)
 
     missing = sorted({str(row["canonical_key"]) for row in rows} - registered_keys)
     print(f"academic_url_occurrences={len(rows)}")

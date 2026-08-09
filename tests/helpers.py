@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any
+from typing import Any, Sequence
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -108,7 +108,10 @@ def run_schema_validator(project: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-def run_all_validator(project: Path) -> subprocess.CompletedProcess[str]:
+def run_all_validator(
+    project: Path,
+    extra_args: Sequence[str] = (),
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [
             sys.executable,
@@ -119,6 +122,7 @@ def run_all_validator(project: Path) -> subprocess.CompletedProcess[str]:
             str(project / "workflow_state.json"),
             "--current-year",
             "2026",
+            *extra_args,
         ],
         check=False,
         capture_output=True,
