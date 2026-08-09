@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import os
 import subprocess
 import sys
@@ -8,6 +9,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
+from unittest import mock
 
 from tests.helpers import (
     REPOSITORY_ROOT,
@@ -30,6 +32,28 @@ REQUIRED_CLAIM_FIELDS = (
     "status",
     "validation_epoch",
 )
+
+
+def load_claim_validator_module():
+    module_path = REPOSITORY_ROOT / "scripts" / "validate_claim_inventory.py"
+    module_name = "claim_validator_under_test"
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:
+        raise AssertionError(f"cannot load claim validator module: {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    scripts_path = str(module_path.parent)
+    sys.path.insert(0, scripts_path)
+    previous_module = sys.modules.get(module_name)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.path.remove(scripts_path)
+        if previous_module is None:
+            del sys.modules[module_name]
+        else:
+            sys.modules[module_name] = previous_module
+    return module
 
 
 def expected_occurrence_id(
@@ -116,6 +140,24 @@ class ClaimInventoryTests(unittest.TestCase):
                     1, completed.returncode, completed.stdout + completed.stderr
                 )
                 self.assertIn("UNREGISTERED_HIGH_RISK_CLAIM", completed.stdout)
+
+    def test_english_terms_use_ascii_identifier_boundaries(self) -> None:
+        _, project = self.make_project(validity_level="V2")
+        claimed_line = "该方法EXACT恢复并支持ONLINE学习。"
+        identifier_line = "inexact online_update firstOrder bounded2"
+        (project / "manuscript.md").write_text(
+            f"{claimed_line}\n{identifier_line}\n", encoding="utf-8"
+        )
+        expected = [
+            expected_occurrence_id("manuscript.md", claimed_line, "exact", 1),
+            expected_occurrence_id("manuscript.md", claimed_line, "online", 1),
+        ]
+        set_inventory(project, claims=[claim(expected)])
+
+        completed = run_script("validate_claim_inventory.py", project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("claim_inventory_status=READY", completed.stdout)
 
     def test_chinese_equivalents_are_scanned(self) -> None:
         _, project = self.make_project(validity_level="V0")
@@ -244,6 +286,43 @@ class ClaimInventoryTests(unittest.TestCase):
         self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
         self.assertEqual(1, completed.stdout.count("UNREGISTERED_HIGH_RISK_CLAIM"))
 
+    def test_markdown_containers_preserve_fences_and_content_indentation(self) -> None:
+        _, project = self.make_project(validity_level="V2")
+        list_prose = "  The exact result after the list fence."
+        quote_heading = "> # Theorem after the quoted fence."
+        list_heading = "- # Lemma list item."
+        continuation = "     The universal list continuation."
+        (project / "manuscript.md").write_text(
+            "- ````markdown\n"
+            "  The exact result inside list code.\n"
+            "  ```\n"
+            "  Still bounded inside list code.\n"
+            "  ````\n"
+            f"{list_prose}\n"
+            "> ~~~\n"
+            "> The exact result inside quoted code.\n"
+            "> ~~~\n"
+            f"{quote_heading}\n"
+            f"{list_heading}\n"
+            "123. Context.\n"
+            f"{continuation}\n",
+            encoding="utf-8",
+        )
+        expected = [
+            expected_occurrence_id("manuscript.md", list_prose, "exact", 1),
+            expected_occurrence_id("manuscript.md", quote_heading, "theorem", 1),
+            expected_occurrence_id("manuscript.md", list_heading, "lemma", 1),
+            expected_occurrence_id(
+                "manuscript.md", continuation, "universal", 1
+            ),
+        ]
+        set_inventory(project, claims=[claim(expected)])
+
+        completed = run_script("validate_claim_inventory.py", project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("claim_inventory_status=READY", completed.stdout)
+
     def test_tex_comments_and_code_environments_are_ignored(self) -> None:
         _, project = self.make_project(validity_level="V2")
         (project / "appendix.tex").write_text(
@@ -273,6 +352,62 @@ class ClaimInventoryTests(unittest.TestCase):
 
         self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
         self.assertEqual(1, completed.stdout.count("UNREGISTERED_HIGH_RISK_CLAIM"))
+
+    def test_tex_code_environments_scan_only_outside_ordered_segments(self) -> None:
+        _, project = self.make_project(validity_level="V2")
+        same_line = (
+            r"The exact prefix. \begin{verbatim} exact hidden "
+            r"\end{verbatim} The exact suffix."
+        )
+        ordinary_then_code = (
+            r"\begin{theorem}\begin{lstlisting}exact hidden"
+            r"\end{lstlisting}\begin{lemma}"
+        )
+        cross_line_open = r"The universal prefix. \begin{minted*}{tex}"
+        hidden_line = r"exact hidden \begin{corollary}"
+        cross_line_close = (
+            r"\end{minted*} The bounded suffix. "
+            r"\begin{verbatim*}lossless hidden\end{verbatim*} "
+            r"The necessary suffix. % exact comment"
+        )
+        multiple_transitions = (
+            r"\begin{lstlisting}exact hidden\end{lstlisting} "
+            r"The guaranteed result. "
+            r"\begin{minted}{tex}bounded hidden\end{minted} "
+            r"The sufficient result."
+        )
+        lines = (
+            same_line,
+            ordinary_then_code,
+            cross_line_open,
+            hidden_line,
+            cross_line_close,
+            multiple_transitions,
+        )
+        (project / "appendix.tex").write_text(
+            "\n".join(lines) + "\n", encoding="utf-8"
+        )
+        expected = [
+            expected_occurrence_id("appendix.tex", same_line, "exact", 1),
+            expected_occurrence_id("appendix.tex", same_line, "exact", 2),
+            expected_occurrence_id("appendix.tex", ordinary_then_code, "theorem", 1),
+            expected_occurrence_id("appendix.tex", ordinary_then_code, "lemma", 1),
+            expected_occurrence_id("appendix.tex", cross_line_open, "universal", 1),
+            expected_occurrence_id("appendix.tex", cross_line_close, "bounded", 1),
+            expected_occurrence_id("appendix.tex", cross_line_close, "necessary", 1),
+            expected_occurrence_id(
+                "appendix.tex", multiple_transitions, "guaranteed", 1
+            ),
+            expected_occurrence_id(
+                "appendix.tex", multiple_transitions, "sufficient", 1
+            ),
+        ]
+        set_inventory(project, claims=[claim(expected)], sources=["appendix.tex"])
+
+        completed = run_script("validate_claim_inventory.py", project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("claim_inventory_status=READY", completed.stdout)
 
     def test_normal_prose_without_risk_terms_is_ready(self) -> None:
         _, project = self.make_project(validity_level="V2")
@@ -476,6 +611,63 @@ class ClaimInventoryTests(unittest.TestCase):
 
         self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
         self.assertIn("UNSAFE_MANUSCRIPT_SOURCE", completed.stdout)
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "symlinks unavailable")
+    def test_source_snapshot_survives_post_check_symlink_swap(self) -> None:
+        module = load_claim_validator_module()
+        _, project = self.make_project(validity_level="V2")
+        source = project / "manuscript.md"
+        source.write_text("Descriptive statistics only.\n", encoding="utf-8")
+        state = load_json(project / "workflow_state.json")
+        inventory = load_json(project / "claim_inventory.json")
+        original_scan = module.scan_sources
+        with TemporaryDirectory(prefix="claim-inventory-outside-") as directory:
+            outside = Path(directory) / "outside.md"
+            outside.write_text("The exact external result.\n", encoding="utf-8")
+
+            def swap_then_scan(sources):
+                source.unlink()
+                source.symlink_to(outside)
+                return original_scan(sources)
+
+            with mock.patch.object(
+                module, "scan_sources", side_effect=swap_then_scan
+            ):
+                issues = module.validate(project.resolve(), state, inventory)
+
+        self.assertEqual([], issues)
+
+    def test_trusted_source_descriptors_are_all_closed(self) -> None:
+        module = load_claim_validator_module()
+        _, project = self.make_project(validity_level="V2")
+        opened: list[int] = []
+        closed: list[int] = []
+        real_open = os.open
+        real_close = os.close
+
+        def tracked_open(*args, **kwargs):
+            descriptor = real_open(*args, **kwargs)
+            opened.append(descriptor)
+            return descriptor
+
+        def tracked_close(descriptor):
+            closed.append(descriptor)
+            return real_close(descriptor)
+
+        with mock.patch.object(os, "open", side_effect=tracked_open), mock.patch.object(
+            os, "close", side_effect=tracked_close
+        ):
+            sources, issues = module.resolve_sources(
+                project.resolve(), ["manuscript.md"]
+            )
+
+        self.assertEqual([], issues)
+        self.assertTrue(sources)
+        self.assertTrue(opened)
+        self.assertCountEqual(opened, closed)
+        for descriptor in opened:
+            with self.assertRaises(OSError):
+                os.fstat(descriptor)
 
     def test_inventory_and_state_cli_paths_must_stay_within_root(self) -> None:
         _, project = self.make_project(validity_level="V2")

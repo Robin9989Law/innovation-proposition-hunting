@@ -5,11 +5,14 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter, defaultdict
+import errno
 import hashlib
 import json
+import os
 from pathlib import Path, PurePosixPath
 import re
-from typing import Any, Iterable
+import stat
+from typing import Any, Iterable, NamedTuple
 
 from validation_common import Issue, choose_exit, render
 
@@ -17,22 +20,31 @@ from validation_common import Issue, choose_exit, render
 AUDITED_VALIDITY_LEVELS = {"V3", "V4"}
 SUPPORTED_SOURCE_SUFFIXES = {".md", ".markdown", ".tex"}
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
+ASCII_TOKEN_LEFT = r"(?<![A-Za-z0-9_])"
+ASCII_TOKEN_RIGHT = r"(?![A-Za-z0-9_])"
+
+
+def english_risk_pattern(expression: str) -> re.Pattern[str]:
+    return re.compile(
+        ASCII_TOKEN_LEFT + expression + ASCII_TOKEN_RIGHT,
+        re.IGNORECASE,
+    )
 
 ENGLISH_RISK_PATTERNS = (
-    ("strong baseline", re.compile(r"\bstrong\s+baseline\b", re.IGNORECASE)),
-    ("zero regret", re.compile(r"\bzero\s+regret\b", re.IGNORECASE)),
-    ("for any", re.compile(r"\bfor\s+any\b", re.IGNORECASE)),
-    ("interpolation", re.compile(r"\binterpolation\b", re.IGNORECASE)),
-    ("guaranteed", re.compile(r"\bguaranteed\b", re.IGNORECASE)),
-    ("sufficient", re.compile(r"\bsufficient\b", re.IGNORECASE)),
-    ("universal", re.compile(r"\buniversal\b", re.IGNORECASE)),
-    ("necessary", re.compile(r"\bnecessary\b", re.IGNORECASE)),
-    ("provably", re.compile(r"\bprovably\b", re.IGNORECASE)),
-    ("lossless", re.compile(r"\blossless\b", re.IGNORECASE)),
-    ("bounded", re.compile(r"\bbounded\b", re.IGNORECASE)),
-    ("online", re.compile(r"\bonline\b", re.IGNORECASE)),
-    ("exact", re.compile(r"\bexact\b", re.IGNORECASE)),
-    ("first", re.compile(r"\bfirst\b", re.IGNORECASE)),
+    ("strong baseline", english_risk_pattern(r"strong\s+baseline")),
+    ("zero regret", english_risk_pattern(r"zero\s+regret")),
+    ("for any", english_risk_pattern(r"for\s+any")),
+    ("interpolation", english_risk_pattern("interpolation")),
+    ("guaranteed", english_risk_pattern("guaranteed")),
+    ("sufficient", english_risk_pattern("sufficient")),
+    ("universal", english_risk_pattern("universal")),
+    ("necessary", english_risk_pattern("necessary")),
+    ("provably", english_risk_pattern("provably")),
+    ("lossless", english_risk_pattern("lossless")),
+    ("bounded", english_risk_pattern("bounded")),
+    ("online", english_risk_pattern("online")),
+    ("exact", english_risk_pattern("exact")),
+    ("first", english_risk_pattern("first")),
 )
 
 CHINESE_RISK_TERMS = (
@@ -116,14 +128,14 @@ FIRST_ORDINAL_CONTEXT_PATTERNS = (
 
 MARKDOWN_THEOREM_HEADING = re.compile(
     r"^ {0,3}#{1,6}[ \t]+(?:\*\*|__)?"
-    r"(?P<term>theorem|lemma|corollary)\b",
+    r"(?P<term>theorem|lemma|corollary)(?![A-Za-z0-9_])",
     re.IGNORECASE,
 )
 MARKDOWN_CHINESE_THEOREM_HEADING = re.compile(
     r"^ {0,3}#{1,6}[ \t]+(?:\*\*|__)?(?P<term>定理|引理|推论)"
 )
 PLAIN_THEOREM_TITLE = re.compile(
-    r"^\s*(?:\*\*|__)?(?P<term>theorem|lemma|corollary)\b"
+    r"^\s*(?:\*\*|__)?(?P<term>theorem|lemma|corollary)(?![A-Za-z0-9_])"
     r"(?:\s+(?:[A-Z]|[IVX]+|\d+(?:\.\d+)*)|\s*[:：.(（])",
     re.IGNORECASE,
 )
@@ -134,7 +146,9 @@ PLAIN_CHINESE_THEOREM_TITLE = re.compile(
 TEX_THEOREM_ENVIRONMENT = re.compile(
     r"\\begin\{(?P<term>theorem|lemma|corollary)\*?\}", re.IGNORECASE
 )
-TEX_ENVIRONMENT_BEGIN = re.compile(r"\\begin\{(?P<environment>[^{}]+)\}")
+TEX_ENVIRONMENT_TOKEN = re.compile(
+    r"\\(?P<action>begin|end)\{(?P<environment>[^{}]+)\}", re.IGNORECASE
+)
 TEX_CODE_ENVIRONMENTS = {
     "bverbatim",
     "lverbatim",
@@ -157,6 +171,12 @@ REQUIRED_CLAIM_FIELDS = (
     "status",
     "validation_epoch",
 )
+
+
+class SourceSnapshot(NamedTuple):
+    relative_path: str
+    suffix: str
+    text: str
 
 
 def occurrence_id(relative_path: str, line: str, term: str, ordinal: int) -> str:
@@ -207,9 +227,62 @@ def source_path_is_canonical(raw_path: str) -> bool:
     )
 
 
+def secure_directory_flags() -> int:
+    if not hasattr(os, "O_DIRECTORY") or not hasattr(os, "O_NOFOLLOW"):
+        raise RuntimeError("secure_source_open_flags_unavailable")
+    return (
+        os.O_RDONLY
+        | os.O_DIRECTORY
+        | os.O_NOFOLLOW
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+
+
+def secure_file_flags() -> int:
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise RuntimeError("secure_source_open_flags_unavailable")
+    return os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+
+
+def read_source_from_root_fd(
+    root_fd: int, raw_path: str
+) -> tuple[str, tuple[int, int]]:
+    parts = PurePosixPath(raw_path).parts
+    parent_fd = root_fd
+    parent_fd_owned = False
+    source_fd: int | None = None
+    try:
+        for component in parts[:-1]:
+            next_fd = os.open(
+                component,
+                secure_directory_flags(),
+                dir_fd=parent_fd,
+            )
+            if parent_fd_owned:
+                os.close(parent_fd)
+            parent_fd = next_fd
+            parent_fd_owned = True
+        source_fd = os.open(parts[-1], secure_file_flags(), dir_fd=parent_fd)
+        metadata = os.fstat(source_fd)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise IsADirectoryError("not_a_regular_file")
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(source_fd, 1024 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        return b"".join(chunks).decode("utf-8"), (metadata.st_dev, metadata.st_ino)
+    finally:
+        if source_fd is not None:
+            os.close(source_fd)
+        if parent_fd_owned:
+            os.close(parent_fd)
+
+
 def resolve_sources(
     root: Path, raw_sources: Any
-) -> tuple[list[tuple[str, Path]], list[Issue]]:
+) -> tuple[list[SourceSnapshot], list[Issue]]:
     if not string_list(raw_sources):
         return [], [
             Issue(
@@ -220,78 +293,110 @@ def resolve_sources(
             )
         ]
 
-    sources: list[tuple[str, Path]] = []
+    sources: list[SourceSnapshot] = []
     issues: list[Issue] = []
     seen_declared: set[str] = set()
-    seen_resolved: set[Path] = set()
-    for raw_path in raw_sources:
-        if raw_path in seen_declared:
-            issues.append(
-                Issue(
-                    "DUPLICATE_MANUSCRIPT_SOURCE",
-                    "INVALID",
-                    raw_path,
-                    "duplicate_declared_path",
+    seen_file_identities: set[tuple[int, int]] = set()
+    root_fd = os.open(root, secure_directory_flags())
+    try:
+        for raw_path in raw_sources:
+            if raw_path in seen_declared:
+                issues.append(
+                    Issue(
+                        "DUPLICATE_MANUSCRIPT_SOURCE",
+                        "INVALID",
+                        raw_path,
+                        "duplicate_declared_path",
+                    )
                 )
-            )
-            continue
-        seen_declared.add(raw_path)
-        if not source_path_is_canonical(raw_path):
-            issues.append(
-                Issue(
-                    "UNSAFE_MANUSCRIPT_SOURCE",
-                    "INVALID",
-                    raw_path,
-                    "path_must_be_canonical_and_relative",
+                continue
+            seen_declared.add(raw_path)
+            if not source_path_is_canonical(raw_path):
+                issues.append(
+                    Issue(
+                        "UNSAFE_MANUSCRIPT_SOURCE",
+                        "INVALID",
+                        raw_path,
+                        "path_must_be_canonical_and_relative",
+                    )
                 )
-            )
-            continue
-        if PurePosixPath(raw_path).suffix.casefold() not in SUPPORTED_SOURCE_SUFFIXES:
-            issues.append(
-                Issue(
-                    "UNSUPPORTED_MANUSCRIPT_SOURCE",
-                    "INVALID",
-                    raw_path,
-                    "expected_markdown_or_tex",
+                continue
+            suffix = PurePosixPath(raw_path).suffix.casefold()
+            if suffix not in SUPPORTED_SOURCE_SUFFIXES:
+                issues.append(
+                    Issue(
+                        "UNSUPPORTED_MANUSCRIPT_SOURCE",
+                        "INVALID",
+                        raw_path,
+                        "expected_markdown_or_tex",
+                    )
                 )
-            )
-            continue
-
-        resolved = (root / raw_path).resolve()
-        try:
-            require_within_root(root, resolved, "manuscript_source")
-        except ValueError:
-            issues.append(
-                Issue(
-                    "UNSAFE_MANUSCRIPT_SOURCE",
-                    "INVALID",
-                    raw_path,
-                    "resolved_path_outside_root",
+                continue
+            try:
+                text, file_identity = read_source_from_root_fd(root_fd, raw_path)
+            except FileNotFoundError:
+                issues.append(
+                    Issue(
+                        "MISSING_MANUSCRIPT_SOURCE",
+                        "INVALID",
+                        raw_path,
+                        "not_a_regular_file",
+                    )
                 )
-            )
-            continue
-        if resolved in seen_resolved:
-            issues.append(
-                Issue(
-                    "DUPLICATE_MANUSCRIPT_SOURCE",
-                    "INVALID",
-                    raw_path,
-                    "duplicate_resolved_path",
+                continue
+            except OSError as error:
+                if error.errno in {errno.ELOOP, errno.ENOTDIR}:
+                    issues.append(
+                        Issue(
+                            "UNSAFE_MANUSCRIPT_SOURCE",
+                            "INVALID",
+                            raw_path,
+                            "symlink_or_unsafe_component",
+                        )
+                    )
+                elif isinstance(error, IsADirectoryError):
+                    issues.append(
+                        Issue(
+                            "MISSING_MANUSCRIPT_SOURCE",
+                            "INVALID",
+                            raw_path,
+                            "not_a_regular_file",
+                        )
+                    )
+                else:
+                    issues.append(
+                        Issue(
+                            "UNREADABLE_MANUSCRIPT_SOURCE",
+                            "INVALID",
+                            raw_path,
+                            type(error).__name__,
+                        )
+                    )
+                continue
+            except UnicodeError as error:
+                issues.append(
+                    Issue(
+                        "UNREADABLE_MANUSCRIPT_SOURCE",
+                        "INVALID",
+                        raw_path,
+                        type(error).__name__,
+                    )
                 )
-            )
-            continue
-        seen_resolved.add(resolved)
-        if not resolved.is_file():
-            issues.append(
-                Issue(
-                    "MISSING_MANUSCRIPT_SOURCE",
-                    "INVALID",
-                    raw_path,
-                    "not_a_regular_file",
+                continue
+            if file_identity in seen_file_identities:
+                issues.append(
+                    Issue(
+                        "DUPLICATE_MANUSCRIPT_SOURCE",
+                        "INVALID",
+                        raw_path,
+                        "duplicate_file_identity",
+                    )
                 )
-            )
-            continue
-        sources.append((raw_path, resolved))
+                continue
+            seen_file_identities.add(file_identity)
+            sources.append(SourceSnapshot(raw_path, suffix, text))
+    finally:
+        os.close(root_fd)
     return sources, issues
 
 
@@ -354,12 +459,73 @@ def markdown_indentation(line: str) -> tuple[int, int]:
     return character_count, column_count
 
 
+def markdown_strip_blockquotes(line: str) -> str:
+    content = line
+    while True:
+        indent_characters, indent_columns = markdown_indentation(content)
+        if indent_columns > 3 or content[indent_characters : indent_characters + 1] != ">":
+            return content
+        content = content[indent_characters + 1 :]
+        if content.startswith((" ", "\t")):
+            content = content[1:]
+
+
+def markdown_list_item(content: str) -> tuple[str, int] | None:
+    indent_characters, indent_columns = markdown_indentation(content)
+    if indent_columns > 3:
+        return None
+    marker_match = re.match(r"(?:[-+*]|\d{1,9}[.)])", content[indent_characters:])
+    if marker_match is None:
+        return None
+    spacing_start = indent_characters + marker_match.end()
+    spacing_characters, spacing_columns = markdown_indentation(content[spacing_start:])
+    if spacing_characters == 0:
+        return None
+    content_start = spacing_start + spacing_characters
+    marker_columns = marker_match.end()
+    content_indent = indent_columns + marker_columns + spacing_columns
+    return content[content_start:], content_indent
+
+
+def markdown_strip_content_indent(content: str, content_indent: int) -> str | None:
+    cursor = 0
+    columns = 0
+    while cursor < len(content) and columns < content_indent:
+        character = content[cursor]
+        if character == " ":
+            columns += 1
+        elif character == "\t":
+            columns += 4 - (columns % 4)
+        else:
+            return None
+        cursor += 1
+    if columns < content_indent:
+        return None
+    return " " * (columns - content_indent) + content[cursor:]
+
+
 def markdown_scannable_lines(lines: list[str]) -> Iterable[tuple[int, str, str]]:
     fence_character: str | None = None
     fence_length = 0
+    list_content_indent: int | None = None
     for line_number, line in enumerate(lines, start=1):
-        indent_characters, indent_columns = markdown_indentation(line)
-        candidate = line[indent_characters:] if indent_columns <= 3 else ""
+        container_content = markdown_strip_blockquotes(line)
+        list_item = markdown_list_item(container_content)
+        if list_item is not None:
+            container_content, list_content_indent = list_item
+        elif list_content_indent is not None:
+            continuation = markdown_strip_content_indent(
+                container_content, list_content_indent
+            )
+            if continuation is not None:
+                container_content = continuation
+            elif container_content.strip():
+                list_content_indent = None
+
+        indent_characters, indent_columns = markdown_indentation(container_content)
+        candidate = (
+            container_content[indent_characters:] if indent_columns <= 3 else ""
+        )
         if fence_character is not None:
             closing = re.match(
                 rf"{re.escape(fence_character)}{{{fence_length},}}[ \t]*\Z",
@@ -378,7 +544,7 @@ def markdown_scannable_lines(lines: list[str]) -> Iterable[tuple[int, str, str]]
             continue
         if indent_columns >= 4:
             continue
-        yield line_number, line, line
+        yield line_number, line, candidate
 
 
 def strip_tex_comment(line: str) -> str:
@@ -396,52 +562,46 @@ def strip_tex_comment(line: str) -> str:
 
 
 def tex_scannable_lines(lines: list[str]) -> Iterable[tuple[int, str, str]]:
-    code_environment: str | None = None
+    code_environment_stack: list[str] = []
     for line_number, line in enumerate(lines, start=1):
-        if code_environment is not None:
-            if re.search(
-                rf"\\end\{{{re.escape(code_environment)}\}}", line, re.IGNORECASE
-            ):
-                code_environment = None
-            continue
-
         visible_line = strip_tex_comment(line)
-        environment_match = TEX_ENVIRONMENT_BEGIN.search(visible_line)
-        if environment_match:
-            environment = environment_match.group("environment").casefold()
-            if environment in TEX_CODE_ENVIRONMENTS:
-                if not re.search(
-                    rf"\\end\{{{re.escape(environment)}\}}",
-                    visible_line[environment_match.end() :],
-                    re.IGNORECASE,
-                ):
-                    code_environment = environment
+        fragment_start = 0
+        for token in TEX_ENVIRONMENT_TOKEN.finditer(visible_line):
+            environment = token.group("environment").casefold()
+            if environment not in TEX_CODE_ENVIRONMENTS:
                 continue
-        yield line_number, line, visible_line
+            if token.group("action").casefold() == "begin":
+                if not code_environment_stack:
+                    fragment = visible_line[fragment_start : token.start()]
+                    if fragment:
+                        yield line_number, line, fragment
+                code_environment_stack.append(environment)
+                continue
+            if environment not in code_environment_stack:
+                continue
+            while code_environment_stack:
+                opened_environment = code_environment_stack.pop()
+                if opened_environment == environment:
+                    break
+            if not code_environment_stack:
+                fragment_start = token.end()
+        if not code_environment_stack:
+            fragment = visible_line[fragment_start:]
+            if fragment:
+                yield line_number, line, fragment
 
 
 def scan_sources(
-    sources: Iterable[tuple[str, Path]],
+    sources: Iterable[SourceSnapshot],
 ) -> tuple[dict[str, tuple[str, int, str]], list[Issue]]:
     occurrences: dict[str, tuple[str, int, str]] = {}
     ordinals: defaultdict[tuple[str, str, str], int] = defaultdict(int)
     issues: list[Issue] = []
-    for relative_path, source_path in sources:
-        try:
-            lines = source_path.read_text(encoding="utf-8").splitlines()
-        except (OSError, UnicodeError) as error:
-            issues.append(
-                Issue(
-                    "UNREADABLE_MANUSCRIPT_SOURCE",
-                    "INVALID",
-                    relative_path,
-                    type(error).__name__,
-                )
-            )
-            continue
+    for relative_path, suffix, text in sources:
+        lines = text.splitlines()
         scannable_lines = (
             tex_scannable_lines(lines)
-            if source_path.suffix.casefold() == ".tex"
+            if suffix == ".tex"
             else markdown_scannable_lines(lines)
         )
         for line_number, line, visible_line in scannable_lines:
