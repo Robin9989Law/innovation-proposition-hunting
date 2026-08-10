@@ -70,6 +70,29 @@ POSIX path；所有 SHA-256 均为 64 位小写十六进制；`validation_epoch`
 }
 ```
 
+`decision_log` 条目 schema（每次状态完成追加一条，不得事后回填）：
+
+```json
+{
+  "at": "2026-08-10T15:26:00Z",
+  "state": "SCOPE_LOCK",
+  "action": "冻结 scope_lock.md 与 hierarchy_status.md；scope_locked=true。",
+  "artifacts": [
+    {"path": "scope_lock.md", "sha256": "<64 hex>"},
+    {"path": "hierarchy_status.md", "sha256": "<64 hex>"}
+  ]
+}
+```
+
+- `at`：UTC ISO-8601；条目时间单调不减，且不得晚于 state 文件自身写入时刻
+  （校验器以 mtime 交叉核验，未来时间或晚于写入时间即判伪造）。
+- `state`：必须是状态机中的状态；BLOCKED 期间的条目用 `BLOCKED@<STATE>`。
+- `artifacts`：本状态新产/变更的产物及 SHA-256；登记后内容再变即判
+  `STALE_DECISION_ARTIFACT`。无产物变更的状态可省略此字段。
+- gate 置真必须能在此找到对应状态的条目（gate 与状态的映射见
+  `validate_workflow_state.py` 的 `GATE_COMPLETION_STATE`），否则视为自报置真。
+- `updated_at` 不得早于末条目 `at`。
+
 枚举必须与 validators 一致：
 
 - `active_track`: `NOVELTY | VALIDITY | COMPUTE`

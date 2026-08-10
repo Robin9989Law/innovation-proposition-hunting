@@ -1,0 +1,187 @@
+{
+ "schema_version": "2.0",
+ "current_collision_round": 1,
+ "output_claims": [
+  {
+   "output_claim_id": "OC-0001",
+   "statement": "连续研究链：链A国际碳感知调度（Radovanović TPWRS 2022 → Caspian 2024 → Sunk Carbon Fallacy 2024 → Han TIA 2026 → Shao EPSR 2026）；链B中文算电协同调度（张硕 2025 → 冯洪赟/向梓旸/鲍兴川/张良 2026 → 王泽军 2026）；链C管理政策（于潇宇 2025 → 裴馨 2025 → 李征召 2025 → 陈晓红 2026）。",
+   "output_location": "collision-round1.md#1",
+   "claim_kind": "SYNTHESIS",
+   "supporting_claim_ids": [
+    "LC-0021",
+    "LC-0025",
+    "LC-0018",
+    "LC-0105",
+    "LC-0121",
+    "LC-0053",
+    "LC-0029",
+    "LC-0033",
+    "LC-0037",
+    "LC-0041",
+    "LC-0045",
+    "LC-0093",
+    "LC-0089",
+    "LC-0097",
+    "LC-0015"
+   ],
+   "counter_claim_ids": [],
+   "inference_type": "SYNTHESIS",
+   "reasoning": "按发表时序与引用/方法传承关系组织；每条链的代表文献均有 E2 观点定位其方法或结论。",
+   "caveats": "",
+   "trace_status": "VERIFIED"
+  },
+  {
+   "output_claim_id": "OC-0002",
+   "statement": "最强已知结果 K1-K6：冯洪赟空间弹性投影非迭代协同（成本−1.33%、弃新能源−53.02%）；向梓旸三维灵活性+DLMP+调频（总成本 792.64 万，调频收入 486.83 万弥补储能机会成本）；鲍兴川时空耦合+网络能耗（消纳 15.2%→78.3%、成本−22.8%、碳−31.1%）；王泽军延迟调度替代储能（储能需求−15.6%~−54.6%）；Han 碳感知时空+ESS（成本−≥1.69%、碳−4.5%）；Shao 碳流 CEF 时空平移（碳成本−13.2%、无 CEF 仅−6.9%）。",
+   "output_location": "collision-round1.md#2",
+   "claim_kind": "SYNTHESIS",
+   "supporting_claim_ids": [
+    "LC-0030",
+    "LC-0031",
+    "LC-0034",
+    "LC-0035",
+    "LC-0038",
+    "LC-0039",
+    "LC-0046",
+    "LC-0047",
+    "LC-0106",
+    "LC-0122",
+    "LC-0123"
+   ],
+   "counter_claim_ids": [],
+   "inference_type": "SYNTHESIS",
+   "reasoning": "全部数字直接取自对应文献的 E2 观点（locator 核验）；K 的选择标准=与主命题 O/I/A 最近+口径可核+结果最强。",
+   "caveats": "各 K 的算例/口径不同（IEEE118/33/123、MUCPN、自设），跨 K 直接比较不成立——这正是 U3。",
+   "trace_status": "VERIFIED"
+  },
+  {
+   "output_claim_id": "OC-0003",
+   "statement": "U1：无近邻同时覆盖【任务异构×储能时序×购售电边界×PUE/功率映射×六目标】统一模型——冯洪赟无储能时序且仅 24h（自述局限），Han 无电网潮流耦合（自述局限），张良明确未考虑储能，向梓旸聚焦市场机制，王泽军是规划-运行一体（容量决策）。",
+   "output_location": "collision-round1.md#3",
+   "claim_kind": "SYNTHESIS",
+   "supporting_claim_ids": [
+    "LC-0032",
+    "LC-0108",
+    "LC-0044",
+    "LC-0036",
+    "LC-0045",
+    "LC-0107"
+   ],
+   "counter_claim_ids": [],
+   "inference_type": "INFERENCE",
+   "reasoning": "逐篇核对近邻的模型结构（是否含储能/购售电/六目标）与其自述局限；U1 由'存在性'负向判断（无覆盖）+各文局限陈述共同支撑。",
+   "caveats": "负向判断受限于注册表覆盖；W-CN-06 综述（LC-0057-0060）已核未发现覆盖。",
+   "trace_status": "VERIFIED"
+  },
+  {
+   "output_claim_id": "OC-0004",
+   "statement": "U2：任务延迟调度↔储能的替代-互补边界未刻画——王泽军证明替代效应（储能需求−15.6%~−54.6%）但未给边界条件；向梓旸显示储能存在内部用途竞争（调频 vs 套利：购电成本+285.3 万、调频收入+486.83 万）；S0 探索确认替代区/饱和边界（E≈24h）/成本-碳错位（RegionA 电价-碳强度 r=−0.398）。",
+   "output_location": "collision-round1.md#3",
+   "claim_kind": "SYNTHESIS",
+   "supporting_claim_ids": [
+    "LC-0046",
+    "LC-0035",
+    "LC-0047"
+   ],
+   "counter_claim_ids": [],
+   "inference_type": "INFERENCE",
+   "reasoning": "K4 给出替代的存在性数字但无弹性/电价/碳结构的边界刻画（其敏感性分析仅覆盖装机成本与电价系数）；K2 的机会成本交互是'储能用途竞争'的另一替代通道；S0 为探索性数值（非 claim，仅作可行性证据）。",
+   "caveats": "S0 结果（s0_delta2_report.md）为探索性质，不进入 claim；边界命题的正式数值验证需 COMPUTE 门。",
+   "trace_status": "VERIFIED"
+  },
+  {
+   "output_claim_id": "OC-0005",
+   "statement": "U3：统一口径基准缺口——各近邻使用互不可比的算例（IEEE33/118/123、MUCPN-3/10、36DC、自设案例），无统一数据/口径的对比框架；赛题附件提供 2400h/6 区域/统一口径（PUE、碳强度×购电、新能源利用率公式）真实数据与基准结果。",
+   "output_location": "collision-round1.md#3",
+   "claim_kind": "METHOD_COMPARISON",
+   "supporting_claim_ids": [
+    "LC-0030",
+    "LC-0034",
+    "LC-0106",
+    "LC-0122",
+    "LC-0042"
+   ],
+   "counter_claim_ids": [],
+   "inference_type": "CONTRAST",
+   "reasoning": "对比各 K 的算例设置（节点数/园区数/时段/数据源）得出不可比性；附件数据规格（附件1 数据字典）为赛题给定事实。",
+   "caveats": "",
+   "trace_status": "VERIFIED"
+  },
+  {
+   "output_claim_id": "OC-0006",
+   "statement": "U4：动态碳信号统一建模缺口——Shao 明确碳价/碳强度为静态常数且自述未来需时空波动；Han 用固定碳隐含；逐时碳强度进入目标/约束的统一建模（而非仅负荷平移信号）未被近邻覆盖。",
+   "output_location": "collision-round1.md#3",
+   "claim_kind": "SYNTHESIS",
+   "supporting_claim_ids": [
+    "LC-0124",
+    "LC-0105"
+   ],
+   "counter_claim_ids": [],
+   "inference_type": "INFERENCE",
+   "reasoning": "Shao 的敏感性分析显示碳价变化不影响调度决策（仅成本线性变化）——静态碳信号结构承诺的直接证据；Han 的碳隐含建模为固定系数。",
+   "caveats": "",
+   "trace_status": "VERIFIED"
+  },
+  {
+   "output_claim_id": "OC-0007",
+   "statement": "七项对齐：对最危险近邻冯洪赟（K1）与 Han（K5），O/I/A/T/C/R/B 七项均未完全对齐——未被直接占据；但 K5 的多目标框架（ε-约束+Big-M）与 K1 的空间弹性投影思想须作为方法近邻吸收。",
+   "output_location": "collision-round1.md#5",
+   "claim_kind": "NOVELTY_VERDICT",
+   "supporting_claim_ids": [
+    "LC-0029",
+    "LC-0030",
+    "LC-0031",
+    "LC-0105",
+    "LC-0106",
+    "LC-0107",
+    "LC-0108"
+   ],
+   "counter_claim_ids": [],
+   "inference_type": "CONTRAST",
+   "reasoning": "逐轴对比：O（对象集差异：储能/购售电/六目标 vs 功率空间/双目标）、I（信息集：逐时电价碳强度新能源储能 vs 任务约束）、A（结构：SOC 时间耦合 vs 静态投影/日前确定性）、T（六目标 vs 双目标）、C（2400h 主时域+统一口径 vs 24h/日前）、R（绩效+情景规律 vs 定理/帕累托）、B（附件基准 vs 自设算例）。",
+   "caveats": "N0 终局裁决仍需 N0_AUDIT 状态完成；本裁决为碰撞层结论。",
+   "trace_status": "VERIFIED"
+  },
+  {
+   "output_claim_id": "OC-0008",
+   "statement": "Δ 候选与合同一致性：Δ1（六目标统一模型，R3 问题层）+Δ2（替代-互补边界命题，机制层）+Δ3（三情景权衡规律，管理层）共同构成主贡献 M 的候选；与 JOURNAL_ARTICLE/ONE_MAIN_M/R3+F3 合同一致；Δ2 已通过 S0 可证伪性检验。",
+   "output_location": "collision-round1.md#4",
+   "claim_kind": "PROPOSITION_RATIONALE",
+   "supporting_claim_ids": [
+    "LC-0046",
+    "LC-0035",
+    "LC-0047",
+    "LC-0030",
+    "LC-0124"
+   ],
+   "counter_claim_ids": [],
+   "inference_type": "INFERENCE",
+   "reasoning": "Δ1 由 U1+U3 导出（缺口+统一口径数据可得）；Δ2 由 U2 导出且 S0 验证结构存在；Δ3 由 U3 情景维度导出（管理期刊定位）。",
+   "caveats": "S0 为探索性；三情景正式计算需 COMPUTE 门。",
+   "trace_status": "VERIFIED"
+  },
+  {
+   "output_claim_id": "OC-0009",
+   "statement": "N0 初判 HOLD：候选通过路径门（R3）与形式门（F3），非机械性初步成立（上钻六问显示 K1 停于无储能/24h、K5 停于日前/双目标/无电网耦合、K6 停于静态碳价——T 的像之外即 U）；待 N0_AUDIT 终局裁决。",
+   "output_location": "collision-round1.md#6",
+   "claim_kind": "NOVELTY_VERDICT",
+   "supporting_claim_ids": [
+    "LC-0032",
+    "LC-0108",
+    "LC-0124",
+    "LC-0031",
+    "LC-0044"
+   ],
+   "counter_claim_ids": [],
+   "inference_type": "INFERENCE",
+   "reasoning": "上钻六问基于各近邻自述局限（LC-0032/0108/0124/0044）与其方法结构承诺的比对；非机械性攻击预检（变量替换/特例化/拼接）未发现覆盖路径。",
+   "caveats": "N0-4C 需 N0_AUDIT 状态完成（L1/L2/架构冻结前置）；当前 N0-3 保持。",
+   "trace_status": "VERIFIED"
+  }
+ ],
+ "collision_gate": {
+  "prior_round_claims_drained": true,
+  "unused_prior_claim_ids": [],
+  "checked_at": "2026-08-10"
+ }
+}

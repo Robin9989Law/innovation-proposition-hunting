@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -208,7 +209,13 @@ def run_schema_validator(project: Path) -> subprocess.CompletedProcess[str]:
 def run_all_validator(
     project: Path,
     extra_args: Sequence[str] = (),
+    *,
+    lock_enabled: bool = False,
 ) -> subprocess.CompletedProcess[str]:
+    env = dict(os.environ)
+    if not lock_enabled:
+        # 存量用例不对 STOP 锁行为断言；锁专项测试显式传 lock_enabled=True。
+        env["IPH_NO_LOCK"] = "1"
     return subprocess.run(
         [
             sys.executable,
@@ -224,6 +231,7 @@ def run_all_validator(
         check=False,
         capture_output=True,
         text=True,
+        env=env,
     )
 
 

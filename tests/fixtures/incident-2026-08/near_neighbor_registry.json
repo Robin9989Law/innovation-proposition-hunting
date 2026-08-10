@@ -1,0 +1,2058 @@
+{
+  "schema_version": "2.0",
+  "current_year": 2026,
+  "recent_window": {
+    "start_year": 2024,
+    "end_year": 2026,
+    "status": "COMPLETE",
+    "completed_at": "2026-08-10",
+    "queries": [
+      {
+        "database": "OpenAlex",
+        "query": "carbon-aware workload scheduling data center",
+        "filters": "from_publication_date:2024-01-01,to_publication_date:2026-12-31",
+        "hit_count": 4343
+      },
+      {
+        "database": "OpenAlex",
+        "query": "data center battery storage demand response scheduling",
+        "filters": "from_publication_date:2024-01-01,to_publication_date:2026-12-31",
+        "hit_count": 10849
+      },
+      {
+        "database": "OpenAlex",
+        "query": "renewable energy aware geo-distributed data center workload migration",
+        "filters": "from_publication_date:2024-01-01,to_publication_date:2026-12-31",
+        "hit_count": 212
+      },
+      {
+        "database": "OpenAlex",
+        "query": "multi-objective data center scheduling latency carbon cost",
+        "filters": "from_publication_date:2024-01-01,to_publication_date:2026-12-31",
+        "hit_count": 6072
+      },
+      {
+        "database": "OpenAlex",
+        "query": "AI training job scheduling energy cost carbon GPU",
+        "filters": "from_publication_date:2024-01-01,to_publication_date:2026-12-31",
+        "hit_count": 902
+      },
+      {
+        "database": "OpenAlex",
+        "query": "算电协同",
+        "filters": "from_publication_date:2024-01-01,to_publication_date:2026-12-31",
+        "hit_count": 3169
+      },
+      {
+        "database": "arXiv",
+        "query": "all:\"carbon aware\" AND all:\"data center\"",
+        "filters": "submittedDate desc, max_results=10",
+        "hit_count": 10
+      },
+      {
+        "database": "arXiv",
+        "query": "all:\"data center\" AND all:\"battery storage\" AND all:\"scheduling\"",
+        "filters": "submittedDate desc, max_results=8",
+        "hit_count": 1
+      },
+      {
+        "database": "arXiv",
+        "query": "all:\"renewable\" AND all:\"workload\" AND all:\"data center\" AND all:\"migration\"",
+        "filters": "submittedDate desc, max_results=8",
+        "hit_count": 2
+      },
+      {
+        "database": "arXiv",
+        "query": "all:\"multi-objective\" AND all:\"data center\" AND all:\"electricity price\"",
+        "filters": "submittedDate desc, max_results=8",
+        "hit_count": 3
+      },
+      {
+        "database": "arXiv",
+        "query": "all:\"AI training\" AND all:\"scheduling\" AND (all:\"energy\" OR all:\"carbon\")",
+        "filters": "submittedDate desc, max_results=8",
+        "hit_count": 8
+      },
+      {
+        "database": "arXiv",
+        "query": "all:\"time-of-use\" AND all:\"data center\" AND all:\"price\"",
+        "filters": "submittedDate desc, max_results=8",
+        "hit_count": 2
+      },
+      {
+        "database": "Crossref",
+        "query": "data center carbon aware scheduling",
+        "filters": "from-pub-date:2024-01-01,until-pub-date:2026-12-31",
+        "hit_count": 8
+      },
+      {
+        "database": "Unpaywall",
+        "query": "OA availability check for 12 candidate DOIs",
+        "filters": "api.unpaywall.org/v2/{doi}",
+        "hit_count": 12
+      },
+      {
+        "database": "web_search",
+        "query": "数据中心 任务调度 碳排放 电价 新能源 多目标 优化",
+        "filters": "recency:year",
+        "hit_count": 10
+      },
+      {
+        "database": "OpenAlex",
+        "query": "citation graph: references + cited_by on W7143426932 W7152621564 W4411345923 W4405361825",
+        "filters": "works/{id}/referenced_works; filter=cites:{id}",
+        "hit_count": 4
+      },
+      {
+        "database": "CNKI(kns8s via cnki-search)",
+        "query": "算电协同",
+        "filters": "topic, journal, 2024-2026, relevance",
+        "hit_count": 357
+      },
+      {
+        "database": "CNKI(kns8s via cnki-search)",
+        "query": "数据中心 储能 优化调度",
+        "filters": "topic, journal, 2024-2026, cited",
+        "hit_count": 15
+      },
+      {
+        "database": "CNKI(kns8s via cnki-search)",
+        "query": "数据中心 需求响应 电价",
+        "filters": "topic, journal, 2024-2026, cited",
+        "hit_count": 15
+      },
+      {
+        "database": "CNKI(kns8s via cnki-search)",
+        "query": "数据中心 任务调度 碳排放",
+        "filters": "topic, journal, 2024-2026, cited",
+        "hit_count": 0
+      },
+      {
+        "database": "CNKI(kns8s via cnki-search)",
+        "query": "东数西算 调度",
+        "filters": "topic, journal, 2024-2026, relevance",
+        "hit_count": 12
+      },
+      {
+        "database": "CNKI(kns8s via cnki-search)",
+        "query": "算力 新能源 消纳 调度",
+        "filters": "topic, journal, 2024-2026, relevance",
+        "hit_count": 12
+      },
+      {
+        "database": "CNKI(kns8s via cnki-search)",
+        "query": "碳感知",
+        "filters": "topic, journal, 2024-2026, relevance",
+        "hit_count": 10
+      },
+      {
+        "database": "CNKI(kns8s via cnki-search)",
+        "query": "绿色数据中心 碳排放",
+        "filters": "topic, journal, 2024-2026, relevance",
+        "hit_count": 10
+      },
+      {
+        "database": "CNKI(kns8s via cnki-search)",
+        "query": "数据中心 电价 调度",
+        "filters": "topic, journal, 2024-2026, relevance",
+        "hit_count": 10
+      },
+      {
+        "database": "CNKI(kns8s via cnki-search)",
+        "query": "数据中心 多目标 优化 调度",
+        "filters": "topic, journal, 2024-2026, relevance",
+        "hit_count": 12
+      }
+    ]
+  },
+  "current_collision_round": 1,
+  "search_mode": "SEARCH_OPEN",
+  "peer_reviewed_published_count": 33,
+  "records": [
+    {
+      "registry_id": "W-HAN-01",
+      "canonical_title": "Carbon-Aware Spatial-Temporal Scheduling for Multiple AI Data Center Parks with Training and Inference Workloads Characteristics",
+      "authors": [
+        "Han",
+        "Du",
+        "Du",
+        "Li",
+        "Zhang",
+        "Kang"
+      ],
+      "year": 2026,
+      "persistent_ids": {
+        "doi": "10.1109/tia.2026.3678569",
+        "openalex": "W7143426932",
+        "arxiv": ""
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://doi.org/10.1109/tia.2026.3678569",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "CRITICAL",
+      "importance_history": [
+        {
+          "importance": "CRITICAL",
+          "at": "2026-08-10",
+          "reason": "最危险直接近邻：多 AI 数据中心园区、训练+推理异构负载、碳感知时空调度，与研究主命题 O/I/A/T 高度对齐（2026 IEEE TIA）"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://doi.org/10.1109/tia.2026.3678569",
+        "local_path": "literature_archive/W-HAN-01.pdf",
+        "sha256": "cccb6a0010a8889ae6a46722ea78fd2926a95b4c7227f2e5294f3b3b6e20c5be",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://doi.org/10.1109/tia.2026.3678569",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://doi.org/10.1109/tia.2026.3678569",
+      "canonical_url": "https://doi.org/10.1109/tia.2026.3678569",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-SHAO-01",
+      "canonical_title": "Carbon-oriented workload spatial-temporal shifting scheduling for internet data centers",
+      "authors": [
+        "Wenli Shao",
+        "Liang Li",
+        "Jian Zhao"
+      ],
+      "year": 2026,
+      "persistent_ids": {
+        "doi": "10.1016/j.epsr.2026.113090",
+        "openalex": "W7152621564",
+        "arxiv": ""
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://doi.org/10.1016/j.epsr.2026.113090",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "CRITICAL",
+      "importance_history": [
+        {
+          "importance": "CRITICAL",
+          "at": "2026-08-10",
+          "reason": "直接近邻：互联网数据中心碳导向负载时空迁移调度（2026 EPSR），与研究主命题的时空迁移+碳目标直接重叠"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://doi.org/10.1016/j.epsr.2026.113090",
+        "local_path": "literature_archive/W-SHAO-01.pdf",
+        "sha256": "a77ee2a5f74fb8731c42dc3e268260848198dcd9df0886e8e4ae1d710a2c983e",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://doi.org/10.1016/j.epsr.2026.113090",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://doi.org/10.1016/j.epsr.2026.113090",
+      "canonical_url": "https://doi.org/10.1016/j.epsr.2026.113090",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-ARX-02",
+      "canonical_title": "Carbon-Aware Compute-Power Scheduling for AI Data Centers with Microgrid Prosumer Operations",
+      "authors": [
+        "Johnny R. Zhang",
+        "Gaoyuan Du",
+        "Qianyi Sun",
+        "Shiqi Wang",
+        "Jiaxuan Li",
+        "Xian Sun"
+      ],
+      "year": 2026,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "2605.03751"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://arxiv.org/abs/2605.03751",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "CRITICAL",
+      "importance_history": [
+        {
+          "importance": "CRITICAL",
+          "at": "2026-08-10",
+          "reason": "最危险直接近邻（预印本，仅构成威胁不单独终局关闭）：AI 数据中心微电网产消者联合 MILP——训练调度+推理路由+储能+碳预算+时延，与研究 Q2/Q3/Q4 问题结构几乎同构"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://arxiv.org/abs/2605.03751",
+        "local_path": "literature_archive/W-ARX-02.pdf",
+        "sha256": "310a200c9c6f3b1a9d8319ff853919e46b66a2d5a0edffa0e4e2a299e965fd86",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PREPRINT_ONLY",
+      "terminal_rejection_eligibility": "NOT_QUALIFIED",
+      "publication_verification_url": "https://arxiv.org/abs/2605.03751",
+      "peer_review_status": "NON_PEER_REVIEWED",
+      "peer_review_verification_url": "https://arxiv.org/abs/2605.03751",
+      "canonical_url": "https://arxiv.org/abs/2605.03751",
+      "alternate_urls": [
+        "https://arxiv.org/pdf/2605.03751v2"
+      ]
+    },
+    {
+      "registry_id": "W-ARX-01",
+      "canonical_title": "Hierarchical Multi-Agent Reinforcement Learning for Carbon-Aware AI Data Centers in Power Distribution Systems",
+      "authors": [
+        "Hyunsoo Lee",
+        "Panggah Prabawa",
+        "Dae-Hyun Choi",
+        "Joongheon Kim"
+      ],
+      "year": 2026,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "2607.03324"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://arxiv.org/abs/2607.03324",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进（预印本）：配电系统视角的分层多智能体强化学习碳感知 AI 数据中心运行，训练/推理弹性分类调度"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://arxiv.org/abs/2607.03324",
+        "local_path": "literature_archive/W-ARX-01.pdf",
+        "sha256": "ec98b049b39719d43e37f1f9e3b1844fc31c8697e94206fb6a7552d570ae8728",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PREPRINT_ONLY",
+      "terminal_rejection_eligibility": "NOT_QUALIFIED",
+      "publication_verification_url": "https://arxiv.org/abs/2607.03324",
+      "peer_review_status": "NON_PEER_REVIEWED",
+      "peer_review_verification_url": "https://arxiv.org/abs/2607.03324",
+      "canonical_url": "https://arxiv.org/abs/2607.03324",
+      "alternate_urls": [
+        "https://arxiv.org/pdf/2607.03324v2"
+      ]
+    },
+    {
+      "registry_id": "W-ARX-03",
+      "canonical_title": "Power-Flexible AI Data Centers: A New Paradigm for Grid-Responsive Compute",
+      "authors": [
+        "Chris Williams",
+        "Philip Colangelo",
+        "Ayse Coskun",
+        "Ethan Levine",
+        "Andy Neale",
+        "Ciaran Roberts",
+        "Shayan Sengupta",
+        "Nikhil Shirolkar",
+        "Varun Sivaram",
+        "Sarah Soares",
+        "Ethan Tiao",
+        "Scott Underwood",
+        "Daniel Wilson",
+        "Frank Sharp",
+        "Luke Wainwright",
+        "Harry Petty",
+        "Scott Wallace",
+        "Brandon Records"
+      ],
+      "year": 2026,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "2606.25098"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://arxiv.org/abs/2606.25098",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进（预印本）：AI 数据中心网格响应型运行架构，130kW 集群实测快速降载/持续削峰/碳感知地理迁移"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://arxiv.org/abs/2606.25098",
+        "local_path": "literature_archive/W-ARX-03.pdf",
+        "sha256": "64cf3904874a67c585a3aaaa4681bd27ab34753680d17b2731f13f768b54a132",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PREPRINT_ONLY",
+      "terminal_rejection_eligibility": "NOT_QUALIFIED",
+      "publication_verification_url": "https://arxiv.org/abs/2606.25098",
+      "peer_review_status": "NON_PEER_REVIEWED",
+      "peer_review_verification_url": "https://arxiv.org/abs/2606.25098",
+      "canonical_url": "https://arxiv.org/abs/2606.25098",
+      "alternate_urls": [
+        "https://arxiv.org/pdf/2606.25098v1"
+      ]
+    },
+    {
+      "registry_id": "W-ARX-04",
+      "canonical_title": "Contextual Robust Optimization for AI Data Center Scheduling with Statistical Guarantees",
+      "authors": [
+        "Yijie Yang",
+        "Xi Weng",
+        "Yue Chen"
+      ],
+      "year": 2026,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "2606.17466"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://arxiv.org/abs/2606.17466",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进（预印本）：语境鲁棒优化处理新能源/负载预测误差，显式建模 AI 训练/推理异构性"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://arxiv.org/abs/2606.17466",
+        "local_path": "literature_archive/W-ARX-04.pdf",
+        "sha256": "2a190dce8f31d61dd02a5c833a0bc8aafe8329973a1b8d8a64c0d3009d16bee3",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PREPRINT_ONLY",
+      "terminal_rejection_eligibility": "NOT_QUALIFIED",
+      "publication_verification_url": "https://arxiv.org/abs/2606.17466",
+      "peer_review_status": "NON_PEER_REVIEWED",
+      "peer_review_verification_url": "https://arxiv.org/abs/2606.17466",
+      "canonical_url": "https://arxiv.org/abs/2606.17466",
+      "alternate_urls": [
+        "https://arxiv.org/pdf/2606.17466v1"
+      ]
+    },
+    {
+      "registry_id": "W-ARX-06",
+      "canonical_title": "DCcluster-Opt: Benchmarking Dynamic Multi-Objective Optimization for Geo-Distributed Data Center Workload",
+      "authors": [
+        "Antonio Guillen-Perez",
+        "Avisek Naug",
+        "Vineet Gundecha",
+        "Sahand Ghorbanpour",
+        "Ricardo Luna Gutierrez",
+        "Ashwin Ramesh Babu",
+        "Munther Salim",
+        "Shubhanker Banerjee",
+        "Eoin H. Oude Essink",
+        "Damien Fay",
+        "Soumyendu Sarkar"
+      ],
+      "year": 2025,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "2511.00117"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://arxiv.org/abs/2511.00117",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "CONTEXT",
+      "importance_history": [
+        {
+          "importance": "CONTEXT",
+          "at": "2026-08-10",
+          "reason": "工具/基准近邻（预印本）：地理分布式数据中心多目标调度基准平台；本地 PDF 转换器无法提取文本，仅 E1 元数据可核验；后续可升级"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://arxiv.org/abs/2511.00117",
+        "local_path": "literature_archive/W-ARX-06.pdf",
+        "sha256": "0d3d0af3476cb99e81c8a7968f9755ebc504c39444017d05efdea9515571ab09",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "NOT_STARTED",
+      "publication_status": "PREPRINT_ONLY",
+      "terminal_rejection_eligibility": "NOT_QUALIFIED",
+      "publication_verification_url": "https://arxiv.org/abs/2511.00117",
+      "peer_review_status": "NON_PEER_REVIEWED",
+      "peer_review_verification_url": "https://arxiv.org/abs/2511.00117",
+      "canonical_url": "https://arxiv.org/abs/2511.00117",
+      "alternate_urls": [
+        "https://arxiv.org/pdf/2511.00117v1"
+      ]
+    },
+    {
+      "registry_id": "W-ARX-05",
+      "canonical_title": "DataCenterGym: A Physics-Grounded Simulator for Multi-Objective Data Center Scheduling",
+      "authors": [
+        "Nilavra Pathak",
+        "Samadrita Biswas",
+        "Nirmalya Roy"
+      ],
+      "year": 2026,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "2604.15594"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://arxiv.org/abs/2604.15594",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "CONTEXT",
+      "importance_history": [
+        {
+          "importance": "CONTEXT",
+          "at": "2026-08-10",
+          "reason": "工具近邻（预印本）：物理接地数据中心调度仿真器，非直接命题竞争者"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://arxiv.org/abs/2604.15594",
+        "local_path": "literature_archive/W-ARX-05.pdf",
+        "sha256": "3534858301059c51e03e69dd90080fb7569c1624af2855051bd9a4501795068c",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "NOT_STARTED",
+      "publication_status": "PREPRINT_ONLY",
+      "terminal_rejection_eligibility": "NOT_QUALIFIED",
+      "publication_verification_url": "https://arxiv.org/abs/2604.15594",
+      "peer_review_status": "NON_PEER_REVIEWED",
+      "peer_review_verification_url": "https://arxiv.org/abs/2604.15594",
+      "canonical_url": "https://arxiv.org/abs/2604.15594",
+      "alternate_urls": [
+        "https://arxiv.org/pdf/2604.15594v1"
+      ]
+    },
+    {
+      "registry_id": "W-AIMLR-01",
+      "canonical_title": "Renewable-Aware Cooperative Scheduling for Distributed AI Training Across Geo-Distributed Data Centers",
+      "authors": [
+        "Haojun Weng",
+        "Xiaoying Li"
+      ],
+      "year": 2024,
+      "persistent_ids": {
+        "doi": "10.69987/aimlr.2024.50208",
+        "openalex": "W7118747828",
+        "arxiv": ""
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://doi.org/10.69987/aimlr.2024.50208",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进：可再生感知分布式 AI 训练协同调度（两阶段），6 区域真实碳强度数据 47.3% 减排——与研究 AITraining+新能源迁移轴直接重叠"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://doi.org/10.69987/aimlr.2024.50208",
+        "local_path": "literature_archive/W-AIMLR-01.pdf",
+        "sha256": "4d7bdd115532e0becac56a4697cb7a73124f28833e332ee0c79a3979920afeda",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://scipublication.com/index.php/AIMLR/article/view/249",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://doi.org/10.69987/aimlr.2024.50208",
+      "canonical_url": "https://doi.org/10.69987/aimlr.2024.50208",
+      "alternate_urls": [
+        "https://scipublication.com/index.php/AIMLR/article/download/249/228"
+      ]
+    },
+    {
+      "registry_id": "W-CFWS-01",
+      "canonical_title": "CFWS: DRL-Based Framework for Energy Cost and Carbon Footprint Optimization in Cloud Data Centers",
+      "authors": [
+        "Daming Zhao",
+        "Jian-tao Zhou",
+        "Keqin Li"
+      ],
+      "year": 2025,
+      "persistent_ids": {
+        "doi": "10.1109/tsusc.2024.3391791",
+        "openalex": "W4395017660",
+        "arxiv": ""
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://doi.org/10.1109/tsusc.2024.3391791",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进/方法基线：DRL（TCN-MAD+DQN 扁平索引）跨区域 RES 数据中心 VM 迁移，成本+碳双目标"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://doi.org/10.1109/tsusc.2024.3391791",
+        "local_path": "literature_archive/W-CFWS-01.pdf",
+        "sha256": "b831397e4d35fb40e64bfb5a7b65640440b0df527d425c0f3bcfc112505c4f6b",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://doi.org/10.1109/tsusc.2024.3391791",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://doi.org/10.1109/tsusc.2024.3391791",
+      "canonical_url": "https://doi.org/10.1109/tsusc.2024.3391791",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-STET-01",
+      "canonical_title": "Energy and carbon-aware distributed machine learning tasks scheduling scheme for the multi-renewable energy-based edge-cloud continuum",
+      "authors": [
+        "Z. Miao",
+        "Liu",
+        "Nan",
+        "Li",
+        "Pan",
+        "Yang",
+        "Yu",
+        "Chen",
+        "Zhao"
+      ],
+      "year": 2024,
+      "persistent_ids": {
+        "doi": "10.2516/stet/2024076",
+        "openalex": "W4402037534",
+        "arxiv": ""
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://doi.org/10.2516/stet/2024076",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进/方法：ECMR 多可再生时空互补 DML 任务调度 MILP 启发式，能源+碳+电价+碳强度+QoS 约束"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://doi.org/10.2516/stet/2024076",
+        "local_path": "literature_archive/W-STET-01.pdf",
+        "sha256": "a4067466595c12f18ad9e51a18a2380924e2ccbac00f50595b408ec0ee174952",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://www.stet-review.org/articles/stet/abs/2024/01/stet20240197/stet20240197.html",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://doi.org/10.2516/stet/2024076",
+      "canonical_url": "https://doi.org/10.2516/stet/2024076",
+      "alternate_urls": [
+        "https://www.stet-review.org/articles/stet/pdf/2024/01/stet20240197.pdf"
+      ]
+    },
+    {
+      "registry_id": "W-ZHANG-01",
+      "canonical_title": "Unlocking the flexibilities of data centers for smart grid services: Optimal dispatch and design of energy storage systems under progressive loading",
+      "authors": [
+        "Yingbo Zhang",
+        "Tang",
+        "Li",
+        "Wang"
+      ],
+      "year": 2025,
+      "persistent_ids": {
+        "doi": "10.1016/j.energy.2025.134511",
+        "openalex": "W4406281352",
+        "arxiv": ""
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://doi.org/10.1016/j.energy.2025.134511",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进：数据中心智能电网服务灵活性——储能最优调度与设计（渐进负荷），与 Q3 储能协同直接相关"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://doi.org/10.1016/j.energy.2025.134511",
+        "local_path": "literature_archive/W-ZHANG-01.pdf",
+        "sha256": "c1d6011fbbb9854a3459ec709252b9fb5421b893e4bf56ee3a5611d10435e2aa",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://doi.org/10.1016/j.energy.2025.134511",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://doi.org/10.1016/j.energy.2025.134511",
+      "canonical_url": "https://doi.org/10.1016/j.energy.2025.134511",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-NKW-01",
+      "canonical_title": "Carbon-Aware Workload Management in Data Centers: A Multi-Energy Integration Approach",
+      "authors": [
+        "Beltus Wiysobunri Nkwawir",
+        "Kayalica",
+        "Guven",
+        "Duman",
+        "Erden"
+      ],
+      "year": 2025,
+      "persistent_ids": {
+        "doi": "10.1145/3679240.3735104",
+        "openalex": "W4411345923",
+        "arxiv": ""
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://doi.org/10.1145/3679240.3735104",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进（ACM e-Energy 2025）：多能源集成（含储能）碳感知数据中心负载管理"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://doi.org/10.1145/3679240.3735104",
+        "local_path": "literature_archive/W-NKW-01.pdf",
+        "sha256": "a709510759586d6555f87afba9c3c77034c042245f56230ba9c3403e52584ce6",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://doi.org/10.1145/3679240.3735104",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://doi.org/10.1145/3679240.3735104",
+      "canonical_url": "https://doi.org/10.1145/3679240.3735104",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-CASP-01",
+      "canonical_title": "Caspian: A Carbon-aware Workload Scheduler in Multi-Cluster Kubernetes Environments",
+      "authors": [
+        "Tayebeh Bahreini",
+        "Tantawi",
+        "Tardieu"
+      ],
+      "year": 2024,
+      "persistent_ids": {
+        "doi": "10.1109/mascots64422.2024.10786568",
+        "openalex": "W4405361825",
+        "arxiv": ""
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://doi.org/10.1109/mascots64422.2024.10786568",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进/方法基线（MASCOTS 2024）：多集群 Kubernetes 碳感知调度器；被 2025-2026 时空迁移工作广泛引用"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://doi.org/10.1109/mascots64422.2024.10786568",
+        "local_path": "literature_archive/W-CASP-01.pdf",
+        "sha256": "e0b89d0c3e72e6ce2251984fca697c3fdff595bb87bcd7915e30c92f54c3d8f1",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://doi.org/10.1109/mascots64422.2024.10786568",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://doi.org/10.1109/mascots64422.2024.10786568",
+      "canonical_url": "https://doi.org/10.1109/mascots64422.2024.10786568",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-BASH-01",
+      "canonical_title": "The Sunk Carbon Fallacy: Rethinking Carbon Footprint Metrics for Effective Carbon-Aware Scheduling",
+      "authors": [
+        "Noman Bashir",
+        "Gohil",
+        "Subramanya",
+        "Shahrad",
+        "Irwin",
+        "Olivetti",
+        "Delimitrou"
+      ],
+      "year": 2024,
+      "persistent_ids": {
+        "doi": "10.1145/3698038.3698542",
+        "openalex": "W4404088343",
+        "arxiv": ""
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://doi.org/10.1145/3698038.3698542",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进/方法论（ACM SoCC 2024）：碳足迹核算指标批判——直接影响我们碳排放口径声明的合法性"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://doi.org/10.1145/3698038.3698542",
+        "local_path": "literature_archive/W-BASH-01.pdf",
+        "sha256": "df8e0b2de8e39c52b67c74a14d066105c43beb96f1a7f477af95584a468905c5",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://doi.org/10.1145/3698038.3698542",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://doi.org/10.1145/3698038.3698542",
+      "canonical_url": "https://doi.org/10.1145/3698038.3698542",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-SCI-01",
+      "canonical_title": "算力-电力-热力协同视角下数据中心高密机柜全栈联动研究",
+      "authors": [
+        "Wang",
+        "Song",
+        "Han",
+        "Luo",
+        "Lin",
+        "Han",
+        "Wei",
+        "Li"
+      ],
+      "year": 2024,
+      "persistent_ids": {
+        "doi": "10.1360/sst-2024-0170",
+        "openalex": "W4404149716",
+        "arxiv": ""
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://doi.org/10.1360/sst-2024-0170",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进（中文核心：中国科学-技术科学）：算力-电力-热力协同全栈联动——中文语境下与『算电协同』最近的正式出版物"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://doi.org/10.1360/sst-2024-0170",
+        "local_path": "literature_archive/W-SCI-01.pdf",
+        "sha256": "a7dfa5b641658d0bf999baa3a61dd92c24cbd01808cf3d5758dee4274dd592ee",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://doi.org/10.1360/sst-2024-0170",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://doi.org/10.1360/sst-2024-0170",
+      "canonical_url": "https://doi.org/10.1360/sst-2024-0170",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-NAPS-01",
+      "canonical_title": "Emission-Aware Flexible Data Center Load Scheduling",
+      "authors": [
+        "Dreisbach",
+        "Hasan",
+        "Sang"
+      ],
+      "year": 2025,
+      "persistent_ids": {
+        "doi": "10.1109/naps66256.2025.11272330",
+        "openalex": "",
+        "arxiv": ""
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://doi.org/10.1109/naps66256.2025.11272330",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进（IEEE NAPS 2025）：排放感知柔性数据中心负载调度"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://doi.org/10.1109/naps66256.2025.11272330",
+        "local_path": "literature_archive/W-NAPS-01.pdf",
+        "sha256": "8cf4605a1aacdb99fe8a1fd09587baac666a423870b99b9407f76b3a86a68cde",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://doi.org/10.1109/naps66256.2025.11272330",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://doi.org/10.1109/naps66256.2025.11272330",
+      "canonical_url": "https://doi.org/10.1109/naps66256.2025.11272330",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-EMCX-01",
+      "canonical_title": "Distributionally robust co-optimization of computing workloads and renewable energy uncertainties in geo-distributed data centers considering multi-element influences",
+      "authors": [
+        "Juntao Han",
+        "Nannan Tong",
+        "Jiayu Lin",
+        "Yibo Han",
+        "Yongzhen Wang",
+        "Kai Han",
+        "Yaping Li"
+      ],
+      "year": 2026,
+      "persistent_ids": {
+        "doi": "10.1016/j.ecmx.2025.101432",
+        "openalex": "W4417013829",
+        "arxiv": ""
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://doi.org/10.1016/j.ecmx.2025.101432",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进（EMCX 2026）：地理分布式数据中心算力负载与新能源不确定性分布鲁棒联合优化"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://doi.org/10.1016/j.ecmx.2025.101432",
+        "local_path": "literature_archive/W-EMCX-01.pdf",
+        "sha256": "35eb1e2b1ffab995264086b985b6b9ff1563f1a1af113b8c51fda28290535d27",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://doi.org/10.1016/j.ecmx.2025.101432",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://doi.org/10.1016/j.ecmx.2025.101432",
+      "canonical_url": "https://doi.org/10.1016/j.ecmx.2025.101432",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-CARB-01",
+      "canonical_title": "Carbon-Aware Computing for Datacenters",
+      "authors": [
+        "Ana Radovanović",
+        "R. Koningstein",
+        "I. Schneider",
+        "B. Chen",
+        "A. Duarte",
+        "B. Roy",
+        "D. Xiao",
+        "M. Haridasan",
+        "P. Hung",
+        "N. Care",
+        "S. Talukdar",
+        "E. Mullen",
+        "K. Smith",
+        "M. Cottman",
+        "W. Cirne"
+      ],
+      "year": 2022,
+      "persistent_ids": {
+        "doi": "10.1109/tpwrs.2022.3173250",
+        "openalex": "W4319881819",
+        "arxiv": ""
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://doi.org/10.1109/tpwrs.2022.3173250",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "FOUNDATIONAL_BACKFILL",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "理论前驱/关键基线（Google，TPWRS）：碳感知计算奠基工作，Caspian/ARX-02 等全部后向引用它；碳强度信号驱动的负载时空迁移范式源头"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://doi.org/10.1109/tpwrs.2022.3173250",
+        "local_path": "literature_archive/W-CARB-01.pdf",
+        "sha256": "c89645cbf2c89db091aa6fb872e75409b7cb5a6f8e7f2cb5d7b6b72290a57525",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://doi.org/10.1109/tpwrs.2022.3173250",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://doi.org/10.1109/tpwrs.2022.3173250",
+      "canonical_url": "https://doi.org/10.1109/tpwrs.2022.3173250",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-TCC-01",
+      "canonical_title": "Carbon-Aware Load Balance Control of Data Centers With Renewable Generation",
+      "authors": [
+        "Wen-Ting Lin"
+      ],
+      "year": 2022,
+      "persistent_ids": {
+        "doi": "10.1109/tcc.2022.3150391",
+        "openalex": "W4212345667",
+        "arxiv": ""
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://doi.org/10.1109/tcc.2022.3150391",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "FOUNDATIONAL_BACKFILL",
+      "importance": "CONTEXT",
+      "importance_history": [
+        {
+          "importance": "CONTEXT",
+          "at": "2026-08-10",
+          "reason": "背景/前驱（TCC 2022）：可再生发电数据中心碳感知负载均衡控制；Shao 2026 后向引用链上的背景工作"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "NOT_REQUIRED",
+        "source_url": "https://doi.org/10.1109/tcc.2022.3150391",
+        "local_path": "",
+        "sha256": "",
+        "downloaded_at": "",
+        "verified_against_metadata": false,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "NOT_STARTED",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://doi.org/10.1109/tcc.2022.3150391",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://doi.org/10.1109/tcc.2022.3150391",
+      "canonical_url": "https://doi.org/10.1109/tcc.2022.3150391",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-CN-01",
+      "canonical_title": "基于空间弹性表征的广域数据中心集群算电协同调度方法",
+      "authors": [
+        "冯洪赟",
+        "谭振飞",
+        "严正"
+      ],
+      "year": 2026,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "",
+        "cnki": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprRWbNj0n8jV6PZzITQmKZz7MdmHHN_YsTbnGWdM8VZmsx7bqM9GUbVFGCDQJwRtVwEp5kjeAb87odjdmiXA45ZEen-gVQTbiipnPWF4dyGdK5EvupjlWc0dzGUVdoo8FlKijkudKV4uxkF5Rc_7S0kI6L8-NwIYLpBCkDg134inA==&uniplatform=NZKPT&language=CHS"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprRWbNj0n8jV6PZzITQmKZz7MdmHHN_YsTbnGWdM8VZmsx7bqM9GUbVFGCDQJwRtVwEp5kjeAb87odjdmiXA45ZEen-gVQTbiipnPWF4dyGdK5EvupjlWc0dzGUVdoo8FlKijkudKV4uxkF5Rc_7S0kI6L8-NwIYLpBCkDg134inA==&uniplatform=NZKPT&language=CHS",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "CRITICAL",
+      "importance_history": [
+        {
+          "importance": "CRITICAL",
+          "at": "2026-08-10",
+          "reason": "直接近邻：广域数据中心集群算电协同调度（空间弹性表征），主命题 O/I/A/T 高度对齐（电力系统自动化 2026）"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprRWbNj0n8jV6PZzITQmKZz7MdmHHN_YsTbnGWdM8VZmsx7bqM9GUbVFGCDQJwRtVwEp5kjeAb87odjdmiXA45ZEen-gVQTbiipnPWF4dyGdK5EvupjlWc0dzGUVdoo8FlKijkudKV4uxkF5Rc_7S0kI6L8-NwIYLpBCkDg134inA==&uniplatform=NZKPT&language=CHS",
+        "local_path": "literature_archive/W-CN-01.pdf",
+        "sha256": "d6addfdc39542f61758b04d488de2d703f5c4eb429088e283e98a226aebc1802",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprRWbNj0n8jV6PZzITQmKZz7MdmHHN_YsTbnGWdM8VZmsx7bqM9GUbVFGCDQJwRtVwEp5kjeAb87odjdmiXA45ZEen-gVQTbiipnPWF4dyGdK5EvupjlWc0dzGUVdoo8FlKijkudKV4uxkF5Rc_7S0kI6L8-NwIYLpBCkDg134inA==&uniplatform=NZKPT&language=CHS",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprRWbNj0n8jV6PZzITQmKZz7MdmHHN_YsTbnGWdM8VZmsx7bqM9GUbVFGCDQJwRtVwEp5kjeAb87odjdmiXA45ZEen-gVQTbiipnPWF4dyGdK5EvupjlWc0dzGUVdoo8FlKijkudKV4uxkF5Rc_7S0kI6L8-NwIYLpBCkDg134inA==&uniplatform=NZKPT&language=CHS",
+      "canonical_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprRWbNj0n8jV6PZzITQmKZz7MdmHHN_YsTbnGWdM8VZmsx7bqM9GUbVFGCDQJwRtVwEp5kjeAb87odjdmiXA45ZEen-gVQTbiipnPWF4dyGdK5EvupjlWc0dzGUVdoo8FlKijkudKV4uxkF5Rc_7S0kI6L8-NwIYLpBCkDg134inA==&uniplatform=NZKPT&language=CHS",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-CN-02",
+      "canonical_title": "考虑负载时空转移特性的数据中心集群算电协同优化调度",
+      "authors": [
+        "向梓旸",
+        "黄淳驿",
+        "李康平",
+        "梁钢",
+        "王涛",
+        "李雅洁"
+      ],
+      "year": 2026,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "",
+        "cnki": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopoY_AfgUAWZJ9yfdfvlCDbz1YQBXEI6zDUFViNi3LMdM8e-720eaECsbBu4Vw0wcepCSyQiNFNMD00kJ40L9DXRcQKlffWObLMti7fZ96YmT3sXDAIgb27H0TbhdcqhAPO6BpKTeAZ6-xAS-ndgF0zvgGIIxDcIQrOsvBPzRMwp8g==&uniplatform=NZKPT&language=CHS"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopoY_AfgUAWZJ9yfdfvlCDbz1YQBXEI6zDUFViNi3LMdM8e-720eaECsbBu4Vw0wcepCSyQiNFNMD00kJ40L9DXRcQKlffWObLMti7fZ96YmT3sXDAIgb27H0TbhdcqhAPO6BpKTeAZ6-xAS-ndgF0zvgGIIxDcIQrOsvBPzRMwp8g==&uniplatform=NZKPT&language=CHS",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "CRITICAL",
+      "importance_history": [
+        {
+          "importance": "CRITICAL",
+          "at": "2026-08-10",
+          "reason": "直接近邻：负载时空转移特性下的数据中心集群算电协同优化调度——时空迁移轴直接重叠"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopoY_AfgUAWZJ9yfdfvlCDbz1YQBXEI6zDUFViNi3LMdM8e-720eaECsbBu4Vw0wcepCSyQiNFNMD00kJ40L9DXRcQKlffWObLMti7fZ96YmT3sXDAIgb27H0TbhdcqhAPO6BpKTeAZ6-xAS-ndgF0zvgGIIxDcIQrOsvBPzRMwp8g==&uniplatform=NZKPT&language=CHS",
+        "local_path": "literature_archive/W-CN-02.pdf",
+        "sha256": "13223412a30159eb3d37b0c4e3dad1a40f9f9c0a987cf6b5da0d5e98df420035",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopoY_AfgUAWZJ9yfdfvlCDbz1YQBXEI6zDUFViNi3LMdM8e-720eaECsbBu4Vw0wcepCSyQiNFNMD00kJ40L9DXRcQKlffWObLMti7fZ96YmT3sXDAIgb27H0TbhdcqhAPO6BpKTeAZ6-xAS-ndgF0zvgGIIxDcIQrOsvBPzRMwp8g==&uniplatform=NZKPT&language=CHS",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopoY_AfgUAWZJ9yfdfvlCDbz1YQBXEI6zDUFViNi3LMdM8e-720eaECsbBu4Vw0wcepCSyQiNFNMD00kJ40L9DXRcQKlffWObLMti7fZ96YmT3sXDAIgb27H0TbhdcqhAPO6BpKTeAZ6-xAS-ndgF0zvgGIIxDcIQrOsvBPzRMwp8g==&uniplatform=NZKPT&language=CHS",
+      "canonical_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopoY_AfgUAWZJ9yfdfvlCDbz1YQBXEI6zDUFViNi3LMdM8e-720eaECsbBu4Vw0wcepCSyQiNFNMD00kJ40L9DXRcQKlffWObLMti7fZ96YmT3sXDAIgb27H0TbhdcqhAPO6BpKTeAZ6-xAS-ndgF0zvgGIIxDcIQrOsvBPzRMwp8g==&uniplatform=NZKPT&language=CHS",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-CN-03",
+      "canonical_title": "面向绿电消纳的东西部电算网时空耦合协同调控策略",
+      "authors": [
+        "鲍兴川",
+        "张曦",
+        "彭林",
+        "周爱华",
+        "陈洪银"
+      ],
+      "year": 2026,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "",
+        "cnki": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprhqC7e2nfjz7xA0FoDgjp4VCXsGgHmH-eGmBjmcbZZ2QnbmQIhOuF35xykCWka8j4Ogcj56mh7D-OzW72XbZXVYLfgNf11bFHuWsGbaODYnvrybwRTlDnjAEC4h924b8DK8tanEAsr5YJW98QTu8rYnzF2eUaHYcbdIEKlrBXmpA==&uniplatform=NZKPT&language=CHS"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprhqC7e2nfjz7xA0FoDgjp4VCXsGgHmH-eGmBjmcbZZ2QnbmQIhOuF35xykCWka8j4Ogcj56mh7D-OzW72XbZXVYLfgNf11bFHuWsGbaODYnvrybwRTlDnjAEC4h924b8DK8tanEAsr5YJW98QTu8rYnzF2eUaHYcbdIEKlrBXmpA==&uniplatform=NZKPT&language=CHS",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "CRITICAL",
+      "importance_history": [
+        {
+          "importance": "CRITICAL",
+          "at": "2026-08-10",
+          "reason": "直接近邻：东西部电算网时空耦合调控（绿电消纳）——东-西空间迁移轴直接重叠"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprhqC7e2nfjz7xA0FoDgjp4VCXsGgHmH-eGmBjmcbZZ2QnbmQIhOuF35xykCWka8j4Ogcj56mh7D-OzW72XbZXVYLfgNf11bFHuWsGbaODYnvrybwRTlDnjAEC4h924b8DK8tanEAsr5YJW98QTu8rYnzF2eUaHYcbdIEKlrBXmpA==&uniplatform=NZKPT&language=CHS",
+        "local_path": "literature_archive/W-CN-03.pdf",
+        "sha256": "b350b8dddc4b84836462e082ae50242bc5acc59110e7b0c7c0569bac0c7797d1",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprhqC7e2nfjz7xA0FoDgjp4VCXsGgHmH-eGmBjmcbZZ2QnbmQIhOuF35xykCWka8j4Ogcj56mh7D-OzW72XbZXVYLfgNf11bFHuWsGbaODYnvrybwRTlDnjAEC4h924b8DK8tanEAsr5YJW98QTu8rYnzF2eUaHYcbdIEKlrBXmpA==&uniplatform=NZKPT&language=CHS",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprhqC7e2nfjz7xA0FoDgjp4VCXsGgHmH-eGmBjmcbZZ2QnbmQIhOuF35xykCWka8j4Ogcj56mh7D-OzW72XbZXVYLfgNf11bFHuWsGbaODYnvrybwRTlDnjAEC4h924b8DK8tanEAsr5YJW98QTu8rYnzF2eUaHYcbdIEKlrBXmpA==&uniplatform=NZKPT&language=CHS",
+      "canonical_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprhqC7e2nfjz7xA0FoDgjp4VCXsGgHmH-eGmBjmcbZZ2QnbmQIhOuF35xykCWka8j4Ogcj56mh7D-OzW72XbZXVYLfgNf11bFHuWsGbaODYnvrybwRTlDnjAEC4h924b8DK8tanEAsr5YJW98QTu8rYnzF2eUaHYcbdIEKlrBXmpA==&uniplatform=NZKPT&language=CHS",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-CN-04",
+      "canonical_title": "面向绿电消纳与算力迁移收益的多数据中心三阶段迁移模型",
+      "authors": [
+        "张良",
+        "王昊",
+        "王殿彬",
+        "张晖",
+        "张志鹏",
+        "吕玲"
+      ],
+      "year": 2026,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "",
+        "cnki": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopqZU5fLa1VaErVnOlyeTaDVVGefySc5cmhbp7hDXvpZm1rCYWjw2BC9I8bCj1TuqeSvGLmVil3dguXq6UAahbxBUVfva6yyDl-PI01yK1XBsxfgmLXIwwKDHTbL8os0XV8Nmlti96jxyMBXmRq7w9-2JzTcoK_JwbnJCU5Hz9mngw==&uniplatform=NZKPT&language=CHS"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopqZU5fLa1VaErVnOlyeTaDVVGefySc5cmhbp7hDXvpZm1rCYWjw2BC9I8bCj1TuqeSvGLmVil3dguXq6UAahbxBUVfva6yyDl-PI01yK1XBsxfgmLXIwwKDHTbL8os0XV8Nmlti96jxyMBXmRq7w9-2JzTcoK_JwbnJCU5Hz9mngw==&uniplatform=NZKPT&language=CHS",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "CRITICAL",
+      "importance_history": [
+        {
+          "importance": "CRITICAL",
+          "at": "2026-08-10",
+          "reason": "直接近邻：多数据中心三阶段迁移模型（绿电消纳+迁移收益）——迁移决策轴直接重叠"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopqZU5fLa1VaErVnOlyeTaDVVGefySc5cmhbp7hDXvpZm1rCYWjw2BC9I8bCj1TuqeSvGLmVil3dguXq6UAahbxBUVfva6yyDl-PI01yK1XBsxfgmLXIwwKDHTbL8os0XV8Nmlti96jxyMBXmRq7w9-2JzTcoK_JwbnJCU5Hz9mngw==&uniplatform=NZKPT&language=CHS",
+        "local_path": "literature_archive/W-CN-04.pdf",
+        "sha256": "90f149e408a9b7883bf48a3d61777b787ebb956a596ef192969e616045b6af5b",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopqZU5fLa1VaErVnOlyeTaDVVGefySc5cmhbp7hDXvpZm1rCYWjw2BC9I8bCj1TuqeSvGLmVil3dguXq6UAahbxBUVfva6yyDl-PI01yK1XBsxfgmLXIwwKDHTbL8os0XV8Nmlti96jxyMBXmRq7w9-2JzTcoK_JwbnJCU5Hz9mngw==&uniplatform=NZKPT&language=CHS",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopqZU5fLa1VaErVnOlyeTaDVVGefySc5cmhbp7hDXvpZm1rCYWjw2BC9I8bCj1TuqeSvGLmVil3dguXq6UAahbxBUVfva6yyDl-PI01yK1XBsxfgmLXIwwKDHTbL8os0XV8Nmlti96jxyMBXmRq7w9-2JzTcoK_JwbnJCU5Hz9mngw==&uniplatform=NZKPT&language=CHS",
+      "canonical_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopqZU5fLa1VaErVnOlyeTaDVVGefySc5cmhbp7hDXvpZm1rCYWjw2BC9I8bCj1TuqeSvGLmVil3dguXq6UAahbxBUVfva6yyDl-PI01yK1XBsxfgmLXIwwKDHTbL8os0XV8Nmlti96jxyMBXmRq7w9-2JzTcoK_JwbnJCU5Hz9mngw==&uniplatform=NZKPT&language=CHS",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-CN-05",
+      "canonical_title": "考虑算力任务延迟调度的数据中心风光储规划运行一体优化建模与应用",
+      "authors": [
+        "王泽军",
+        "方思颖",
+        "张奇"
+      ],
+      "year": 2026,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "",
+        "cnki": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopob0__C3ykOyKraohzUEsPONIdqTKLDnZ0nYcoM8jvR0TSg4stpmgr1d8ypFlHdF_YRycsLz9qyZMTF52o0zQ1UuEPwZtNfrEAD_2jHhXuvVWtc9me2Q2hr2sIVq2lIBWJMqfPnABeeuCSNe--CCrqG3K_U0V2vZsTws1dNq0DsEg==&uniplatform=NZKPT&language=CHS"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopob0__C3ykOyKraohzUEsPONIdqTKLDnZ0nYcoM8jvR0TSg4stpmgr1d8ypFlHdF_YRycsLz9qyZMTF52o0zQ1UuEPwZtNfrEAD_2jHhXuvVWtc9me2Q2hr2sIVq2lIBWJMqfPnABeeuCSNe--CCrqG3K_U0V2vZsTws1dNq0DsEg==&uniplatform=NZKPT&language=CHS",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进：算力任务延迟调度+风光储规划运行一体建模（系统科学与数学 2026）"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopob0__C3ykOyKraohzUEsPONIdqTKLDnZ0nYcoM8jvR0TSg4stpmgr1d8ypFlHdF_YRycsLz9qyZMTF52o0zQ1UuEPwZtNfrEAD_2jHhXuvVWtc9me2Q2hr2sIVq2lIBWJMqfPnABeeuCSNe--CCrqG3K_U0V2vZsTws1dNq0DsEg==&uniplatform=NZKPT&language=CHS",
+        "local_path": "literature_archive/W-CN-05.pdf",
+        "sha256": "1eb24e74f69060b8b62936c39994588b3188e4a90b1f01cc6c76a51bec98c608",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopob0__C3ykOyKraohzUEsPONIdqTKLDnZ0nYcoM8jvR0TSg4stpmgr1d8ypFlHdF_YRycsLz9qyZMTF52o0zQ1UuEPwZtNfrEAD_2jHhXuvVWtc9me2Q2hr2sIVq2lIBWJMqfPnABeeuCSNe--CCrqG3K_U0V2vZsTws1dNq0DsEg==&uniplatform=NZKPT&language=CHS",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopob0__C3ykOyKraohzUEsPONIdqTKLDnZ0nYcoM8jvR0TSg4stpmgr1d8ypFlHdF_YRycsLz9qyZMTF52o0zQ1UuEPwZtNfrEAD_2jHhXuvVWtc9me2Q2hr2sIVq2lIBWJMqfPnABeeuCSNe--CCrqG3K_U0V2vZsTws1dNq0DsEg==&uniplatform=NZKPT&language=CHS",
+      "canonical_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopob0__C3ykOyKraohzUEsPONIdqTKLDnZ0nYcoM8jvR0TSg4stpmgr1d8ypFlHdF_YRycsLz9qyZMTF52o0zQ1UuEPwZtNfrEAD_2jHhXuvVWtc9me2Q2hr2sIVq2lIBWJMqfPnABeeuCSNe--CCrqG3K_U0V2vZsTws1dNq0DsEg==&uniplatform=NZKPT&language=CHS",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-CN-06",
+      "canonical_title": "面向算电协同的建模与应用：研究现状与展望",
+      "authors": [
+        "杨蒙",
+        "翁翕",
+        "沈沉",
+        "陈玥"
+      ],
+      "year": 2026,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "",
+        "cnki": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopr8SPIWYtAF3zyM-08rL-c0G2lGMl8U6_unDj1eDULUvCfCC-MNu5zW2-QMbymurVO2Th8_qZ4U6HC636kRdPKlnSYgae5zHRgoyF35POvo3NtqxaTDIY38uNup5SpE90pGgHAnkOeGZtDybQgPYHxXHgtwA6zO84EfwqTWR-rYmQ==&uniplatform=NZKPT&language=CHS"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopr8SPIWYtAF3zyM-08rL-c0G2lGMl8U6_unDj1eDULUvCfCC-MNu5zW2-QMbymurVO2Th8_qZ4U6HC636kRdPKlnSYgae5zHRgoyF35POvo3NtqxaTDIY38uNup5SpE90pGgHAnkOeGZtDybQgPYHxXHgtwA6zO84EfwqTWR-rYmQ==&uniplatform=NZKPT&language=CHS",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进（综述）：算电协同建模与应用现状与展望——全景定位本命题"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopr8SPIWYtAF3zyM-08rL-c0G2lGMl8U6_unDj1eDULUvCfCC-MNu5zW2-QMbymurVO2Th8_qZ4U6HC636kRdPKlnSYgae5zHRgoyF35POvo3NtqxaTDIY38uNup5SpE90pGgHAnkOeGZtDybQgPYHxXHgtwA6zO84EfwqTWR-rYmQ==&uniplatform=NZKPT&language=CHS",
+        "local_path": "literature_archive/W-CN-06.pdf",
+        "sha256": "055dcad6a63b07e1f04692855b8b940c53dad9cc0b0609da25ed6659a47812f6",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopr8SPIWYtAF3zyM-08rL-c0G2lGMl8U6_unDj1eDULUvCfCC-MNu5zW2-QMbymurVO2Th8_qZ4U6HC636kRdPKlnSYgae5zHRgoyF35POvo3NtqxaTDIY38uNup5SpE90pGgHAnkOeGZtDybQgPYHxXHgtwA6zO84EfwqTWR-rYmQ==&uniplatform=NZKPT&language=CHS",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopr8SPIWYtAF3zyM-08rL-c0G2lGMl8U6_unDj1eDULUvCfCC-MNu5zW2-QMbymurVO2Th8_qZ4U6HC636kRdPKlnSYgae5zHRgoyF35POvo3NtqxaTDIY38uNup5SpE90pGgHAnkOeGZtDybQgPYHxXHgtwA6zO84EfwqTWR-rYmQ==&uniplatform=NZKPT&language=CHS",
+      "canonical_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopr8SPIWYtAF3zyM-08rL-c0G2lGMl8U6_unDj1eDULUvCfCC-MNu5zW2-QMbymurVO2Th8_qZ4U6HC636kRdPKlnSYgae5zHRgoyF35POvo3NtqxaTDIY38uNup5SpE90pGgHAnkOeGZtDybQgPYHxXHgtwA6zO84EfwqTWR-rYmQ==&uniplatform=NZKPT&language=CHS",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-CN-07",
+      "canonical_title": "算力电力耦合下考虑绿电友好消纳的数据中心调度优化模型",
+      "authors": [
+        "张硕",
+        "魏铭",
+        "李英姿",
+        "檀勤良"
+      ],
+      "year": 2025,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "",
+        "cnki": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprC5w1sUHTYaI6CQf6BLzY6IPzkD68h7UtnPV7hr6CIJosaxvcuk60wqt2AwMWAUU2Pp51qFfNhvUbbNsUo8fsEEUdDyvjeMU44kL-RtkBgPrHOhoBCVi0qt2NgHZhEIi70RKCiu0Wd95ENI-kGA0Ie7025Htc49PN7YefhxpoaRQ==&uniplatform=NZKPT&language=CHS"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprC5w1sUHTYaI6CQf6BLzY6IPzkD68h7UtnPV7hr6CIJosaxvcuk60wqt2AwMWAUU2Pp51qFfNhvUbbNsUo8fsEEUdDyvjeMU44kL-RtkBgPrHOhoBCVi0qt2NgHZhEIi70RKCiu0Wd95ENI-kGA0Ie7025Htc49PN7YefhxpoaRQ==&uniplatform=NZKPT&language=CHS",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进：算力电力耦合+绿电友好消纳调度模型（系统工程理论与实践，CSSCI 管理工程）"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprC5w1sUHTYaI6CQf6BLzY6IPzkD68h7UtnPV7hr6CIJosaxvcuk60wqt2AwMWAUU2Pp51qFfNhvUbbNsUo8fsEEUdDyvjeMU44kL-RtkBgPrHOhoBCVi0qt2NgHZhEIi70RKCiu0Wd95ENI-kGA0Ie7025Htc49PN7YefhxpoaRQ==&uniplatform=NZKPT&language=CHS",
+        "local_path": "literature_archive/W-CN-07.pdf",
+        "sha256": "cf83c8a25e08cec8278963b3ed0a336376d434e43d97a975cbbdf2b48288d135",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprC5w1sUHTYaI6CQf6BLzY6IPzkD68h7UtnPV7hr6CIJosaxvcuk60wqt2AwMWAUU2Pp51qFfNhvUbbNsUo8fsEEUdDyvjeMU44kL-RtkBgPrHOhoBCVi0qt2NgHZhEIi70RKCiu0Wd95ENI-kGA0Ie7025Htc49PN7YefhxpoaRQ==&uniplatform=NZKPT&language=CHS",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprC5w1sUHTYaI6CQf6BLzY6IPzkD68h7UtnPV7hr6CIJosaxvcuk60wqt2AwMWAUU2Pp51qFfNhvUbbNsUo8fsEEUdDyvjeMU44kL-RtkBgPrHOhoBCVi0qt2NgHZhEIi70RKCiu0Wd95ENI-kGA0Ie7025Htc49PN7YefhxpoaRQ==&uniplatform=NZKPT&language=CHS",
+      "canonical_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprC5w1sUHTYaI6CQf6BLzY6IPzkD68h7UtnPV7hr6CIJosaxvcuk60wqt2AwMWAUU2Pp51qFfNhvUbbNsUo8fsEEUdDyvjeMU44kL-RtkBgPrHOhoBCVi0qt2NgHZhEIi70RKCiu0Wd95ENI-kGA0Ie7025Htc49PN7YefhxpoaRQ==&uniplatform=NZKPT&language=CHS",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-CN-08",
+      "canonical_title": "合作博弈视角下任务调度驱动的算力-电力双向协同优化方法",
+      "authors": [
+        "王鹏",
+        "刘文宇",
+        "曹雨洁",
+        "孙逸萌",
+        "卫璇",
+        "丁肇豪"
+      ],
+      "year": 2026,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "",
+        "cnki": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoppSBwZOgTVITx7e1ERjrBYE_9XeaQM2u9adkPnSw9yu6XHeHRTdOi_TxJ0e831BMESz-OyT1XNJCxJCo0BoW5CKerUt_AGeHc_vp6BF7V2-1pT0AUC95nPTQrPQqFxjwMnV_nj3JW38gAX-5B_b5R05o6fIbBefBnsLl4m-WwyEkg==&uniplatform=NZKPT&language=CHS"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoppSBwZOgTVITx7e1ERjrBYE_9XeaQM2u9adkPnSw9yu6XHeHRTdOi_TxJ0e831BMESz-OyT1XNJCxJCo0BoW5CKerUt_AGeHc_vp6BF7V2-1pT0AUC95nPTQrPQqFxjwMnV_nj3JW38gAX-5B_b5R05o6fIbBefBnsLl4m-WwyEkg==&uniplatform=NZKPT&language=CHS",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进：合作博弈任务调度驱动的算力-电力双向协同"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoppSBwZOgTVITx7e1ERjrBYE_9XeaQM2u9adkPnSw9yu6XHeHRTdOi_TxJ0e831BMESz-OyT1XNJCxJCo0BoW5CKerUt_AGeHc_vp6BF7V2-1pT0AUC95nPTQrPQqFxjwMnV_nj3JW38gAX-5B_b5R05o6fIbBefBnsLl4m-WwyEkg==&uniplatform=NZKPT&language=CHS",
+        "local_path": "literature_archive/W-CN-08.pdf",
+        "sha256": "13f3e59f5661910a73cab4f492294552c048178f918f35d295095b9a658ff7e9",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoppSBwZOgTVITx7e1ERjrBYE_9XeaQM2u9adkPnSw9yu6XHeHRTdOi_TxJ0e831BMESz-OyT1XNJCxJCo0BoW5CKerUt_AGeHc_vp6BF7V2-1pT0AUC95nPTQrPQqFxjwMnV_nj3JW38gAX-5B_b5R05o6fIbBefBnsLl4m-WwyEkg==&uniplatform=NZKPT&language=CHS",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoppSBwZOgTVITx7e1ERjrBYE_9XeaQM2u9adkPnSw9yu6XHeHRTdOi_TxJ0e831BMESz-OyT1XNJCxJCo0BoW5CKerUt_AGeHc_vp6BF7V2-1pT0AUC95nPTQrPQqFxjwMnV_nj3JW38gAX-5B_b5R05o6fIbBefBnsLl4m-WwyEkg==&uniplatform=NZKPT&language=CHS",
+      "canonical_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoppSBwZOgTVITx7e1ERjrBYE_9XeaQM2u9adkPnSw9yu6XHeHRTdOi_TxJ0e831BMESz-OyT1XNJCxJCo0BoW5CKerUt_AGeHc_vp6BF7V2-1pT0AUC95nPTQrPQqFxjwMnV_nj3JW38gAX-5B_b5R05o6fIbBefBnsLl4m-WwyEkg==&uniplatform=NZKPT&language=CHS",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-CN-09",
+      "canonical_title": "MILP加速深度强化学习的多数据中心电-算资源协同优化调度",
+      "authors": [
+        "董亚晗",
+        "王旭",
+        "夏威",
+        "龚开",
+        "柯君",
+        "蒋传文"
+      ],
+      "year": 2026,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "",
+        "cnki": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprct_nE9uev2Uv2jGcdQntLzX3LfIlhbBmIov-Npv28mefMAduDMlyd2hLLX3E6hLCnhgV4QF4HDXNnuzDhFotWBLgwPi7ym3612sUsr3WyI0m3ETFcXVLerJzOS4EciTpA1kJh8JLIEGHpx083_L6ieDX1Ybu7MIvwcOraL6VbiA==&uniplatform=NZKPT&language=CHS"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprct_nE9uev2Uv2jGcdQntLzX3LfIlhbBmIov-Npv28mefMAduDMlyd2hLLX3E6hLCnhgV4QF4HDXNnuzDhFotWBLgwPi7ym3612sUsr3WyI0m3ETFcXVLerJzOS4EciTpA1kJh8JLIEGHpx083_L6ieDX1Ybu7MIvwcOraL6VbiA==&uniplatform=NZKPT&language=CHS",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进：MILP 加速 DRL 的多数据中心电-算资源协同调度"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprct_nE9uev2Uv2jGcdQntLzX3LfIlhbBmIov-Npv28mefMAduDMlyd2hLLX3E6hLCnhgV4QF4HDXNnuzDhFotWBLgwPi7ym3612sUsr3WyI0m3ETFcXVLerJzOS4EciTpA1kJh8JLIEGHpx083_L6ieDX1Ybu7MIvwcOraL6VbiA==&uniplatform=NZKPT&language=CHS",
+        "local_path": "literature_archive/W-CN-09.pdf",
+        "sha256": "296ce57c8b404aca5520e214edeb66b1a793b4eab03dcf7d14efbcf02358c173",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprct_nE9uev2Uv2jGcdQntLzX3LfIlhbBmIov-Npv28mefMAduDMlyd2hLLX3E6hLCnhgV4QF4HDXNnuzDhFotWBLgwPi7ym3612sUsr3WyI0m3ETFcXVLerJzOS4EciTpA1kJh8JLIEGHpx083_L6ieDX1Ybu7MIvwcOraL6VbiA==&uniplatform=NZKPT&language=CHS",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprct_nE9uev2Uv2jGcdQntLzX3LfIlhbBmIov-Npv28mefMAduDMlyd2hLLX3E6hLCnhgV4QF4HDXNnuzDhFotWBLgwPi7ym3612sUsr3WyI0m3ETFcXVLerJzOS4EciTpA1kJh8JLIEGHpx083_L6ieDX1Ybu7MIvwcOraL6VbiA==&uniplatform=NZKPT&language=CHS",
+      "canonical_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprct_nE9uev2Uv2jGcdQntLzX3LfIlhbBmIov-Npv28mefMAduDMlyd2hLLX3E6hLCnhgV4QF4HDXNnuzDhFotWBLgwPi7ym3612sUsr3WyI0m3ETFcXVLerJzOS4EciTpA1kJh8JLIEGHpx083_L6ieDX1Ybu7MIvwcOraL6VbiA==&uniplatform=NZKPT&language=CHS",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-CN-10",
+      "canonical_title": "考虑数据中心共享储能与计算负荷时空迁移特性的虚拟电厂优化运行方法",
+      "authors": [
+        "刘方",
+        "陈祥洲",
+        "周江昕",
+        "张健荣",
+        "卫思明",
+        "杨秀"
+      ],
+      "year": 2025,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "",
+        "cnki": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopq2fSSc4BYkZ6CmC1FSIkLItALaQViiXn7nRpc5Q5DqRAuuLy7VDiP8GvH4bMHUgEZCfOPc3NIPE_lnsbBk02h4Mr9m9yuv4BtTdj57Ev3rzZ7QV6x3C_CApEWp6Ib6qZbM-6cfQEhH9aEyKW4BNDZLj0z-4UFVjoBCyAKUUdfN7Q==&uniplatform=NZKPT&language=CHS"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopq2fSSc4BYkZ6CmC1FSIkLItALaQViiXn7nRpc5Q5DqRAuuLy7VDiP8GvH4bMHUgEZCfOPc3NIPE_lnsbBk02h4Mr9m9yuv4BtTdj57Ev3rzZ7QV6x3C_CApEWp6Ib6qZbM-6cfQEhH9aEyKW4BNDZLj0z-4UFVjoBCyAKUUdfN7Q==&uniplatform=NZKPT&language=CHS",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进：共享储能+计算负荷时空迁移虚拟电厂运行（电网技术 2025）"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopq2fSSc4BYkZ6CmC1FSIkLItALaQViiXn7nRpc5Q5DqRAuuLy7VDiP8GvH4bMHUgEZCfOPc3NIPE_lnsbBk02h4Mr9m9yuv4BtTdj57Ev3rzZ7QV6x3C_CApEWp6Ib6qZbM-6cfQEhH9aEyKW4BNDZLj0z-4UFVjoBCyAKUUdfN7Q==&uniplatform=NZKPT&language=CHS",
+        "local_path": "literature_archive/W-CN-10.pdf",
+        "sha256": "0f6a6bd78da82604aa8dd9d57b6b6e72099edc00645ce67abf1275ba2544de48",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopq2fSSc4BYkZ6CmC1FSIkLItALaQViiXn7nRpc5Q5DqRAuuLy7VDiP8GvH4bMHUgEZCfOPc3NIPE_lnsbBk02h4Mr9m9yuv4BtTdj57Ev3rzZ7QV6x3C_CApEWp6Ib6qZbM-6cfQEhH9aEyKW4BNDZLj0z-4UFVjoBCyAKUUdfN7Q==&uniplatform=NZKPT&language=CHS",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopq2fSSc4BYkZ6CmC1FSIkLItALaQViiXn7nRpc5Q5DqRAuuLy7VDiP8GvH4bMHUgEZCfOPc3NIPE_lnsbBk02h4Mr9m9yuv4BtTdj57Ev3rzZ7QV6x3C_CApEWp6Ib6qZbM-6cfQEhH9aEyKW4BNDZLj0z-4UFVjoBCyAKUUdfN7Q==&uniplatform=NZKPT&language=CHS",
+      "canonical_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopq2fSSc4BYkZ6CmC1FSIkLItALaQViiXn7nRpc5Q5DqRAuuLy7VDiP8GvH4bMHUgEZCfOPc3NIPE_lnsbBk02h4Mr9m9yuv4BtTdj57Ev3rzZ7QV6x3C_CApEWp6Ib6qZbM-6cfQEhH9aEyKW4BNDZLj0z-4UFVjoBCyAKUUdfN7Q==&uniplatform=NZKPT&language=CHS",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-CN-11",
+      "canonical_title": "计及多元绿电消费与时空灵活性的算电协同优化",
+      "authors": [
+        "凃陈",
+        "潘萱颖",
+        "王欢",
+        "孟垚",
+        "戴璟",
+        "王骁宇"
+      ],
+      "year": 2026,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "",
+        "cnki": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopohUoVNGIcqYUZlP4E6F1T-GzGTXkMK1prace0obfmxU1FlPa981Rtl28Ams7VsaNL6Wg1Jrwx9rUx_LZ2Texuqv12_KMfzZvIsL8Htn6diDAvMBBtqWJ0aIRIpMuuVe0yIzyJ5skqOT4yrxdjZDOpKQj5156CO_de5q58RRwPF8A==&uniplatform=NZKPT&language=CHS"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopohUoVNGIcqYUZlP4E6F1T-GzGTXkMK1prace0obfmxU1FlPa981Rtl28Ams7VsaNL6Wg1Jrwx9rUx_LZ2Texuqv12_KMfzZvIsL8Htn6diDAvMBBtqWJ0aIRIpMuuVe0yIzyJ5skqOT4yrxdjZDOpKQj5156CO_de5q58RRwPF8A==&uniplatform=NZKPT&language=CHS",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进：多元绿电消费+时空灵活性算电协同优化"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopohUoVNGIcqYUZlP4E6F1T-GzGTXkMK1prace0obfmxU1FlPa981Rtl28Ams7VsaNL6Wg1Jrwx9rUx_LZ2Texuqv12_KMfzZvIsL8Htn6diDAvMBBtqWJ0aIRIpMuuVe0yIzyJ5skqOT4yrxdjZDOpKQj5156CO_de5q58RRwPF8A==&uniplatform=NZKPT&language=CHS",
+        "local_path": "literature_archive/W-CN-11.pdf",
+        "sha256": "bfbc747e3a4a691ca7445fe521e66e7f1a051c7414a7e98afc1cbfe2840990c3",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopohUoVNGIcqYUZlP4E6F1T-GzGTXkMK1prace0obfmxU1FlPa981Rtl28Ams7VsaNL6Wg1Jrwx9rUx_LZ2Texuqv12_KMfzZvIsL8Htn6diDAvMBBtqWJ0aIRIpMuuVe0yIzyJ5skqOT4yrxdjZDOpKQj5156CO_de5q58RRwPF8A==&uniplatform=NZKPT&language=CHS",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopohUoVNGIcqYUZlP4E6F1T-GzGTXkMK1prace0obfmxU1FlPa981Rtl28Ams7VsaNL6Wg1Jrwx9rUx_LZ2Texuqv12_KMfzZvIsL8Htn6diDAvMBBtqWJ0aIRIpMuuVe0yIzyJ5skqOT4yrxdjZDOpKQj5156CO_de5q58RRwPF8A==&uniplatform=NZKPT&language=CHS",
+      "canonical_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopohUoVNGIcqYUZlP4E6F1T-GzGTXkMK1prace0obfmxU1FlPa981Rtl28Ams7VsaNL6Wg1Jrwx9rUx_LZ2Texuqv12_KMfzZvIsL8Htn6diDAvMBBtqWJ0aIRIpMuuVe0yIzyJ5skqOT4yrxdjZDOpKQj5156CO_de5q58RRwPF8A==&uniplatform=NZKPT&language=CHS",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-CN-12",
+      "canonical_title": "多源不确定性风险约束下算力网-电力网协同运行优化方法",
+      "authors": [
+        "马丁",
+        "叶宇剑",
+        "吴奕之",
+        "张曦",
+        "Goran STRBAC"
+      ],
+      "year": 2026,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "",
+        "cnki": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopoWU9Rvnl1PzMatBpEaU2Hk15nX6aw-6o4Lz1LmxaP-feRIxqTOyf6MK7IF2vkw2kWuJhxruK-KmvL2agh9APoNz0duKa9JsgWE-8TmuzdDsm2xXbPhDvdiMBO6HiyR4WznA6qMh6fwDGTiY77GGi4OMxuUuMt0vzlgFWdquJ6JxA==&uniplatform=NZKPT&language=CHS"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopoWU9Rvnl1PzMatBpEaU2Hk15nX6aw-6o4Lz1LmxaP-feRIxqTOyf6MK7IF2vkw2kWuJhxruK-KmvL2agh9APoNz0duKa9JsgWE-8TmuzdDsm2xXbPhDvdiMBO6HiyR4WznA6qMh6fwDGTiY77GGi4OMxuUuMt0vzlgFWdquJ6JxA==&uniplatform=NZKPT&language=CHS",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进：不确定性风险约束算力网-电力网协同优化"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopoWU9Rvnl1PzMatBpEaU2Hk15nX6aw-6o4Lz1LmxaP-feRIxqTOyf6MK7IF2vkw2kWuJhxruK-KmvL2agh9APoNz0duKa9JsgWE-8TmuzdDsm2xXbPhDvdiMBO6HiyR4WznA6qMh6fwDGTiY77GGi4OMxuUuMt0vzlgFWdquJ6JxA==&uniplatform=NZKPT&language=CHS",
+        "local_path": "literature_archive/W-CN-12.pdf",
+        "sha256": "2af5c4b4d4cf7c68bc41cd63992ebcd9a3c744d9ccf536ec0608160c915f2b1b",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopoWU9Rvnl1PzMatBpEaU2Hk15nX6aw-6o4Lz1LmxaP-feRIxqTOyf6MK7IF2vkw2kWuJhxruK-KmvL2agh9APoNz0duKa9JsgWE-8TmuzdDsm2xXbPhDvdiMBO6HiyR4WznA6qMh6fwDGTiY77GGi4OMxuUuMt0vzlgFWdquJ6JxA==&uniplatform=NZKPT&language=CHS",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopoWU9Rvnl1PzMatBpEaU2Hk15nX6aw-6o4Lz1LmxaP-feRIxqTOyf6MK7IF2vkw2kWuJhxruK-KmvL2agh9APoNz0duKa9JsgWE-8TmuzdDsm2xXbPhDvdiMBO6HiyR4WznA6qMh6fwDGTiY77GGi4OMxuUuMt0vzlgFWdquJ6JxA==&uniplatform=NZKPT&language=CHS",
+      "canonical_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopoWU9Rvnl1PzMatBpEaU2Hk15nX6aw-6o4Lz1LmxaP-feRIxqTOyf6MK7IF2vkw2kWuJhxruK-KmvL2agh9APoNz0duKa9JsgWE-8TmuzdDsm2xXbPhDvdiMBO6HiyR4WznA6qMh6fwDGTiY77GGi4OMxuUuMt0vzlgFWdquJ6JxA==&uniplatform=NZKPT&language=CHS",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-CN-13",
+      "canonical_title": "基于闲时算力调度的算电协同方法与实践",
+      "authors": [
+        "付智",
+        "郑博文",
+        "刘效辰",
+        "程伟",
+        "张涛",
+        "刘晓华"
+      ],
+      "year": 2026,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "",
+        "cnki": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopr-VaSAEshLUFOpWlVB1OGzdqeJM8y3K4sGXxLXZkd54tdU4BLLn_nPEH9IeP_A-034_yuxHKuDh_ypsXQ_FWVMYT2WjhC7ZfwyMzsYy_U48hqU3IEw9He56Z9ydgSkzJUIGS0vMhnQIWLuNFBMbLAn19_mWsxLCLU2j4ldRxYj0w==&uniplatform=NZKPT&language=CHS"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopr-VaSAEshLUFOpWlVB1OGzdqeJM8y3K4sGXxLXZkd54tdU4BLLn_nPEH9IeP_A-034_yuxHKuDh_ypsXQ_FWVMYT2WjhC7ZfwyMzsYy_U48hqU3IEw9He56Z9ydgSkzJUIGS0vMhnQIWLuNFBMbLAn19_mWsxLCLU2j4ldRxYj0w==&uniplatform=NZKPT&language=CHS",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进（实践）：闲时算力调度算电协同方法与实践"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopr-VaSAEshLUFOpWlVB1OGzdqeJM8y3K4sGXxLXZkd54tdU4BLLn_nPEH9IeP_A-034_yuxHKuDh_ypsXQ_FWVMYT2WjhC7ZfwyMzsYy_U48hqU3IEw9He56Z9ydgSkzJUIGS0vMhnQIWLuNFBMbLAn19_mWsxLCLU2j4ldRxYj0w==&uniplatform=NZKPT&language=CHS",
+        "local_path": "literature_archive/W-CN-13.pdf",
+        "sha256": "3c91e840f39f50deb21a2a7cb1d7e1ab005438a93fcc39c471ec6ea6125f53bf",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopr-VaSAEshLUFOpWlVB1OGzdqeJM8y3K4sGXxLXZkd54tdU4BLLn_nPEH9IeP_A-034_yuxHKuDh_ypsXQ_FWVMYT2WjhC7ZfwyMzsYy_U48hqU3IEw9He56Z9ydgSkzJUIGS0vMhnQIWLuNFBMbLAn19_mWsxLCLU2j4ldRxYj0w==&uniplatform=NZKPT&language=CHS",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopr-VaSAEshLUFOpWlVB1OGzdqeJM8y3K4sGXxLXZkd54tdU4BLLn_nPEH9IeP_A-034_yuxHKuDh_ypsXQ_FWVMYT2WjhC7ZfwyMzsYy_U48hqU3IEw9He56Z9ydgSkzJUIGS0vMhnQIWLuNFBMbLAn19_mWsxLCLU2j4ldRxYj0w==&uniplatform=NZKPT&language=CHS",
+      "canonical_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopr-VaSAEshLUFOpWlVB1OGzdqeJM8y3K4sGXxLXZkd54tdU4BLLn_nPEH9IeP_A-034_yuxHKuDh_ypsXQ_FWVMYT2WjhC7ZfwyMzsYy_U48hqU3IEw9He56Z9ydgSkzJUIGS0vMhnQIWLuNFBMbLAn19_mWsxLCLU2j4ldRxYj0w==&uniplatform=NZKPT&language=CHS",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-CN-14",
+      "canonical_title": "基于日前-实时两阶段电力平衡的算力 -电力协同运行机制",
+      "authors": [
+        "梁秀壮",
+        "郭采珊",
+        "唐文虎",
+        "李明泽",
+        "温柔",
+        "荆朝霞"
+      ],
+      "year": 2026,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "",
+        "cnki": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprpfI8qI-e8ns4uIuC-PY7nlMHjso1iTWLDjpA8hrSQ3ZhuwFA-6ylTcSMiaVW5uceO4o_PUpzNQcityTsYGhd0RbUAHAxeW3Htqcs73Ca1P654xG2E_nWj9AfZLpYmkoQ1Y6790kgCNBerHz5FUCV84c8ae1tFb29mQ8tvXpT4nQ==&uniplatform=NZKPT&language=CHS"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprpfI8qI-e8ns4uIuC-PY7nlMHjso1iTWLDjpA8hrSQ3ZhuwFA-6ylTcSMiaVW5uceO4o_PUpzNQcityTsYGhd0RbUAHAxeW3Htqcs73Ca1P654xG2E_nWj9AfZLpYmkoQ1Y6790kgCNBerHz5FUCV84c8ae1tFb29mQ8tvXpT4nQ==&uniplatform=NZKPT&language=CHS",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进：日前-实时两阶段电力平衡算力-电力协同"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprpfI8qI-e8ns4uIuC-PY7nlMHjso1iTWLDjpA8hrSQ3ZhuwFA-6ylTcSMiaVW5uceO4o_PUpzNQcityTsYGhd0RbUAHAxeW3Htqcs73Ca1P654xG2E_nWj9AfZLpYmkoQ1Y6790kgCNBerHz5FUCV84c8ae1tFb29mQ8tvXpT4nQ==&uniplatform=NZKPT&language=CHS",
+        "local_path": "literature_archive/W-CN-14.pdf",
+        "sha256": "6fff823d76dbff747836109d2f0d7d6e4b798ac89a760a9a1e35893746b2ecf9",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprpfI8qI-e8ns4uIuC-PY7nlMHjso1iTWLDjpA8hrSQ3ZhuwFA-6ylTcSMiaVW5uceO4o_PUpzNQcityTsYGhd0RbUAHAxeW3Htqcs73Ca1P654xG2E_nWj9AfZLpYmkoQ1Y6790kgCNBerHz5FUCV84c8ae1tFb29mQ8tvXpT4nQ==&uniplatform=NZKPT&language=CHS",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprpfI8qI-e8ns4uIuC-PY7nlMHjso1iTWLDjpA8hrSQ3ZhuwFA-6ylTcSMiaVW5uceO4o_PUpzNQcityTsYGhd0RbUAHAxeW3Htqcs73Ca1P654xG2E_nWj9AfZLpYmkoQ1Y6790kgCNBerHz5FUCV84c8ae1tFb29mQ8tvXpT4nQ==&uniplatform=NZKPT&language=CHS",
+      "canonical_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprpfI8qI-e8ns4uIuC-PY7nlMHjso1iTWLDjpA8hrSQ3ZhuwFA-6ylTcSMiaVW5uceO4o_PUpzNQcityTsYGhd0RbUAHAxeW3Htqcs73Ca1P654xG2E_nWj9AfZLpYmkoQ1Y6790kgCNBerHz5FUCV84c8ae1tFb29mQ8tvXpT4nQ==&uniplatform=NZKPT&language=CHS",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-CN-15",
+      "canonical_title": "考虑负荷时移特性的数据中心与大型能源基地协同优化调度研究",
+      "authors": [
+        "房方",
+        "秦嘉骏",
+        "田鑫"
+      ],
+      "year": 2026,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "",
+        "cnki": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprdrobAqTxZjybLRLV05n-S46r3nien87IrDUYXptUCXX7fc2E-tqK94-8wmcLWn9RrpT2SkjXtEY2a5N0chwOPxFEYZks469U1Hnt6t8KCG1VhVxi0jdjquUiNDEHrBIqI8Qfd6OVA-1rM6aQ_MvZc4P5bo3JZ-YtN0XIRfL3COw==&uniplatform=NZKPT&language=CHS"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprdrobAqTxZjybLRLV05n-S46r3nien87IrDUYXptUCXX7fc2E-tqK94-8wmcLWn9RrpT2SkjXtEY2a5N0chwOPxFEYZks469U1Hnt6t8KCG1VhVxi0jdjquUiNDEHrBIqI8Qfd6OVA-1rM6aQ_MvZc4P5bo3JZ-YtN0XIRfL3COw==&uniplatform=NZKPT&language=CHS",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进：负荷时移数据中心与能源基地协同优化调度"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprdrobAqTxZjybLRLV05n-S46r3nien87IrDUYXptUCXX7fc2E-tqK94-8wmcLWn9RrpT2SkjXtEY2a5N0chwOPxFEYZks469U1Hnt6t8KCG1VhVxi0jdjquUiNDEHrBIqI8Qfd6OVA-1rM6aQ_MvZc4P5bo3JZ-YtN0XIRfL3COw==&uniplatform=NZKPT&language=CHS",
+        "local_path": "literature_archive/W-CN-15.pdf",
+        "sha256": "6512023841b910c4b3ddd794caceaa79548b1e20b0b0a2e84e0b5e27904b1c19",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprdrobAqTxZjybLRLV05n-S46r3nien87IrDUYXptUCXX7fc2E-tqK94-8wmcLWn9RrpT2SkjXtEY2a5N0chwOPxFEYZks469U1Hnt6t8KCG1VhVxi0jdjquUiNDEHrBIqI8Qfd6OVA-1rM6aQ_MvZc4P5bo3JZ-YtN0XIRfL3COw==&uniplatform=NZKPT&language=CHS",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprdrobAqTxZjybLRLV05n-S46r3nien87IrDUYXptUCXX7fc2E-tqK94-8wmcLWn9RrpT2SkjXtEY2a5N0chwOPxFEYZks469U1Hnt6t8KCG1VhVxi0jdjquUiNDEHrBIqI8Qfd6OVA-1rM6aQ_MvZc4P5bo3JZ-YtN0XIRfL3COw==&uniplatform=NZKPT&language=CHS",
+      "canonical_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoprdrobAqTxZjybLRLV05n-S46r3nien87IrDUYXptUCXX7fc2E-tqK94-8wmcLWn9RrpT2SkjXtEY2a5N0chwOPxFEYZks469U1Hnt6t8KCG1VhVxi0jdjquUiNDEHrBIqI8Qfd6OVA-1rM6aQ_MvZc4P5bo3JZ-YtN0XIRfL3COw==&uniplatform=NZKPT&language=CHS",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-CN-16",
+      "canonical_title": "国家绿色数据中心的碳减排效应：理论分析与经验证据",
+      "authors": [
+        "裴馨"
+      ],
+      "year": 2025,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "",
+        "cnki": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoppg9nsgluS_vMon5qUTOQLZzc5RMAg30FNQ1rtIGJTLtlZkRNmPBHZojxvuQfWXy8-fxn2cxOjvlMpEb5b_pReCnC_Jg3zKRASFvvvONoSOgfwK30RP9Bfag4bwkN3sDg1uXJ-H46kVE5X7W9Cl1OOi5cPRzPgyw1mHtmzfiWVk6Q==&uniplatform=NZKPT&language=CHS"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoppg9nsgluS_vMon5qUTOQLZzc5RMAg30FNQ1rtIGJTLtlZkRNmPBHZojxvuQfWXy8-fxn2cxOjvlMpEb5b_pReCnC_Jg3zKRASFvvvONoSOgfwK30RP9Bfag4bwkN3sDg1uXJ-H46kVE5X7W9Cl1OOi5cPRzPgyw1mHtmzfiWVk6Q==&uniplatform=NZKPT&language=CHS",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "政策实证族（中国人口·资源与环境 2025）：绿色数据中心碳减排政策效应——《科研管理》管理-政策定位适配"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoppg9nsgluS_vMon5qUTOQLZzc5RMAg30FNQ1rtIGJTLtlZkRNmPBHZojxvuQfWXy8-fxn2cxOjvlMpEb5b_pReCnC_Jg3zKRASFvvvONoSOgfwK30RP9Bfag4bwkN3sDg1uXJ-H46kVE5X7W9Cl1OOi5cPRzPgyw1mHtmzfiWVk6Q==&uniplatform=NZKPT&language=CHS",
+        "local_path": "literature_archive/W-CN-16.pdf",
+        "sha256": "4ca066a1344959793a0dce68dc1e0344ae29917c5970ac325c748613d161ae59",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoppg9nsgluS_vMon5qUTOQLZzc5RMAg30FNQ1rtIGJTLtlZkRNmPBHZojxvuQfWXy8-fxn2cxOjvlMpEb5b_pReCnC_Jg3zKRASFvvvONoSOgfwK30RP9Bfag4bwkN3sDg1uXJ-H46kVE5X7W9Cl1OOi5cPRzPgyw1mHtmzfiWVk6Q==&uniplatform=NZKPT&language=CHS",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoppg9nsgluS_vMon5qUTOQLZzc5RMAg30FNQ1rtIGJTLtlZkRNmPBHZojxvuQfWXy8-fxn2cxOjvlMpEb5b_pReCnC_Jg3zKRASFvvvONoSOgfwK30RP9Bfag4bwkN3sDg1uXJ-H46kVE5X7W9Cl1OOi5cPRzPgyw1mHtmzfiWVk6Q==&uniplatform=NZKPT&language=CHS",
+      "canonical_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoppg9nsgluS_vMon5qUTOQLZzc5RMAg30FNQ1rtIGJTLtlZkRNmPBHZojxvuQfWXy8-fxn2cxOjvlMpEb5b_pReCnC_Jg3zKRASFvvvONoSOgfwK30RP9Bfag4bwkN3sDg1uXJ-H46kVE5X7W9Cl1OOi5cPRzPgyw1mHtmzfiWVk6Q==&uniplatform=NZKPT&language=CHS",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-CN-17",
+      "canonical_title": "从“ 东数西算 ”到“ 东数西训”——新形势下中国算力布局的演进逻辑与优化路径",
+      "authors": [
+        "于潇宇"
+      ],
+      "year": 2025,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "",
+        "cnki": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopoNxckUgian5mkJvFOoS5vwcta2BXY7RKW6_P9xx8_JZ0MKeiDzIVJlsM-gA0ClmnBGVK16lWcmGqiNgQ9pwwGzskXeWS-jXVWyDbuCNnGhNRRkzXF15Y1ieNq8KyZXIBXFSQEciRHgywgpN8V6_eivGg2KFL0yArm3D_nFWMZ34Q==&uniplatform=NZKPT&language=CHS"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopoNxckUgian5mkJvFOoS5vwcta2BXY7RKW6_P9xx8_JZ0MKeiDzIVJlsM-gA0ClmnBGVK16lWcmGqiNgQ9pwwGzskXeWS-jXVWyDbuCNnGhNRRkzXF15Y1ieNq8KyZXIBXFSQEciRHgywgpN8V6_eivGg2KFL0yArm3D_nFWMZ34Q==&uniplatform=NZKPT&language=CHS",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "政策实证族（宏观经济研究 2025）：算力布局演进逻辑——政策管理域适配"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopoNxckUgian5mkJvFOoS5vwcta2BXY7RKW6_P9xx8_JZ0MKeiDzIVJlsM-gA0ClmnBGVK16lWcmGqiNgQ9pwwGzskXeWS-jXVWyDbuCNnGhNRRkzXF15Y1ieNq8KyZXIBXFSQEciRHgywgpN8V6_eivGg2KFL0yArm3D_nFWMZ34Q==&uniplatform=NZKPT&language=CHS",
+        "local_path": "literature_archive/W-CN-17.pdf",
+        "sha256": "fd5facc1bcce0c7c3a6002c5c22317864809b6e2d3e77a6e956a6702cb0e555a",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopoNxckUgian5mkJvFOoS5vwcta2BXY7RKW6_P9xx8_JZ0MKeiDzIVJlsM-gA0ClmnBGVK16lWcmGqiNgQ9pwwGzskXeWS-jXVWyDbuCNnGhNRRkzXF15Y1ieNq8KyZXIBXFSQEciRHgywgpN8V6_eivGg2KFL0yArm3D_nFWMZ34Q==&uniplatform=NZKPT&language=CHS",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopoNxckUgian5mkJvFOoS5vwcta2BXY7RKW6_P9xx8_JZ0MKeiDzIVJlsM-gA0ClmnBGVK16lWcmGqiNgQ9pwwGzskXeWS-jXVWyDbuCNnGhNRRkzXF15Y1ieNq8KyZXIBXFSQEciRHgywgpN8V6_eivGg2KFL0yArm3D_nFWMZ34Q==&uniplatform=NZKPT&language=CHS",
+      "canonical_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopoNxckUgian5mkJvFOoS5vwcta2BXY7RKW6_P9xx8_JZ0MKeiDzIVJlsM-gA0ClmnBGVK16lWcmGqiNgQ9pwwGzskXeWS-jXVWyDbuCNnGhNRRkzXF15Y1ieNq8KyZXIBXFSQEciRHgywgpN8V6_eivGg2KFL0yArm3D_nFWMZ34Q==&uniplatform=NZKPT&language=CHS",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-CN-18",
+      "canonical_title": "人工智能驱动的算力基础设施能效优化技术现状及展望",
+      "authors": [
+        "陈晓红",
+        "郑博文",
+        "袁依格",
+        "唐鸿凯",
+        "陈汉青"
+      ],
+      "year": 2026,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "",
+        "cnki": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoppbPWS6uI6a-aQYXbmIMsca0bVscMmdb4juGG3wx5vVLEAtwSX7KbxY228lBBhpy6WTRVOXtZAGNxg86Hil9GdYm-PDksgvFRMn6I2uix6AN-gFdaRHvoGsXmFhq-pCe2lJTsr9pyZgK7XomK_ePPuq_Buy7hd9H6gIddBKQvYsWQ==&uniplatform=NZKPT&language=CHS"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://www.engineering.org.cn/sscae/CN/10.15302/J-SSCAE-2025.11.015",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10",
+          "reason": "研究链关键推进（中国工程科学 2026）：算力基础设施能效优化技术全景"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://www.engineering.org.cn/sscae/CN/10.15302/J-SSCAE-2025.11.015",
+        "local_path": "literature_archive/W-CN-18.pdf",
+        "sha256": "d08dce80fa496b45f912e1c474ddf1f8630839800b1f5a4de64bd0cdc45ebb9d",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoppbPWS6uI6a-aQYXbmIMsca0bVscMmdb4juGG3wx5vVLEAtwSX7KbxY228lBBhpy6WTRVOXtZAGNxg86Hil9GdYm-PDksgvFRMn6I2uix6AN-gFdaRHvoGsXmFhq-pCe2lJTsr9pyZgK7XomK_ePPuq_Buy7hd9H6gIddBKQvYsWQ==&uniplatform=NZKPT&language=CHS",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoppbPWS6uI6a-aQYXbmIMsca0bVscMmdb4juGG3wx5vVLEAtwSX7KbxY228lBBhpy6WTRVOXtZAGNxg86Hil9GdYm-PDksgvFRMn6I2uix6AN-gFdaRHvoGsXmFhq-pCe2lJTsr9pyZgK7XomK_ePPuq_Buy7hd9H6gIddBKQvYsWQ==&uniplatform=NZKPT&language=CHS",
+      "canonical_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBoppbPWS6uI6a-aQYXbmIMsca0bVscMmdb4juGG3wx5vVLEAtwSX7KbxY228lBBhpy6WTRVOXtZAGNxg86Hil9GdYm-PDksgvFRMn6I2uix6AN-gFdaRHvoGsXmFhq-pCe2lJTsr9pyZgK7XomK_ePPuq_Buy7hd9H6gIddBKQvYsWQ==&uniplatform=NZKPT&language=CHS",
+      "alternate_urls": []
+    },
+    {
+      "registry_id": "W-CN-19",
+      "canonical_title": "数字化与绿色化协同推进企业绿色创新——来自绿色数据中心建设的准自然实验",
+      "authors": [
+        "李征召",
+        "韩宁",
+        "赵德昭",
+        "周慧洋"
+      ],
+      "year": 2025,
+      "persistent_ids": {
+        "doi": "",
+        "openalex": "",
+        "arxiv": "",
+        "cnki": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopq8e5Np67d4E15FCYCADmqYvuJdPjkuRS9UmMcD7a-bdMC8K_NiUGgq0DGdO7CDwxwAIZmEIeg8appWiI9hJC9hRtB-GhEecUt2ZObrkSyTxThBLBC-gJss_Vqq_KYJ0QfNjl0sS1wqZBueD7WB9POBMzVVceBdRS5m9yacCoYehg==&uniplatform=NZKPT&language=CHS"
+      },
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopq8e5Np67d4E15FCYCADmqYvuJdPjkuRS9UmMcD7a-bdMC8K_NiUGgq0DGdO7CDwxwAIZmEIeg8appWiI9hJC9hRtB-GhEecUt2ZObrkSyTxThBLBC-gJss_Vqq_KYJ0QfNjl0sS1wqZBueD7WB9POBMzVVceBdRS5m9yacCoYehg==&uniplatform=NZKPT&language=CHS",
+      "identity_verified_at": "2026-08-10",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "IMPORTANT",
+      "importance_history": [
+        {
+          "importance": "CONTEXT",
+          "at": "2026-08-10",
+          "reason": "政策实证族背景（经济问题探索 2025）：绿色数据中心建设企业绿色创新准实验"
+        },
+        {
+          "importance": "IMPORTANT",
+          "at": "2026-08-10T18:30:00Z",
+          "reason": "全文归档（经济问题探索 2025 多期 DID：绿色数据中心建设提升企业绿色创新，三条机制+异质性）——政策实证族直接证据，升级为 IMPORTANT"
+        }
+      ],
+      "reclassifications": [],
+      "download": {
+        "status": "FULLTEXT_ARCHIVED",
+        "source_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopq8e5Np67d4E15FCYCADmqYvuJdPjkuRS9UmMcD7a-bdMC8K_NiUGgq0DGdO7CDwxwAIZmEIeg8appWiI9hJC9hRtB-GhEecUt2ZObrkSyTxThBLBC-gJss_Vqq_KYJ0QfNjl0sS1wqZBueD7WB9POBMzVVceBdRS5m9yacCoYehg==&uniplatform=NZKPT&language=CHS",
+        "local_path": "literature_archive/W-CN-19.pdf",
+        "sha256": "26e7efe404390334de4484996dc1e843a1de6448de2deae9e1307b93db42ad7a",
+        "downloaded_at": "2026-08-10",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE",
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopq8e5Np67d4E15FCYCADmqYvuJdPjkuRS9UmMcD7a-bdMC8K_NiUGgq0DGdO7CDwxwAIZmEIeg8appWiI9hJC9hRtB-GhEecUt2ZObrkSyTxThBLBC-gJss_Vqq_KYJ0QfNjl0sS1wqZBueD7WB9POBMzVVceBdRS5m9yacCoYehg==&uniplatform=NZKPT&language=CHS",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopq8e5Np67d4E15FCYCADmqYvuJdPjkuRS9UmMcD7a-bdMC8K_NiUGgq0DGdO7CDwxwAIZmEIeg8appWiI9hJC9hRtB-GhEecUt2ZObrkSyTxThBLBC-gJss_Vqq_KYJ0QfNjl0sS1wqZBueD7WB9POBMzVVceBdRS5m9yacCoYehg==&uniplatform=NZKPT&language=CHS",
+      "canonical_url": "https://kns.cnki.net/kcms2/article/abstract?v=xyoQqgjBopq8e5Np67d4E15FCYCADmqYvuJdPjkuRS9UmMcD7a-bdMC8K_NiUGgq0DGdO7CDwxwAIZmEIeg8appWiI9hJC9hRtB-GhEecUt2ZObrkSyTxThBLBC-gJss_Vqq_KYJ0QfNjl0sS1wqZBueD7WB9POBMzVVceBdRS5m9yacCoYehg==&uniplatform=NZKPT&language=CHS",
+      "alternate_urls": []
+    }
+  ]
+}

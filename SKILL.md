@@ -104,6 +104,10 @@ N0_AUDIT → CLAIM_FREEZE → VALIDITY_AUDIT → INDEPENDENT_REVIEW
 状态先决条件不可倒置：`CLAIM_FREEZE` 要求 N0-4C；`VALIDITY_AUDIT` 要求 V1；
 `INDEPENDENT_REVIEW` 要求 V2；`DIRECTION_LOCK` 要求 N0-4C 与 V3。
 
+gate 置真以 `decision_log` 中对应状态的完成记录（含本状态产物 SHA-256 登记）
+为准，不得仅凭口头声明置真；跳过状态再补 gate 判自报置真。`novelty_level` /
+`validity_level` 必须与对应 gate 和登记互证，不得手填 N0-4C。
+
 ## 4. 强制 claim inventory 与 form router
 
 扫描所有声明的 Markdown/TeX 稿件源。任何 exact、universal、bounded、guaranteed、
@@ -128,6 +132,9 @@ necessary、sufficient、online、first/首次、strong/fair/matched-budget，�
 PASS 输出。在线主张必须冻结 prediction/update unit、顺序、标签可得性、数据角色和
 访问次数；逐样本主张必须有当前 chronology test。强/公平/同预算比较必须使用共同
 调参、种子、标签、更新频率、算力、停止规则和宽度/参数预算合同。
+
+所有可执行测试必须静态声明 `TARGET_CLAIM_IDS` 并实际导入被绑定实现的符号；
+禁止不触碰实现、直接断言硬编码值并写 PASS 的自证式测试。
 
 ## 5. G9 与不同 agent 硬门
 
@@ -186,6 +193,12 @@ COMPUTE = N0-4C AND V3 AND compute_authorized
 FINAL_LOCK = N0-4C AND V4 AND current independent audit
 ```
 
+用户授权只是 `compute_authorized=true` 的必要条件，**不构成硬门旁路**：N0-4C
+与 V3 仍必须先满足，"用户指定/导师要求"不能替代其中任何一项。COMPUTE 门
+之前禁止任何产生数值输出的实验，包括自称"探索""可行性检验""预实验"的计算；
+探索性数据分析必须按 [compute-funnel.md](compute-funnel.md) 登记为永久探索级
+证据，其数值不得进入任何碰撞、审计或冻结工件。
+
 `DIRECTION_LOCK` 只锁方向。计算按 S0–S4 逐级升级；只有 S4 完成且 state 中的
 `compute_evidence` 指向当前 epoch、当前哈希的计算证据，才能进入
 `POSTCOMPUTE_CLAIM_FREEZE`。计算结果改变主张、强度或适用边界时必须新开 epoch；
@@ -212,6 +225,16 @@ MIGRATION_REQUIRED = 3
 优先级为 MIGRATION > INVALID > BLOCKED > READY。任一非零退出都 STOP；不得 PASS、
 LOCKED、CLOSED、启动新碰撞或计算。BLOCKED 时仍验证所有已有产物；不得因后续门
 不可执行而打印虚假 READY。
+
+非零退出时 `validate_all.py` 会在研究目录写入 `.workflow_stop.lock`：此后状态
+未变的运行直接以锁内退出码拦截，锁期间推进状态判
+`STATE_ADVANCED_UNDER_STOP_LOCK`。唯一解锁路径是完成唯一恢复动作后以
+`--clear-lock --recovery-note "<动作>"` 复跑（留痕于 validation.log）；修复后
+复跑 READY 会自动清锁。新增检查默认以 WARNING 输出、不改变退出码，
+`--strict-new-checks` 将其升为 INVALID；评审与交接一律以 strict 模式结果为准。
+
+BLOCKED 期间仅允许三件事：验证所有已有产物、记录唯一恢复动作、登记用户直接
+提供的解阻材料。禁止撰写新综合、禁止任何计算、禁止新增冻结工件。
 
 ## 10. 每次交接
 

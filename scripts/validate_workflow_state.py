@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -158,6 +158,68 @@ GATE_ARTIFACTS = {
     "n0_4_locked": ("hierarchy_novelty_audit",),
 }
 
+# gate -> 置真该 gate 的状态。置真必须能在 decision_log 中找到对应状态的完成
+# 记录（条目 state 允许 "BLOCKED@<STATE>" 形式），否则视为"自报置真"。
+GATE_COMPLETION_STATE = {
+    "scope_locked": "SCOPE_LOCK",
+    "prior_claims_drained": "PRIOR_CLAIM_DRAIN",
+    "recent_frontier_complete": "RECENT_FRONTIER",
+    "literature_registry_valid": "LITERATURE_REGISTER",
+    "important_fulltext_complete": "IMPORTANT_FULLTEXT",
+    "source_claims_complete": "SOURCE_CLAIM_REGISTER",
+    "output_claims_traced": "OUTPUT_CLAIM_BIND",
+    "evidence_validated": "EVIDENCE_VALIDATE",
+    "l1_frozen": "LAYER_DECISION",
+    "l2_frozen": "LAYER_DECISION",
+    "architecture_frozen": "LAYER_DECISION",
+    "n0_4_locked": "N0_AUDIT",
+}
+
+TRACK_STATES = {
+    "NOVELTY": {
+        "BOOT",
+        "SCOPE_LOCK",
+        "PRIOR_CLAIM_DRAIN",
+        "RECENT_FRONTIER",
+        "LITERATURE_REGISTER",
+        "IMPORTANT_FULLTEXT",
+        "SOURCE_CLAIM_REGISTER",
+        "SYNTHESIZE_COLLISION",
+        "OUTPUT_CLAIM_BIND",
+        "EVIDENCE_VALIDATE",
+        "LAYER_DECISION",
+        "N0_AUDIT",
+    },
+    "VALIDITY": {
+        "CLAIM_FREEZE",
+        "VALIDITY_AUDIT",
+        "INDEPENDENT_REVIEW",
+        "DIRECTION_LOCK",
+        "POSTCOMPUTE_CLAIM_FREEZE",
+        "FINAL_VALIDITY_AUDIT",
+        "FINAL_LOCK",
+    },
+    "COMPUTE": {"COMPUTE"},
+}
+
+# 新增检查码：默认 WARNING（不计入退出码），--strict-new-checks 升为 INVALID。
+# 不在此集合内的码维持原有严重级语义。
+NEW_CHECK_CODES = frozenset(
+    {
+        "DECISION_LOG_ENTRY_SCHEMA",
+        "DECISION_LOG_UNKNOWN_STATE",
+        "DECISION_LOG_NON_MONOTONIC",
+        "FUTURE_DECISION_TIMESTAMP",
+        "DECISION_LOG_AFTER_STATE_WRITE",
+        "UPDATED_AT_BEFORE_DECISION_LOG",
+        "GATE_COMPLETION_RECORD_MISSING",
+        "SELF_DECLARED_LEVEL",
+        "TRACK_STATE_MISMATCH",
+        "LAST_COMPLETED_NOT_LOGGED",
+        "COMPLETE_REQUIRES_FINAL_LOCK_CONDITIONS",
+    }
+)
+
 
 def load_json(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -288,10 +350,153 @@ def current_independent_audit(state: dict[str, Any]) -> bool:
     )
 
 
+def _parse_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def validate_decision_log(
+    root: Path,
+    state: dict[str, Any],
+    state_mtime: datetime | None,
+    errors: list[str],
+) -> set[str]:
+    """校验 decision_log 的条目 schema、时间完整性与工件哈希登记。
+
+    返回条目中出现过的状态集合（"BLOCKED@" 前缀已剥离），供 gate 完成
+    记录交叉检查使用。
+    """
+
+    decision_log = state.get("decision_log")
+    if not isinstance(decision_log, list):
+        add(errors, "DECISION_LOG", "not_list")
+        return set()
+
+    tolerance = timedelta(seconds=300)
+    now = datetime.now(timezone.utc)
+    previous: datetime | None = None
+    seen_states: set[str] = set()
+    root_fd: int | None = None
+    try:
+        for index, entry in enumerate(decision_log):
+            if not isinstance(entry, dict):
+                add(errors, "DECISION_LOG_ENTRY_SCHEMA", f"index:{index}:not_object")
+                continue
+            raw_state = entry.get("state")
+            base_state = (
+                raw_state.removeprefix("BLOCKED@")
+                if isinstance(raw_state, str)
+                else raw_state
+            )
+            if base_state not in STATES:
+                add(
+                    errors,
+                    "DECISION_LOG_UNKNOWN_STATE",
+                    f"index:{index}:state:{raw_state!r}",
+                )
+            else:
+                seen_states.add(base_state)
+            if not nonempty(entry.get("action")):
+                add(
+                    errors,
+                    "DECISION_LOG_ENTRY_SCHEMA",
+                    f"index:{index}:empty_action",
+                )
+            timestamp = _parse_timestamp(entry.get("at"))
+            if timestamp is None:
+                add(
+                    errors,
+                    "DECISION_LOG_ENTRY_SCHEMA",
+                    f"index:{index}:unparseable_at:{entry.get('at')!r}",
+                )
+            else:
+                if previous is not None and timestamp < previous:
+                    add(
+                        errors,
+                        "DECISION_LOG_NON_MONOTONIC",
+                        f"index:{index}:at:{entry.get('at')}",
+                    )
+                if previous is None or timestamp > previous:
+                    previous = timestamp
+                if timestamp > now + tolerance:
+                    add(
+                        errors,
+                        "FUTURE_DECISION_TIMESTAMP",
+                        f"index:{index}:at:{entry.get('at')}",
+                    )
+                if state_mtime is not None and timestamp > state_mtime + tolerance:
+                    add(
+                        errors,
+                        "DECISION_LOG_AFTER_STATE_WRITE",
+                        f"index:{index}:at:{entry.get('at')};"
+                        f"state_mtime:{state_mtime.isoformat()}",
+                    )
+            artifacts = entry.get("artifacts")
+            if artifacts is None:
+                continue
+            if not isinstance(artifacts, list):
+                add(
+                    errors,
+                    "DECISION_LOG_ENTRY_SCHEMA",
+                    f"index:{index}:artifacts_not_list",
+                )
+                continue
+            for artifact in artifacts:
+                if (
+                    not isinstance(artifact, dict)
+                    or not canonical_relative_path(artifact.get("path"))
+                    or not valid_sha256(artifact.get("sha256"))
+                ):
+                    add(
+                        errors,
+                        "DECISION_LOG_ENTRY_SCHEMA",
+                        f"index:{index}:bad_artifact_entry:{artifact!r}",
+                    )
+                    continue
+                if root_fd is None:
+                    root_fd = open_root_fd(root)
+                try:
+                    snapshot = read_regular_file_at(root_fd, artifact["path"])
+                except Exception as error:
+                    add(
+                        errors,
+                        "STALE_DECISION_ARTIFACT",
+                        f"index:{index}:unavailable:{artifact['path']}:{error}",
+                    )
+                    continue
+                if snapshot.sha256 != artifact["sha256"]:
+                    add(
+                        errors,
+                        "STALE_DECISION_ARTIFACT",
+                        f"index:{index}:declared:{artifact['sha256']};"
+                        f"current:{snapshot.sha256}",
+                    )
+    finally:
+        if root_fd is not None:
+            os.close(root_fd)
+
+    updated = _parse_timestamp(state.get("updated_at"))
+    if previous is not None and updated is not None and updated < previous:
+        add(
+            errors,
+            "UPDATED_AT_BEFORE_DECISION_LOG",
+            f"updated_at:{state.get('updated_at')};last_entry:{previous.isoformat()}",
+        )
+    return seen_states
+
+
 def validate(
     root: Path,
     state: dict[str, Any],
     expected_year: int,
+    state_mtime: datetime | None = None,
 ) -> list[str]:
     errors: list[str] = []
 
@@ -613,11 +818,83 @@ def validate(
             elif key != "literature_archive" and not path.is_file():
                 add(errors, "ARTIFACT", f"{key}:not_file:{path}")
 
-    decision_log = state.get("decision_log")
-    if not isinstance(decision_log, list):
-        add(errors, "DECISION_LOG", "not_list")
+    seen_states = validate_decision_log(root, state, state_mtime, errors)
+
+    # gate 置真必须有对应状态的完成记录，否则视为自报置真。
+    for gate, completion_state in GATE_COMPLETION_STATE.items():
+        if gates.get(gate) and completion_state not in seen_states:
+            add(
+                errors,
+                "GATE_COMPLETION_RECORD_MISSING",
+                f"{gate}:requires_decision_log_state:{completion_state}",
+            )
+
+    # level 不得手填：N0-4C 与 n0_4_locked 必须互证。
+    if (novelty_level == "N0-4C") != bool(gates.get("n0_4_locked")):
+        add(
+            errors,
+            "SELF_DECLARED_LEVEL",
+            f"novelty_level:{novelty_level};n0_4_locked:{gates.get('n0_4_locked')}",
+        )
+
+    # active_track 与 active_state 必须同轴。
+    track = state.get("active_track")
+    if (
+        isinstance(track, str)
+        and track in TRACK_STATES
+        and effective_state != "COMPLETE"
+        and effective_state not in TRACK_STATES[track]
+    ):
+        add(
+            errors,
+            "TRACK_STATE_MISMATCH",
+            f"active_track:{track};effective_state:{effective_state}",
+        )
+
+    # last_completed_state 必须在 decision_log 中有对应完成记录。
+    last_completed = state.get("last_completed_state")
+    if (
+        seen_states
+        and isinstance(last_completed, str)
+        and last_completed != "NONE"
+        and last_completed not in seen_states
+    ):
+        add(
+            errors,
+            "LAST_COMPLETED_NOT_LOGGED",
+            f"last_completed_state:{last_completed}",
+        )
+
+    # COMPLETE 是终态，必须满足与 FINAL_LOCK 等价的条件。
+    if effective_state == "COMPLETE":
+        complete_problems: list[str] = []
+        if novelty_level != "N0-4C":
+            complete_problems.append(f"novelty_level:{novelty_level}")
+        if current_validity < 4:
+            complete_problems.append(f"validity_level:{validity_level}")
+        state_audit = state.get("independent_audit")
+        capability_unavailable = (
+            isinstance(state_audit, dict)
+            and state_audit.get("capability_available") is False
+        )
+        if not capability_unavailable and not current_independent_audit(state):
+            complete_problems.append("independent_audit:not_current")
+        if complete_problems:
+            add(
+                errors,
+                "COMPLETE_REQUIRES_FINAL_LOCK_CONDITIONS",
+                ";".join(complete_problems),
+            )
 
     return errors
+
+
+def issue_severity(code: str, strict_new_checks: bool) -> str:
+    if code == "EXTERNAL_BLOCKER":
+        return "BLOCKED"
+    if code in NEW_CHECK_CODES and not strict_new_checks:
+        return "WARNING"
+    return "INVALID"
 
 
 def main() -> int:
@@ -625,6 +902,7 @@ def main() -> int:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--state", type=Path, required=True)
     parser.add_argument("--current-year", type=int, default=datetime.now().year)
+    parser.add_argument("--strict-new-checks", action="store_true")
     args = parser.parse_args()
 
     root = args.root.resolve()
@@ -649,7 +927,14 @@ def main() -> int:
         return int(choose_exit(schema_issues))
 
     try:
-        errors = validate(root, state, args.current_year)
+        state_mtime = datetime.fromtimestamp(
+            state_path.stat().st_mtime, tz=timezone.utc
+        )
+    except OSError:
+        state_mtime = None
+
+    try:
+        errors = validate(root, state, args.current_year, state_mtime)
     except Exception as error:
         errors = []
         schema_issues.append(
@@ -658,11 +943,7 @@ def main() -> int:
     issues = schema_issues + [
         Issue(
             error.split("\t", 1)[0],
-            (
-                "BLOCKED"
-                if error.split("\t", 1)[0] == "EXTERNAL_BLOCKER"
-                else "INVALID"
-            ),
+            issue_severity(error.split("\t", 1)[0], args.strict_new_checks),
             "workflow_state",
             error.split("\t", 1)[1] if "\t" in error else error,
         )
