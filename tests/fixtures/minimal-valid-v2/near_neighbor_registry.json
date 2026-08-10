@@ -1,0 +1,59 @@
+{
+  "schema_version": "2.0",
+  "current_year": 2026,
+  "recent_window": {
+    "start_year": 2024,
+    "end_year": 2026,
+    "status": "COMPLETE",
+    "completed_at": "2026-08-10T00:00:00Z",
+    "queries": [
+      {
+        "database": "fixture-index",
+        "query": "frozen online protocol",
+        "filters": "2024-2026",
+        "hit_count": 1
+      }
+    ]
+  },
+  "current_collision_round": 1,
+  "peer_reviewed_published_count": 1,
+  "search_mode": "SEARCH_OPEN",
+  "records": [
+    {
+      "registry_id": "W-0001",
+      "canonical_title": "A Frozen Protocol Reference",
+      "authors": ["Fixture Author"],
+      "year": 2026,
+      "canonical_url": "https://example.com/fixture-work",
+      "alternate_urls": [],
+      "identity_status": "VERIFIED",
+      "identity_verification_url": "https://example.com/fixture-work",
+      "identity_verified_at": "2026-08-10T00:00:00Z",
+      "search_phase": "RECENT_FRONTIER_PASS",
+      "importance": "CRITICAL",
+      "importance_history": [
+        {
+          "importance": "CRITICAL",
+          "at": "2026-08-10T00:00:00Z",
+          "reason": "direct fixture neighbor"
+        }
+      ],
+      "reclassifications": [],
+      "publication_status": "PUBLISHED",
+      "terminal_rejection_eligibility": "QUALIFIED",
+      "publication_verification_url": "https://example.com/fixture-work",
+      "peer_review_status": "PEER_REVIEWED_PUBLISHED",
+      "peer_review_verification_url": "https://example.com/fixture-work",
+      "download": {
+        "status": "OFFICIAL_HTML_ARCHIVED",
+        "source_url": "https://example.com/fixture-work",
+        "local_path": "literature_archive/W-0001.txt",
+        "sha256": "8977cf4c35e379070e3f47be796a174e2b15ca0fe88f39442434f283d4762e21",
+        "downloaded_at": "2026-08-10T00:00:00Z",
+        "verified_against_metadata": true,
+        "block_reason": ""
+      },
+      "claim_extraction_status": "COMPLETE"
+    }
+  ]
+}

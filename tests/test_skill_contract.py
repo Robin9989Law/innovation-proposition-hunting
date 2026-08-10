@@ -1,4 +1,9 @@
+import hashlib
 from pathlib import Path
+from shutil import copytree
+import subprocess
+import sys
+from tempfile import TemporaryDirectory
 import unittest
 
 
@@ -129,6 +134,45 @@ class SkillContractTests(unittest.TestCase):
             with self.subTest(required=required):
                 self.assertIn(required, text)
         self.assertNotIn("paper1-failure-case", text)
+
+    def test_standalone_schema_v2_fixture_is_ready_and_read_only(self):
+        source = ROOT / "tests" / "fixtures" / "minimal-valid-v2"
+
+        def snapshot(directory: Path) -> dict[str, str]:
+            return {
+                path.relative_to(directory).as_posix(): hashlib.sha256(
+                    path.read_bytes()
+                ).hexdigest()
+                for path in directory.rglob("*")
+                if path.is_file() and "__pycache__" not in path.parts
+            }
+
+        source_before = snapshot(source)
+        with TemporaryDirectory(prefix="standalone-schema-v2-") as temporary:
+            project = Path(temporary) / "minimal-valid-v2"
+            copytree(source, project, ignore=lambda _path, names: {
+                name for name in names if name == "__pycache__"
+            })
+            project_before = snapshot(project)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "validate_all.py"),
+                    "--root",
+                    str(project),
+                    "--state",
+                    str(project / "workflow_state.json"),
+                    "--current-year",
+                    "2026",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("validation_suite_status=READY", result.stdout)
+            self.assertEqual(snapshot(project), project_before)
+        self.assertEqual(snapshot(source), source_before)
 
 
 if __name__ == "__main__":

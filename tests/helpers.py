@@ -12,6 +12,20 @@ from typing import Any, Sequence
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 MINIMAL_VALID_V2 = REPOSITORY_ROOT / "tests" / "fixtures" / "minimal-valid-v2"
+STANDALONE_ONLY = {
+    "contribution-architecture.md",
+    "hierarchy_status.md",
+    "l1-card.md",
+    "l2-card.md",
+    "literature_archive",
+    "literature_claim_registry.json",
+    "near_neighbor_registry.json",
+    "novelty-audit.md",
+    "output_claim_support.json",
+    "scope_lock.md",
+    "validation.log",
+    "workflow_state.json",
+}
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -99,6 +113,8 @@ def make_valid_project(
     }
     write_json(project / "workflow_state.json", state)
     for fixture_path in MINIMAL_VALID_V2.iterdir():
+        if fixture_path.name in STANDALONE_ONLY:
+            continue
         if fixture_path.is_file():
             copy2(fixture_path, project / fixture_path.name)
         elif fixture_path.is_dir():

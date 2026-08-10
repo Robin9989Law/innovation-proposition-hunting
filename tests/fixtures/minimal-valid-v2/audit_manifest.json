@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "validation_epoch": 1,
-  "claim_bundle_sha256": "1c8a92a2dd454766cc121342fa6b470aadd8d29e4c5c344a8c00ff70785248c9",
+  "claim_bundle_sha256": "5769179042eee2dcf9b122a51e2f372e55d6137b4a63334712121f1a922a5d64",
   "entries": [
     {
       "path": "baseline_budget.json",
@@ -24,14 +24,39 @@
       "sha256": "405abecd741f5eff8cc42fa3f78bcdd3b3b87970fd462c8d171467a3f8d78b25"
     },
     {
+      "path": "frontier_coverage.json",
+      "role": "FRONTIER_COVERAGE",
+      "sha256": "85e5337162f1b4a61d57f8c3fa15635caaeb235e07d8975b2916caf7eb2b4d55"
+    },
+    {
       "path": "implementation/online_algorithm.py",
       "role": "IMPLEMENTATION",
       "sha256": "5e13fed44b7fe3373fe672e471e5f41c5de0109a72874ad4c24bea33c40603b5"
     },
     {
+      "path": "literature_archive/W-0001.txt",
+      "role": "LITERATURE_FULLTEXT",
+      "sha256": "8977cf4c35e379070e3f47be796a174e2b15ca0fe88f39442434f283d4762e21"
+    },
+    {
+      "path": "literature_claim_registry.json",
+      "role": "LITERATURE_CLAIMS",
+      "sha256": "6f37506e0675073290f827e8b203ef702d349caa3e10b9cf1d2b53ae16d66a09"
+    },
+    {
       "path": "manuscript.md",
       "role": "MANUSCRIPT",
       "sha256": "f2602a9f797737c01b4fe755776b524ca881efb8c9854d716985591bb808666a"
+    },
+    {
+      "path": "near_neighbor_registry.json",
+      "role": "LITERATURE_REGISTRY",
+      "sha256": "2e0e53bc24a33144e1baee26f40a52eeaa0a0bacadcca2bd95ecc59a685e73e6"
+    },
+    {
+      "path": "output_claim_support.json",
+      "role": "OUTPUT_SUPPORT",
+      "sha256": "ca88d232bd7e18fbf7560785b76f114b6614451f0b2537288d11426d9c8943e3"
     },
     {
       "path": "protocol_contract.json",
