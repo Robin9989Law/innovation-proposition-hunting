@@ -1245,6 +1245,39 @@ class ProtocolContractTests(unittest.TestCase):
 
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
 
+    def test_true_assert_does_not_visit_unreachable_message(self) -> None:
+        project = self.make_project()
+        test_path = project / "checks/check_online_chronology.py"
+        test_path.write_text(
+            "from implementation.online_algorithm import evaluate_online\n"
+            'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+            "def proof():\n"
+            "    assert True, evaluate_online(None, [], [])\n",
+            encoding="utf-8",
+        )
+        self.refresh_test_and_output_hashes(project)
+
+        completed = self.run_trace(project)
+
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("TRACE_TEST_IMPLEMENTATION_MISMATCH", completed.stdout)
+
+    def test_unknown_assert_may_visit_message(self) -> None:
+        project = self.make_project()
+        test_path = project / "checks/check_online_chronology.py"
+        test_path.write_text(
+            "from implementation.online_algorithm import evaluate_online\n"
+            'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+            "def proof():\n"
+            "    assert condition, evaluate_online(None, [], [])\n",
+            encoding="utf-8",
+        )
+        self.refresh_test_and_output_hashes(project)
+
+        completed = self.run_trace(project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+
     def test_literal_boolop_short_circuit_prunes_dead_bound_call(self) -> None:
         expressions = (
             "False and evaluate_online(None, [], [])",

@@ -646,8 +646,11 @@ def _reachable_nodes_with_scopes(
             return outcomes
         if isinstance(node, ast.Assert):
             visit_expression(node.test, active_scopes)
+            truth = _literal_truth(node.test)
+            if truth is True:
+                return {fallthrough}
             visit_expression(node.msg, active_scopes)
-            return {"RAISE"} if _literal_truth(node.test) is False else {fallthrough}
+            return {"RAISE"} if truth is False else {fallthrough}
         if isinstance(node, ast.Return):
             visit_expression(node.value, active_scopes)
             return {"RETURN"}
