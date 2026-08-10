@@ -62,6 +62,7 @@ ALGORITHM_CONTRACT_REQUIRED_STATES = {
     "FINAL_LOCK",
     "COMPLETE",
 }
+AUDIT_REQUIRED_LEVELS = {"V3", "V4"}
 
 
 def load_state(path: Path) -> dict[str, Any]:
@@ -114,6 +115,8 @@ def main() -> int:
     parser.add_argument("--protocol-contract", type=Path)
     parser.add_argument("--baseline-budget", type=Path)
     parser.add_argument("--claim-code-trace", type=Path)
+    parser.add_argument("--audit-manifest", type=Path)
+    parser.add_argument("--independent-audit", type=Path)
     args = parser.parse_args()
 
     root = args.root.resolve()
@@ -159,6 +162,16 @@ def main() -> int:
         if args.claim_code_trace
         else root / "claim_code_trace.json"
     )
+    audit_manifest = (
+        args.audit_manifest.absolute()
+        if args.audit_manifest
+        else root / "audit_manifest.json"
+    )
+    independent_audit = (
+        args.independent_audit.absolute()
+        if args.independent_audit
+        else root / "independent_audit.json"
+    )
 
     try:
         if not root.is_dir():
@@ -173,6 +186,8 @@ def main() -> int:
             ("protocol_contract", protocol_contract),
             ("baseline_budget", baseline_budget),
             ("claim_code_trace", claim_code_trace),
+            ("audit_manifest", audit_manifest),
+            ("independent_audit", independent_audit),
         ):
             require_within_root(root, path, label)
         state = load_state(state_path)
@@ -209,6 +224,58 @@ def main() -> int:
     workflow_issue = issue_for_exit("workflow_state", workflow_exit)
     if workflow_issue:
         suite_issues.append(workflow_issue)
+
+    audit_required = state.get("validity_level") in AUDIT_REQUIRED_LEVELS
+    if audit_required:
+        state_audit = state.get("independent_audit")
+        capability_unavailable = (
+            isinstance(state_audit, dict)
+            and state_audit.get("capability_available") is False
+        )
+        if capability_unavailable:
+            print("=== artifact_hashes ===")
+            print("SKIP\tindependent_reviewer_capability_unavailable")
+        else:
+            artifact_exit = run(
+                "artifact_hashes",
+                [
+                    sys.executable,
+                    str(script_dir / "validate_artifact_hashes.py"),
+                    "--root",
+                    str(root),
+                    "--state",
+                    str(state_path),
+                    "--manifest",
+                    str(audit_manifest),
+                ],
+            )
+            artifact_issue = issue_for_exit("artifact_hashes", artifact_exit)
+            if artifact_issue:
+                suite_issues.append(artifact_issue)
+
+        audit_exit = run(
+            "audit_provenance",
+            [
+                sys.executable,
+                str(script_dir / "validate_audit_provenance.py"),
+                "--root",
+                str(root),
+                "--state",
+                str(state_path),
+                "--manifest",
+                str(audit_manifest),
+                "--audit",
+                str(independent_audit),
+            ],
+        )
+        audit_issue = issue_for_exit("audit_provenance", audit_exit)
+        if audit_issue:
+            suite_issues.append(audit_issue)
+    else:
+        print("=== artifact_hashes ===")
+        print(f"SKIP\tnot_required_at_validity:{state.get('validity_level')}")
+        print("=== audit_provenance ===")
+        print(f"SKIP\tnot_required_at_validity:{state.get('validity_level')}")
 
     active_state = state.get("active_state")
     effective_state = (

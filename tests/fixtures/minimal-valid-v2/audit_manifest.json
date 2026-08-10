@@ -1,0 +1,52 @@
+{
+  "schema_version": "2.0",
+  "validation_epoch": 1,
+  "claim_bundle_sha256": "1c8a92a2dd454766cc121342fa6b470aadd8d29e4c5c344a8c00ff70785248c9",
+  "entries": [
+    {
+      "path": "baseline_budget.json",
+      "role": "BASELINE_CONTRACT",
+      "sha256": "4af5c8617b9b19ae69c1d8108340f70e0870009af49d6b38a1b12c3d1c2a886e"
+    },
+    {
+      "path": "checks/check_online_chronology.py",
+      "role": "EXECUTABLE_TEST",
+      "sha256": "7b3edae007f104a1f6064954f1dce5c38ac562241a8c9f1386678d438861a654"
+    },
+    {
+      "path": "claim_code_trace.json",
+      "role": "CLAIM_CODE_TRACE",
+      "sha256": "3f1bc144d1b3de7303f071f70160e366aa817e7c3083397b52038638fb16a5a7"
+    },
+    {
+      "path": "claim_inventory.json",
+      "role": "CLAIM_INVENTORY",
+      "sha256": "405abecd741f5eff8cc42fa3f78bcdd3b3b87970fd462c8d171467a3f8d78b25"
+    },
+    {
+      "path": "implementation/online_algorithm.py",
+      "role": "IMPLEMENTATION",
+      "sha256": "5e13fed44b7fe3373fe672e471e5f41c5de0109a72874ad4c24bea33c40603b5"
+    },
+    {
+      "path": "manuscript.md",
+      "role": "MANUSCRIPT",
+      "sha256": "f2602a9f797737c01b4fe755776b524ca881efb8c9854d716985591bb808666a"
+    },
+    {
+      "path": "protocol_contract.json",
+      "role": "PROTOCOL_CONTRACT",
+      "sha256": "ccd2b8fd9fe1ec6010786df3e5ad9b7009d77bdb22e9aa2a34358473bc0e3a92"
+    },
+    {
+      "path": "test_outputs/online_chronology_pass.json",
+      "role": "TEST_OUTPUT",
+      "sha256": "abfc2d7fa7928129ea4f187f584bfccf6d09a8282f04500460857845babccfdb"
+    },
+    {
+      "path": "theory_obligation_registry.json",
+      "role": "THEORY_OBLIGATIONS",
+      "sha256": "23ae2e02b06f5b6acfe703963513244d6a0c24048bd4a9c3d04bb622befa2a53"
+    }
+  ]
+}

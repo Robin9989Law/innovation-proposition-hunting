@@ -1,0 +1,14 @@
+{
+  "schema_version": "2.0",
+  "validation_epoch": 1,
+  "capability_available": true,
+  "author_agent_ids": [
+    "agent-a"
+  ],
+  "reviewer_agent_id": "agent-b",
+  "reviewer_thread_id": "thread-b",
+  "audited_bundle_sha256": "1c8a92a2dd454766cc121342fa6b470aadd8d29e4c5c344a8c00ff70785248c9",
+  "verdict": "PASS",
+  "findings": [],
+  "audited_at": "2026-08-10T00:00:00Z"
+}

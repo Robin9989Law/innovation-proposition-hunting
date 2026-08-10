@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -68,13 +69,14 @@ def make_valid_project(
         "validity_level": validity_level,
         "claim_profile": claim_profile,
         "validation_epoch": 1,
-        "claim_bundle_sha256": "a" * 64,
+        "claim_bundle_sha256": "1c8a92a2dd454766cc121342fa6b470aadd8d29e4c5c344a8c00ff70785248c9",
         "independent_audit": {
             "capability_available": True,
+            "validation_epoch": 1,
             "author_agent_ids": ["agent-a"],
             "reviewer_agent_id": "agent-b",
             "reviewer_thread_id": "thread-b",
-            "audited_bundle_sha256": "a" * 64,
+            "audited_bundle_sha256": "1c8a92a2dd454766cc121342fa6b470aadd8d29e4c5c344a8c00ff70785248c9",
             "verdict": "PASS",
         },
         "gates": {
@@ -101,6 +103,52 @@ def make_valid_project(
             copy2(fixture_path, project / fixture_path.name)
         elif fixture_path.is_dir():
             copytree(fixture_path, project / fixture_path.name)
+    manifest = load_json(project / "audit_manifest.json")
+    profile_roles = {
+        "THEORY": {
+            "CLAIM_INVENTORY",
+            "MANUSCRIPT",
+            "THEORY_OBLIGATIONS",
+        },
+        "ALGORITHM": {
+            "BASELINE_CONTRACT",
+            "EXECUTABLE_TEST",
+            "CLAIM_CODE_TRACE",
+            "CLAIM_INVENTORY",
+            "IMPLEMENTATION",
+            "MANUSCRIPT",
+            "PROTOCOL_CONTRACT",
+            "TEST_OUTPUT",
+        },
+        "MIXED": {entry["role"] for entry in manifest["entries"]},
+    }
+    allowed_roles = profile_roles.get(claim_profile, profile_roles["MIXED"])
+    manifest["entries"] = [
+        entry for entry in manifest["entries"] if entry["role"] in allowed_roles
+    ]
+    normalized = [
+        {
+            "path": entry["path"],
+            "role": entry["role"],
+            "sha256": entry["sha256"],
+        }
+        for entry in sorted(manifest["entries"], key=lambda entry: entry["path"])
+    ]
+    bundle_raw = json.dumps(
+        normalized,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    bundle_hash = hashlib.sha256(bundle_raw).hexdigest()
+    manifest["claim_bundle_sha256"] = bundle_hash
+    write_json(project / "audit_manifest.json", manifest)
+    audit = load_json(project / "independent_audit.json")
+    audit["audited_bundle_sha256"] = bundle_hash
+    write_json(project / "independent_audit.json", audit)
+    state["claim_bundle_sha256"] = bundle_hash
+    state["independent_audit"]["audited_bundle_sha256"] = bundle_hash
+    write_json(project / "workflow_state.json", state)
     return temporary_directory, project
 
 
