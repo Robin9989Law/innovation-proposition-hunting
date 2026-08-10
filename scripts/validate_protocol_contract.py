@@ -195,6 +195,22 @@ def _literal_truth(node: ast.AST) -> bool | None:
         return None
 
 
+def _literal_empty_iterable(node: ast.AST) -> bool:
+    try:
+        value = ast.literal_eval(node)
+    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+        return False
+    return isinstance(value, (tuple, list, set, dict, str, bytes)) and not value
+
+
+def _pattern_is_irrefutable(pattern: ast.pattern) -> bool:
+    if isinstance(pattern, ast.MatchAs):
+        return pattern.pattern is None or _pattern_is_irrefutable(pattern.pattern)
+    if isinstance(pattern, ast.MatchOr):
+        return any(_pattern_is_irrefutable(item) for item in pattern.patterns)
+    return False
+
+
 def _class_global_names(statements: list[ast.stmt]) -> set[str]:
     """Collect globals from class code, including recursively executed classes."""
 
@@ -246,6 +262,31 @@ def _direct_class_global_names(statements: list[ast.stmt]) -> set[str]:
     return names
 
 
+def _direct_function_global_names(node: ast.AST) -> set[str]:
+    """Collect globals in one function scope without entering nested scopes."""
+
+    names: set[str] = set()
+
+    class DirectGlobalVisitor(ast.NodeVisitor):
+        def visit_Global(self, child: ast.Global) -> None:
+            names.update(child.names)
+
+        def visit_FunctionDef(self, child: ast.FunctionDef) -> None:
+            return
+
+        def visit_AsyncFunctionDef(self, child: ast.AsyncFunctionDef) -> None:
+            return
+
+        def visit_ClassDef(self, child: ast.ClassDef) -> None:
+            return
+
+        def visit_Lambda(self, child: ast.Lambda) -> None:
+            return
+
+    DirectGlobalVisitor().visit(node)
+    return names
+
+
 class _ModuleBindingVisitor(ast.NodeVisitor):
     """Find a module-scope binding without descending into nested scopes."""
 
@@ -285,9 +326,54 @@ class _ModuleBindingVisitor(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self._visit_definition_header(node)
+        self._visit_function_body_module_effects(node.body)
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         self._visit_definition_header(node)
+        self._visit_function_body_module_effects(node.body)
+
+    def _visit_function_body_module_effects(self, body: list[ast.stmt]) -> None:
+        direct_globals = {
+            name
+            for statement in body
+            for name in _direct_function_global_names(statement)
+        }
+        if self.name in direct_globals:
+            for statement in body:
+                self.visit(statement)
+            return
+        self._visit_nested_function_effects(body)
+
+    def _visit_nested_function_effects(self, statements: list[ast.stmt]) -> None:
+        for statement in statements:
+            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                self._visit_function_body_module_effects(statement.body)
+                continue
+            if isinstance(statement, ast.ClassDef):
+                self._visit_class_body_module_effects(statement.body)
+                self._visit_nested_function_effects(statement.body)
+                continue
+            if isinstance(statement, ast.If) and self.skip_static_false:
+                truth = _literal_truth(statement.test)
+                branches = (
+                    statement.orelse
+                    if truth is False
+                    else statement.body
+                    if truth is True
+                    else [*statement.body, *statement.orelse]
+                )
+                self._visit_nested_function_effects(branches)
+                continue
+            if (
+                isinstance(statement, ast.While)
+                and self.skip_static_false
+                and _literal_truth(statement.test) is False
+            ):
+                self._visit_nested_function_effects(statement.orelse)
+                continue
+            for child in ast.iter_child_nodes(statement):
+                if isinstance(child, ast.stmt):
+                    self._visit_nested_function_effects([child])
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         if node.name == self.name:
@@ -299,6 +385,7 @@ class _ModuleBindingVisitor(ast.NodeVisitor):
         for keyword in node.keywords:
             self.visit(keyword.value)
         self._visit_class_body_module_effects(node.body)
+        self._visit_nested_function_effects(node.body)
 
     def _visit_class_body_module_effects(self, body: list[ast.stmt]) -> None:
         if self.name in _direct_class_global_names(body):
@@ -420,6 +507,18 @@ def python_top_level_symbol_status(data: bytes, symbol: str) -> str:
     if not definitions:
         return "MISSING"
     final_definition = definitions[-1]
+    definition = tree.body[final_definition]
+    if isinstance(definition, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if definition.decorator_list:
+            return "INVALID_FINAL_BINDING"
+    elif isinstance(definition, ast.ClassDef):
+        safe_bases = not definition.bases or (
+            len(definition.bases) == 1
+            and isinstance(definition.bases[0], ast.Name)
+            and definition.bases[0].id == "object"
+        )
+        if definition.decorator_list or definition.keywords or not safe_bases:
+            return "INVALID_FINAL_BINDING"
     if _module_binds_name(
         tree.body[final_definition + 1 :], symbol, skip_static_false=True
     ):
@@ -497,21 +596,56 @@ def _reachable_nodes_with_scopes(
 
     found: list[tuple[ast.AST, tuple[set[str], ...]]] = []
     fallthrough = "FALLTHROUGH"
+    function_scope_stack: list[dict[str, tuple[Any, ...]]] = [{}]
+    executed_functions: set[int] = set()
 
-    def argument_names(arguments: ast.arguments) -> set[str]:
-        names = {
-            argument.arg
-            for argument in (
-                list(arguments.posonlyargs)
-                + list(arguments.args)
-                + list(arguments.kwonlyargs)
+    def visit_function_header(
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+        active_scopes: tuple[set[str], ...],
+    ) -> None:
+        for decorator in node.decorator_list:
+            visit_expression(decorator, active_scopes)
+        for argument in (
+            *node.args.posonlyargs,
+            *node.args.args,
+            *node.args.kwonlyargs,
+        ):
+            visit_expression(argument.annotation, active_scopes)
+        if node.args.vararg:
+            visit_expression(node.args.vararg.annotation, active_scopes)
+        if node.args.kwarg:
+            visit_expression(node.args.kwarg.annotation, active_scopes)
+        for default in (*node.args.defaults, *node.args.kw_defaults):
+            visit_expression(default, active_scopes)
+        visit_expression(node.returns, active_scopes)
+
+    def visit_called_function(
+        function: ast.AST, active_scopes: tuple[set[str], ...]
+    ) -> None:
+        if not isinstance(function, ast.Name):
+            return
+        binding: tuple[Any, ...] | None = None
+        for index in range(len(function_scope_stack) - 1, -1, -1):
+            binding = function_scope_stack[index].get(function.id)
+            if binding is not None:
+                break
+            if index > 0 and function.id in active_scopes[index - 1]:
+                return
+        if binding is None:
+            return
+        node, lexical_scopes, parent_function_scopes = binding
+        if id(node) in executed_functions:
+            return
+        executed_functions.add(id(node))
+        saved_function_scopes = list(function_scope_stack)
+        try:
+            function_scope_stack[:] = [*parent_function_scopes, {}]
+            visit_block(
+                node.body,
+                lexical_scopes + (_bound_names_in_scope(node),),
             )
-        }
-        if arguments.vararg:
-            names.add(arguments.vararg.arg)
-        if arguments.kwarg:
-            names.add(arguments.kwarg.arg)
-        return names
+        finally:
+            function_scope_stack[:] = saved_function_scopes
 
     def visit_expression(
         node: ast.AST | None, active_scopes: tuple[set[str], ...]
@@ -520,10 +654,7 @@ def _reachable_nodes_with_scopes(
             return
         found.append((node, active_scopes))
         if isinstance(node, ast.Lambda):
-            visit_expression(
-                node.body, active_scopes + (argument_names(node.args),)
-            )
-            return
+            return  # Lambda bodies are not accepted as executable trace evidence.
         if isinstance(node, ast.BoolOp):
             stop_truth = False if isinstance(node.op, ast.And) else True
             for value in node.values:
@@ -545,6 +676,8 @@ def _reachable_nodes_with_scopes(
         for child in ast.iter_child_nodes(node):
             if not isinstance(child, ast.stmt):
                 visit_expression(child, active_scopes)
+        if isinstance(node, ast.Call):
+            visit_called_function(node.func, active_scopes)
 
     def visit_block(
         block: list[ast.stmt], active_scopes: tuple[set[str], ...]
@@ -566,8 +699,12 @@ def _reachable_nodes_with_scopes(
     ) -> set[str]:
         found.append((node, active_scopes))
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            local_names = _bound_names_in_scope(node)
-            visit_block(node.body, active_scopes + (local_names,))
+            visit_function_header(node, active_scopes)
+            function_scope_stack[-1][node.name] = (
+                node,
+                active_scopes,
+                tuple(function_scope_stack),
+            )
             return {fallthrough}
         if isinstance(node, ast.ClassDef):
             return {fallthrough}  # Class bodies are not trusted as call proof.
@@ -601,6 +738,8 @@ def _reachable_nodes_with_scopes(
         if isinstance(node, (ast.For, ast.AsyncFor)):
             visit_expression(node.target, active_scopes)
             visit_expression(node.iter, active_scopes)
+            if _literal_empty_iterable(node.iter):
+                return visit_block(node.orelse, active_scopes)
             body_outcomes = visit_block(node.body, active_scopes)
             else_outcomes = visit_block(node.orelse, active_scopes)
             outcomes = (
@@ -638,8 +777,7 @@ def _reachable_nodes_with_scopes(
                 outcomes.update(visit_block(case.body, active_scopes))
             last_case_is_irrefutable = bool(node.cases) and (
                 node.cases[-1].guard is None
-                and isinstance(node.cases[-1].pattern, ast.MatchAs)
-                and node.cases[-1].pattern.pattern is None
+                and _pattern_is_irrefutable(node.cases[-1].pattern)
             )
             if not last_case_is_irrefutable:
                 outcomes.add(fallthrough)
@@ -741,6 +879,15 @@ def parse_python_test_contract(
             in {"append", "extend", "insert", "pop", "remove", "clear", "sort", "reverse"}
         ):
             return None, ["TARGET_CLAIM_IDS:mutation_call_forbidden"]
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {"setattr", "delattr"}
+            and node.args
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id == "TARGET_CLAIM_IDS"
+        ):
+            return None, ["TARGET_CLAIM_IDS:mutation_call_forbidden"]
 
     bindings: list[tuple[str, str]] = []
     import_statements: set[ast.stmt] = set()
@@ -800,10 +947,15 @@ def parse_python_test_contract(
         for root, expected in bindings:
             if root in other_module_binders or any(root in scope for scope in scopes):
                 continue
+            expected_parts = expected.split(".")
+            protected_attributes = {
+                ".".join(expected_parts[:length])
+                for length in range(2, len(expected_parts) + 1)
+            }
             if (
                 isinstance(node, ast.Attribute)
                 and isinstance(node.ctx, (ast.Store, ast.Del))
-                and _dotted_name(node) == expected
+                and _dotted_name(node) in protected_attributes
             ):
                 mutated_bindings.add((root, expected))
             if (
@@ -811,9 +963,12 @@ def parse_python_test_contract(
                 and isinstance(node.func, ast.Name)
                 and node.func.id in {"setattr", "delattr"}
                 and len(node.args) >= 2
-                and _dotted_name(node.args[0]) == expected.rsplit(".", 1)[0]
                 and isinstance(node.args[1], ast.Constant)
-                and node.args[1].value == implementation_symbol
+                and isinstance(node.args[1].value, str)
+                and (
+                    f"{_dotted_name(node.args[0])}.{node.args[1].value}"
+                    in protected_attributes
+                )
             ):
                 mutated_bindings.add((root, expected))
     called = False
