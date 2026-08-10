@@ -5,11 +5,22 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from validation_common import Issue, choose_exit, render
+from validation_common import (
+    Issue,
+    canonical_relative_path,
+    choose_exit,
+    nonempty_string,
+    open_root_fd,
+    positive_integer,
+    read_regular_file_at,
+    render,
+)
+from validate_artifact_hashes import valid_sha256
 from validate_schema_v2 import validate as validate_schema_v2
 
 
@@ -125,15 +136,7 @@ STATE_PREREQUISITES = {
         "l2_frozen",
         "architecture_frozen",
     ),
-    "COMPUTE": (
-        "scope_locked",
-        "evidence_validated",
-        "l1_frozen",
-        "l2_frozen",
-        "architecture_frozen",
-        "n0_4_locked",
-        "compute_authorized",
-    ),
+    "COMPUTE": (),
     "COMPLETE": ("scope_locked", "evidence_validated"),
 }
 
@@ -180,6 +183,109 @@ def resolve_artifact(root: Path, raw_path: Any) -> Path | None:
     except ValueError:
         return None
     return path
+
+
+def validate_compute_evidence(
+    root: Path,
+    state: dict[str, Any],
+    errors: list[str],
+) -> bool:
+    evidence = state.get("compute_evidence")
+    if not isinstance(evidence, dict):
+        add(errors, "INVALID_COMPUTE_EVIDENCE", "missing_or_invalid_object")
+        return False
+
+    valid = True
+    if evidence.get("status") != "COMPLETED":
+        add(
+            errors,
+            "INVALID_COMPUTE_EVIDENCE",
+            f"status:{evidence.get('status')}",
+        )
+        valid = False
+
+    evidence_epoch = evidence.get("validation_epoch")
+    state_epoch = state.get("validation_epoch")
+    if not positive_integer(evidence_epoch) or evidence_epoch != state_epoch:
+        add(
+            errors,
+            "INVALID_COMPUTE_EVIDENCE",
+            f"validation_epoch:{evidence_epoch};state:{state_epoch}",
+        )
+        valid = False
+
+    artifact_path = evidence.get("artifact_path")
+    if not canonical_relative_path(artifact_path):
+        add(
+            errors,
+            "INVALID_COMPUTE_EVIDENCE",
+            f"artifact_path:{artifact_path}",
+        )
+        valid = False
+
+    artifact_sha256 = evidence.get("artifact_sha256")
+    if not valid_sha256(artifact_sha256):
+        add(
+            errors,
+            "INVALID_COMPUTE_EVIDENCE",
+            f"artifact_sha256:{artifact_sha256}",
+        )
+        valid = False
+
+    if not valid:
+        return False
+
+    root_fd: int | None = None
+    try:
+        root_fd = open_root_fd(root)
+        snapshot = read_regular_file_at(root_fd, artifact_path)
+    except Exception as error:
+        add(
+            errors,
+            "INVALID_COMPUTE_EVIDENCE",
+            f"artifact_unavailable:{artifact_path}:{error}",
+        )
+        return False
+    finally:
+        if root_fd is not None:
+            os.close(root_fd)
+
+    if snapshot.sha256 != artifact_sha256:
+        add(
+            errors,
+            "STALE_COMPUTE_EVIDENCE",
+            f"declared:{artifact_sha256};current:{snapshot.sha256}",
+        )
+        return False
+    return True
+
+
+def current_independent_audit(state: dict[str, Any]) -> bool:
+    audit = state.get("independent_audit")
+    if not isinstance(audit, dict):
+        return False
+    if audit.get("capability_available") is not True:
+        return False
+    authors = audit.get("author_agent_ids")
+    reviewer = audit.get("reviewer_agent_id")
+    if (
+        not isinstance(authors, list)
+        or not authors
+        or not all(nonempty_string(author) for author in authors)
+        or not nonempty_string(reviewer)
+        or reviewer in authors
+        or not nonempty_string(audit.get("reviewer_thread_id"))
+        or audit.get("verdict") != "PASS"
+    ):
+        return False
+    state_epoch = state.get("validation_epoch")
+    state_bundle = state.get("claim_bundle_sha256")
+    return (
+        positive_integer(state_epoch)
+        and audit.get("validation_epoch") == state_epoch
+        and valid_sha256(state_bundle)
+        and audit.get("audited_bundle_sha256") == state_bundle
+    )
 
 
 def validate(
@@ -265,6 +371,10 @@ def validate(
         reasons = state.get("blocked_reasons")
         if not isinstance(reasons, list) or not reasons:
             add(errors, "BLOCKED", "blocked_without_reason")
+        elif not all(nonempty_string(reason) for reason in reasons):
+            add(errors, "BLOCKED", "blocked_reason_not_nonempty_string")
+        else:
+            add(errors, "EXTERNAL_BLOCKER", ";".join(reasons))
         effective_state = resume_state
     else:
         if resume_state != active_state:
@@ -338,6 +448,119 @@ def validate(
                 if not gates.get(prerequisite):
                     add(errors, "GATE_ORDER", f"{gate}_requires:{prerequisite}")
 
+    validity_rank = {"V0": 0, "V1": 1, "V2": 2, "V3": 3, "V4": 4}
+    validity_level = state.get("validity_level")
+    current_validity = (
+        validity_rank.get(validity_level, -1)
+        if isinstance(validity_level, str)
+        else -1
+    )
+    novelty_level = state.get("novelty_level")
+    compute_authorized = gates.get("compute_authorized") is True
+
+    if effective_state == "CLAIM_FREEZE" and novelty_level != "N0-4C":
+        add(
+            errors,
+            "CLAIM_FREEZE_REQUIRES_N0_4C",
+            f"novelty_level:{novelty_level}",
+        )
+    if effective_state == "VALIDITY_AUDIT" and current_validity < 1:
+        add(
+            errors,
+            "VALIDITY_AUDIT_REQUIRES_V1",
+            f"validity_level:{validity_level}",
+        )
+    if effective_state == "INDEPENDENT_REVIEW" and current_validity < 2:
+        add(
+            errors,
+            "INDEPENDENT_REVIEW_REQUIRES_V2",
+            f"validity_level:{validity_level}",
+        )
+    if effective_state == "DIRECTION_LOCK":
+        if novelty_level != "N0-4C":
+            add(
+                errors,
+                "DIRECTION_LOCK_REQUIRES_N0_4C",
+                f"novelty_level:{novelty_level}",
+            )
+        if current_validity < 3:
+            add(
+                errors,
+                "DIRECTION_LOCK_REQUIRES_V3",
+                f"validity_level:{validity_level}",
+            )
+    if effective_state == "COMPUTE":
+        if novelty_level != "N0-4C":
+            add(
+                errors,
+                "COMPUTE_REQUIRES_N0_4C",
+                f"novelty_level:{novelty_level}",
+            )
+        if current_validity < 3:
+            add(
+                errors,
+                "COMPUTE_REQUIRES_V3",
+                f"validity_level:{validity_level}",
+            )
+        if not compute_authorized:
+            add(
+                errors,
+                "COMPUTE_REQUIRES_AUTHORIZATION",
+                f"compute_authorized:{gates.get('compute_authorized')}",
+            )
+    if effective_state == "POSTCOMPUTE_CLAIM_FREEZE":
+        evidence_current = validate_compute_evidence(root, state, errors)
+        if (
+            state.get("compute_stage") != "S4"
+            or not compute_authorized
+            or not evidence_current
+        ):
+            add(
+                errors,
+                "POSTCOMPUTE_CLAIM_FREEZE_REQUIRES_COMPLETED_AUTHORIZED_COMPUTE",
+                "compute_stage:{};compute_authorized:{};evidence_current:{}".format(
+                    state.get("compute_stage"),
+                    gates.get("compute_authorized"),
+                    evidence_current,
+                ),
+            )
+    if effective_state == "FINAL_VALIDITY_AUDIT" and (
+        not positive_integer(state.get("validation_epoch"))
+        or state.get("validation_epoch") < 2
+        or not valid_sha256(state.get("claim_bundle_sha256"))
+    ):
+        add(
+            errors,
+            "FINAL_VALIDITY_AUDIT_REQUIRES_NEW_EPOCH_CLAIM_BUNDLE",
+            "validation_epoch:{};claim_bundle_sha256:{}".format(
+                state.get("validation_epoch"), state.get("claim_bundle_sha256")
+            ),
+        )
+    if effective_state == "FINAL_LOCK":
+        if novelty_level != "N0-4C":
+            add(
+                errors,
+                "FINAL_LOCK_REQUIRES_N0_4C",
+                f"novelty_level:{novelty_level}",
+            )
+        if current_validity < 4:
+            add(
+                errors,
+                "FINAL_LOCK_REQUIRES_V4",
+                f"validity_level:{validity_level}",
+            )
+        state_audit = state.get("independent_audit")
+        capability_unavailable = (
+            isinstance(state_audit, dict)
+            and state_audit.get("capability_available") is False
+        )
+        if not capability_unavailable and not current_independent_audit(state):
+            add(
+                errors,
+                "FINAL_LOCK_REQUIRES_CURRENT_INDEPENDENT_AUDIT",
+                "audit_not_current_for_state_epoch_and_bundle",
+            )
+
     if gates.get("recent_frontier_complete"):
         if recent.get("status") != "COMPLETE":
             add(errors, "RECENT_WINDOW", "gate_true_but_status_not_complete")
@@ -363,9 +586,7 @@ def validate(
 
     compute_stage = state.get("compute_stage")
     if compute_stage not in {"NOT_STARTED", "STOPPED"}:
-        if not gates.get("n0_4_locked"):
-            add(errors, "COMPUTE", "started_without_n0_4")
-        if not gates.get("compute_authorized"):
+        if gates.get("compute_authorized") is not True:
             add(errors, "COMPUTE", "started_without_authorization")
     if effective_state == "COMPUTE" and compute_stage in {"NOT_STARTED", "STOPPED"}:
         add(errors, "COMPUTE", f"active_compute_invalid_stage:{compute_stage}")
@@ -437,7 +658,11 @@ def main() -> int:
     issues = schema_issues + [
         Issue(
             error.split("\t", 1)[0],
-            "INVALID",
+            (
+                "BLOCKED"
+                if error.split("\t", 1)[0] == "EXTERNAL_BLOCKER"
+                else "INVALID"
+            ),
             "workflow_state",
             error.split("\t", 1)[1] if "\t" in error else error,
         )

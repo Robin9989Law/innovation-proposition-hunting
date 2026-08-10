@@ -232,16 +232,26 @@ def main() -> int:
     if workflow_issue:
         suite_issues.append(workflow_issue)
 
-    audit_required = state.get("validity_level") in AUDIT_REQUIRED_LEVELS
+    active_state = state.get("active_state")
+    effective_state = (
+        state.get("resume_state") if active_state == "BLOCKED" else active_state
+    )
+    dispatch_state = effective_state if isinstance(effective_state, str) else ""
+
+    audit_required = (
+        state.get("validity_level") in AUDIT_REQUIRED_LEVELS
+        or dispatch_state in {"FINAL_VALIDITY_AUDIT", "FINAL_LOCK"}
+    )
     if audit_required:
         state_audit = state.get("independent_audit")
         capability_unavailable = (
             isinstance(state_audit, dict)
             and state_audit.get("capability_available") is False
         )
-        if capability_unavailable:
+        manifest_exists = audit_manifest.is_file() or audit_manifest.is_symlink()
+        if capability_unavailable and not manifest_exists:
             print("=== artifact_hashes ===")
-            print("SKIP\tindependent_reviewer_capability_unavailable")
+            print("SKIP\tno_existing_manifest_and_reviewer_capability_unavailable")
         else:
             artifact_exit = run(
                 "artifact_hashes",
@@ -284,11 +294,6 @@ def main() -> int:
         print("=== audit_provenance ===")
         print(f"SKIP\tnot_required_at_validity:{state.get('validity_level')}")
 
-    active_state = state.get("active_state")
-    effective_state = (
-        state.get("resume_state") if active_state == "BLOCKED" else active_state
-    )
-    dispatch_state = effective_state if isinstance(effective_state, str) else ""
     gates = state.get("gates") if isinstance(state.get("gates"), dict) else {}
 
     run_frontier = dispatch_state == "RECENT_FRONTIER" or bool(

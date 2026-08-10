@@ -827,9 +827,10 @@ class TheoryObligationTests(unittest.TestCase):
 
         completed = run_all_validator(project)
 
-        self.assertEqual(2, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
         self.assertIn("BLOCKED_CAPABILITY", completed.stdout)
-        self.assertIn("validation_suite_status=BLOCKED", completed.stdout)
+        self.assertIn("STALE_AUDIT", completed.stdout)
+        self.assertIn("validation_suite_status=INVALID", completed.stdout)
 
     def test_unavailable_capability_does_not_hide_local_na_invalidity(self) -> None:
         cases = (

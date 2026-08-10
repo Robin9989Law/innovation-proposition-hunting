@@ -246,6 +246,50 @@ class AuditInvalidationTests(unittest.TestCase):
         self.assertIn("BLOCKED_CAPABILITY", result.stdout)
         self.assertIn("AUDITOR_NOT_INDEPENDENT", result.stdout)
 
+    def test_capability_block_does_not_skip_existing_artifact_hashes(self) -> None:
+        project = self.make_project()
+        state = load_json(project / "workflow_state.json")
+        state["independent_audit"] = {"capability_available": False}
+        write_json(project / "workflow_state.json", state)
+        append_text(project / "manuscript.md", "A stale blocked artifact.\n")
+
+        result = run_validator(project)
+
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        self.assertIn("BLOCKED_CAPABILITY", result.stdout)
+        self.assertIn("STALE_AUDIT", result.stdout)
+
+    def test_final_lock_uses_external_current_audit_not_only_nested_state(self) -> None:
+        project = self.make_project(validity_level="V4")
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = "FINAL_LOCK"
+        state["resume_state"] = "FINAL_LOCK"
+        write_json(project / "workflow_state.json", state)
+        audit = load_json(project / AUDIT)
+        audit["audited_bundle_sha256"] = "0" * 64
+        write_json(project / AUDIT, audit)
+
+        result = run_validator(project)
+
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        self.assertIn("AUDIT_BUNDLE_MISMATCH", result.stdout)
+
+    def test_final_validity_audit_always_dispatches_current_bundle_validators(
+        self,
+    ) -> None:
+        project = self.make_project(validity_level="V2")
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = "FINAL_VALIDITY_AUDIT"
+        state["resume_state"] = "FINAL_VALIDITY_AUDIT"
+        state["validation_epoch"] = 2
+        write_json(project / "workflow_state.json", state)
+
+        result = run_validator(project)
+
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        self.assertIn("=== artifact_hashes ===", result.stdout)
+        self.assertIn("AUDIT_EPOCH_MISMATCH", result.stdout)
+
     def test_audit_json_is_strict(self) -> None:
         project = self.make_project()
         raw = (project / AUDIT).read_text(encoding="utf-8")

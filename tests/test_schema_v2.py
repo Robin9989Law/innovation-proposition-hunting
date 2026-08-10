@@ -14,6 +14,7 @@ from tests.helpers import (
     make_valid_project,
     run_all_validator,
     run_schema_validator,
+    run_script,
     write_json,
 )
 
@@ -555,6 +556,241 @@ class SchemaV2ValidationTests(unittest.TestCase):
         self.assertIn("INVALID_CLAIM_PROFILE", completed.stdout)
         self.assertIn("VALIDATOR_ERROR", completed.stdout)
         self.assertNotIn("Traceback", completed.stderr)
+
+    def test_readiness_states_enforce_novelty_and_validity_levels(self) -> None:
+        cases = (
+            ("CLAIM_FREEZE", "N0-3", "V0", "CLAIM_FREEZE_REQUIRES_N0_4C"),
+            ("VALIDITY_AUDIT", "N0-4C", "V0", "VALIDITY_AUDIT_REQUIRES_V1"),
+            (
+                "INDEPENDENT_REVIEW",
+                "N0-4C",
+                "V1",
+                "INDEPENDENT_REVIEW_REQUIRES_V2",
+            ),
+            ("DIRECTION_LOCK", "N0-3", "V3", "DIRECTION_LOCK_REQUIRES_N0_4C"),
+            ("DIRECTION_LOCK", "N0-4C", "V2", "DIRECTION_LOCK_REQUIRES_V3"),
+            ("COMPUTE", "N0-3", "V3", "COMPUTE_REQUIRES_N0_4C"),
+            ("COMPUTE", "N0-4C", "V2", "COMPUTE_REQUIRES_V3"),
+            ("FINAL_LOCK", "N0-3", "V4", "FINAL_LOCK_REQUIRES_N0_4C"),
+            ("FINAL_LOCK", "N0-4C", "V3", "FINAL_LOCK_REQUIRES_V4"),
+        )
+        for active_state, novelty, validity, code in cases:
+            with self.subTest(active_state=active_state, code=code):
+                temporary_directory, project = make_valid_project(
+                    novelty_level=novelty,
+                    validity_level=validity,
+                )
+                self.addCleanup(temporary_directory.cleanup)
+                state = load_json(project / "workflow_state.json")
+                state["active_state"] = active_state
+                state["resume_state"] = active_state
+                if active_state == "COMPUTE":
+                    state["compute_stage"] = "S0"
+                    state["gates"]["compute_authorized"] = True
+                write_json(project / "workflow_state.json", state)
+
+                completed = run_script("validate_workflow_state.py", project)
+
+                self.assertEqual(
+                    1, completed.returncode, completed.stdout + completed.stderr
+                )
+                self.assertIn(code, completed.stdout)
+                self.assertNotIn("Traceback", completed.stderr)
+
+    def test_compute_requires_strict_authorization(self) -> None:
+        temporary_directory, project = make_valid_project(
+            novelty_level="N0-4C", validity_level="V3"
+        )
+        self.addCleanup(temporary_directory.cleanup)
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = "COMPUTE"
+        state["resume_state"] = "COMPUTE"
+        state["compute_stage"] = "S0"
+        state["gates"]["compute_authorized"] = False
+        write_json(project / "workflow_state.json", state)
+
+        completed = run_script("validate_workflow_state.py", project)
+
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("COMPUTE_REQUIRES_AUTHORIZATION", completed.stdout)
+
+    def test_compute_accepts_exact_readiness_formula(self) -> None:
+        temporary_directory, project = make_valid_project(
+            novelty_level="N0-4C", validity_level="V3"
+        )
+        self.addCleanup(temporary_directory.cleanup)
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = "COMPUTE"
+        state["resume_state"] = "COMPUTE"
+        state["compute_stage"] = "S0"
+        state["gates"]["compute_authorized"] = True
+        write_json(project / "workflow_state.json", state)
+
+        completed = run_script("validate_workflow_state.py", project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+
+    def test_postcompute_claim_freeze_requires_current_s4_compute_evidence(
+        self,
+    ) -> None:
+        temporary_directory, project = make_valid_project()
+        self.addCleanup(temporary_directory.cleanup)
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = "POSTCOMPUTE_CLAIM_FREEZE"
+        state["resume_state"] = "POSTCOMPUTE_CLAIM_FREEZE"
+        state["compute_stage"] = "S3"
+        state["gates"]["compute_authorized"] = True
+        write_json(project / "workflow_state.json", state)
+
+        completed = run_script("validate_workflow_state.py", project)
+
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn(
+            "POSTCOMPUTE_CLAIM_FREEZE_REQUIRES_COMPLETED_AUTHORIZED_COMPUTE",
+            completed.stdout,
+        )
+
+    def test_postcompute_compute_evidence_fields_are_strict(self) -> None:
+        cases = (
+            ("status", True),
+            ("validation_epoch", True),
+            ("artifact_path", []),
+            ("artifact_sha256", {}),
+        )
+        for field, malformed in cases:
+            with self.subTest(field=field, malformed=malformed):
+                temporary_directory, project = make_valid_project()
+                self.addCleanup(temporary_directory.cleanup)
+                evidence_path = project / "compute_evidence.json"
+                evidence_hash = hashlib.sha256(evidence_path.read_bytes()).hexdigest()
+                state = load_json(project / "workflow_state.json")
+                state["active_state"] = "POSTCOMPUTE_CLAIM_FREEZE"
+                state["resume_state"] = "POSTCOMPUTE_CLAIM_FREEZE"
+                state["compute_stage"] = "S4"
+                state["gates"]["compute_authorized"] = True
+                state["compute_evidence"] = {
+                    "status": "COMPLETED",
+                    "validation_epoch": state["validation_epoch"],
+                    "artifact_path": "compute_evidence.json",
+                    "artifact_sha256": evidence_hash,
+                }
+                state["compute_evidence"][field] = malformed
+                write_json(project / "workflow_state.json", state)
+
+                completed = run_script("validate_workflow_state.py", project)
+
+                self.assertEqual(
+                    1, completed.returncode, completed.stdout + completed.stderr
+                )
+                self.assertIn("INVALID_COMPUTE_EVIDENCE", completed.stdout)
+                self.assertNotIn("Traceback", completed.stderr)
+
+    def test_postcompute_rejects_stale_compute_evidence_hash(self) -> None:
+        temporary_directory, project = make_valid_project()
+        self.addCleanup(temporary_directory.cleanup)
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = "POSTCOMPUTE_CLAIM_FREEZE"
+        state["resume_state"] = "POSTCOMPUTE_CLAIM_FREEZE"
+        state["compute_stage"] = "S4"
+        state["gates"]["compute_authorized"] = True
+        state["compute_evidence"] = {
+            "status": "COMPLETED",
+            "validation_epoch": state["validation_epoch"],
+            "artifact_path": "compute_evidence.json",
+            "artifact_sha256": "0" * 64,
+        }
+        write_json(project / "workflow_state.json", state)
+
+        completed = run_script("validate_workflow_state.py", project)
+
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("STALE_COMPUTE_EVIDENCE", completed.stdout)
+
+    def test_postcompute_accepts_current_s4_compute_evidence(self) -> None:
+        temporary_directory, project = make_valid_project()
+        self.addCleanup(temporary_directory.cleanup)
+        evidence_path = project / "compute_evidence.json"
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = "POSTCOMPUTE_CLAIM_FREEZE"
+        state["resume_state"] = "POSTCOMPUTE_CLAIM_FREEZE"
+        state["compute_stage"] = "S4"
+        state["gates"]["compute_authorized"] = True
+        state["compute_evidence"] = {
+            "status": "COMPLETED",
+            "validation_epoch": state["validation_epoch"],
+            "artifact_path": "compute_evidence.json",
+            "artifact_sha256": hashlib.sha256(evidence_path.read_bytes()).hexdigest(),
+        }
+        write_json(project / "workflow_state.json", state)
+
+        completed = run_script("validate_workflow_state.py", project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+
+    def test_final_validity_audit_requires_a_new_epoch_claim_bundle(self) -> None:
+        temporary_directory, project = make_valid_project()
+        self.addCleanup(temporary_directory.cleanup)
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = "FINAL_VALIDITY_AUDIT"
+        state["resume_state"] = "FINAL_VALIDITY_AUDIT"
+        write_json(project / "workflow_state.json", state)
+
+        completed = run_script("validate_workflow_state.py", project)
+
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn(
+            "FINAL_VALIDITY_AUDIT_REQUIRES_NEW_EPOCH_CLAIM_BUNDLE",
+            completed.stdout,
+        )
+
+    def test_final_lock_requires_current_nested_independent_audit(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V4")
+        self.addCleanup(temporary_directory.cleanup)
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = "FINAL_LOCK"
+        state["resume_state"] = "FINAL_LOCK"
+        state["independent_audit"]["validation_epoch"] = 2
+        write_json(project / "workflow_state.json", state)
+
+        completed = run_script("validate_workflow_state.py", project)
+
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn(
+            "FINAL_LOCK_REQUIRES_CURRENT_INDEPENDENT_AUDIT", completed.stdout
+        )
+
+    def test_declared_blocker_returns_blocked_without_ready_suite(self) -> None:
+        temporary_directory, project = make_valid_project()
+        self.addCleanup(temporary_directory.cleanup)
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = "BLOCKED"
+        state["resume_state"] = "CLAIM_FREEZE"
+        state["blocked_reasons"] = ["External reviewer service is unavailable."]
+        write_json(project / "workflow_state.json", state)
+
+        completed = run_all_validator(project)
+
+        self.assertEqual(2, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("EXTERNAL_BLOCKER", completed.stdout)
+        self.assertNotIn("validation_suite_status=READY", completed.stdout)
+
+    def test_declared_blocker_still_validates_existing_artifacts(self) -> None:
+        temporary_directory, project = make_valid_project()
+        self.addCleanup(temporary_directory.cleanup)
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = "BLOCKED"
+        state["resume_state"] = "CLAIM_FREEZE"
+        state["blocked_reasons"] = ["External reviewer service is unavailable."]
+        write_json(project / "workflow_state.json", state)
+        (project / "near_neighbor_registry.json").write_text(
+            "not valid json\n", encoding="utf-8"
+        )
+
+        completed = run_all_validator(project)
+
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("EXTERNAL_BLOCKER", completed.stdout)
+        self.assertIn("LITERATURE_REGISTRY_FAILED", completed.stdout)
 
 
 if __name__ == "__main__":
