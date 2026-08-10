@@ -524,6 +524,24 @@ def _reachable_nodes_with_scopes(
                 node.body, active_scopes + (argument_names(node.args),)
             )
             return
+        if isinstance(node, ast.BoolOp):
+            stop_truth = False if isinstance(node.op, ast.And) else True
+            for value in node.values:
+                visit_expression(value, active_scopes)
+                if _literal_truth(value) is stop_truth:
+                    break
+            return
+        if isinstance(node, ast.IfExp):
+            visit_expression(node.test, active_scopes)
+            truth = _literal_truth(node.test)
+            if truth is True:
+                visit_expression(node.body, active_scopes)
+            elif truth is False:
+                visit_expression(node.orelse, active_scopes)
+            else:
+                visit_expression(node.body, active_scopes)
+                visit_expression(node.orelse, active_scopes)
+            return
         for child in ast.iter_child_nodes(node):
             if not isinstance(child, ast.stmt):
                 visit_expression(child, active_scopes)
@@ -626,6 +644,10 @@ def _reachable_nodes_with_scopes(
             if not last_case_is_irrefutable:
                 outcomes.add(fallthrough)
             return outcomes
+        if isinstance(node, ast.Assert):
+            visit_expression(node.test, active_scopes)
+            visit_expression(node.msg, active_scopes)
+            return {"RAISE"} if _literal_truth(node.test) is False else {fallthrough}
         if isinstance(node, ast.Return):
             visit_expression(node.value, active_scopes)
             return {"RETURN"}

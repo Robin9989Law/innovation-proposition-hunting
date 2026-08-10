@@ -1190,6 +1190,151 @@ class ProtocolContractTests(unittest.TestCase):
                 self.assertEqual(1, completed.returncode)
                 self.assertIn("TRACE_TEST_IMPLEMENTATION_MISMATCH", completed.stdout)
 
+    def test_literal_false_assert_terminates_following_call(self) -> None:
+        for literal in ("False", "0", "[]"):
+            with self.subTest(literal=literal):
+                project = self.make_project()
+                test_path = project / "checks/check_online_chronology.py"
+                test_path.write_text(
+                    "from implementation.online_algorithm import evaluate_online\n"
+                    'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+                    "def proof():\n"
+                    f"    assert {literal}\n"
+                    "    evaluate_online(None, [], [])\n",
+                    encoding="utf-8",
+                )
+                self.refresh_test_and_output_hashes(project)
+
+                completed = self.run_trace(project)
+
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("TRACE_TEST_IMPLEMENTATION_MISMATCH", completed.stdout)
+
+    def test_true_or_unknown_assert_keeps_following_call_reachable(self) -> None:
+        for test in ("True", "condition"):
+            with self.subTest(test=test):
+                project = self.make_project()
+                test_path = project / "checks/check_online_chronology.py"
+                test_path.write_text(
+                    "from implementation.online_algorithm import evaluate_online\n"
+                    'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+                    "def proof():\n"
+                    f"    assert {test}\n"
+                    "    evaluate_online(None, [], [])\n",
+                    encoding="utf-8",
+                )
+                self.refresh_test_and_output_hashes(project)
+
+                completed = self.run_trace(project)
+
+                self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+
+    def test_assert_message_is_visited_before_literal_failure(self) -> None:
+        project = self.make_project()
+        test_path = project / "checks/check_online_chronology.py"
+        test_path.write_text(
+            "from implementation.online_algorithm import evaluate_online\n"
+            'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+            "def proof():\n"
+            "    assert False, evaluate_online(None, [], [])\n",
+            encoding="utf-8",
+        )
+        self.refresh_test_and_output_hashes(project)
+
+        completed = self.run_trace(project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+
+    def test_literal_boolop_short_circuit_prunes_dead_bound_call(self) -> None:
+        expressions = (
+            "False and evaluate_online(None, [], [])",
+            "True or evaluate_online(None, [], [])",
+        )
+        for expression in expressions:
+            with self.subTest(expression=expression):
+                project = self.make_project()
+                test_path = project / "checks/check_online_chronology.py"
+                test_path.write_text(
+                    "from implementation.online_algorithm import evaluate_online\n"
+                    'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+                    f"{expression}\n",
+                    encoding="utf-8",
+                )
+                self.refresh_test_and_output_hashes(project)
+
+                completed = self.run_trace(project)
+
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("TRACE_TEST_IMPLEMENTATION_MISMATCH", completed.stdout)
+
+    def test_executed_or_unknown_boolop_operand_can_prove_bound_call(self) -> None:
+        expressions = (
+            "True and evaluate_online(None, [], [])",
+            "False or evaluate_online(None, [], [])",
+            "condition and evaluate_online(None, [], [])",
+            "condition or evaluate_online(None, [], [])",
+        )
+        for expression in expressions:
+            with self.subTest(expression=expression):
+                project = self.make_project()
+                test_path = project / "checks/check_online_chronology.py"
+                test_path.write_text(
+                    "from implementation.online_algorithm import evaluate_online\n"
+                    'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+                    f"{expression}\n",
+                    encoding="utf-8",
+                )
+                self.refresh_test_and_output_hashes(project)
+
+                completed = self.run_trace(project)
+
+                self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+
+    def test_if_expression_prunes_unselected_literal_branch(self) -> None:
+        expressions = (
+            "None if True else evaluate_online(None, [], [])",
+            "evaluate_online(None, [], []) if False else None",
+        )
+        for expression in expressions:
+            with self.subTest(expression=expression):
+                project = self.make_project()
+                test_path = project / "checks/check_online_chronology.py"
+                test_path.write_text(
+                    "from implementation.online_algorithm import evaluate_online\n"
+                    'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+                    f"{expression}\n",
+                    encoding="utf-8",
+                )
+                self.refresh_test_and_output_hashes(project)
+
+                completed = self.run_trace(project)
+
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("TRACE_TEST_IMPLEMENTATION_MISMATCH", completed.stdout)
+
+    def test_selected_or_unknown_if_expression_branch_can_prove_bound_call(self) -> None:
+        expressions = (
+            "evaluate_online(None, [], []) if True else None",
+            "None if False else evaluate_online(None, [], [])",
+            "evaluate_online(None, [], []) if condition else None",
+            "None if condition else evaluate_online(None, [], [])",
+        )
+        for expression in expressions:
+            with self.subTest(expression=expression):
+                project = self.make_project()
+                test_path = project / "checks/check_online_chronology.py"
+                test_path.write_text(
+                    "from implementation.online_algorithm import evaluate_online\n"
+                    'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+                    f"{expression}\n",
+                    encoding="utf-8",
+                )
+                self.refresh_test_and_output_hashes(project)
+
+                completed = self.run_trace(project)
+
+                self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+
     def test_infinite_while_with_terminal_body_makes_following_call_unreachable(self) -> None:
         for terminal in ("return", "raise RuntimeError"):
             with self.subTest(terminal=terminal):
