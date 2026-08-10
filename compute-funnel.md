@@ -11,10 +11,18 @@
 
 ## 1. 原则
 
-只有 `workflow_state.json` 同时满足
-`active_state=COMPUTE`、`n0_4_locked=true`、`compute_authorized=true` 和
-`evidence_validated=true` 时，才执行本文件。否则返回主状态机，不启动任何新
-实验、模型调用或昂贵计算。每次阶段升级先落盘结果，再更新 `compute_stage`。
+计算入口公式是：
+
+```text
+COMPUTE = N0-4C AND V3 AND compute_authorized
+```
+
+因此 `workflow_state.json` 必须同时满足 `schema_version=2.0`、
+`active_state=COMPUTE`、`novelty_level=N0-4C`、`validity_level=V3`、
+`gates.compute_authorized=true`，且当前 epoch/bundle 的 different-agent audit 为
+PASS。旧 `n0_4_locked` gate 只是兼容性镜像，不能代替 N0-4C、V3 或当前 audit。
+否则返回主状态机，不启动实验、模型调用或昂贵计算。每次阶段升级先落盘结果，
+再更新 `compute_stage`。
 
 把计算当作逐级获得的权限，不把完整确认实验当作探索工具。每个候选先使用
 成本最低、最容易推翻它的证据。多数候选应在 S0–S2 关闭；S4 同一研究周期只
@@ -82,6 +90,33 @@ seed 采用递增策略，例如 `2 → 3 → 5`。S2 只有在两个初始 seed
 5. 最终成功比例在统计上仍可达。
 
 只有 S3 通过后才写 S4 预注册。S4 不得沿用 S2/S3 已查看的最终样本。
+
+### S4 后的强制回路
+
+S4 PASS 不直接产生最终主张或 FINAL_LOCK。先保存 `compute_evidence.json`，并在 state
+中写入当前 epoch 的 `compute_evidence` pointer（`status=COMPLETED`、
+`validation_epoch`、`artifact_path`、`artifact_sha256`），然后：
+
+```text
+S4 + current compute evidence
+  → POSTCOMPUTE_CLAIM_FREEZE
+  → validation_epoch += 1
+  → 冻结计算后 exact claim inventory 与新 claim bundle
+  → FINAL_VALIDITY_AUDIT
+  → different-agent independent audit PASS
+  → V4
+  → FINAL_LOCK
+```
+
+最终公式是：
+
+```text
+FINAL_LOCK = N0-4C AND V4 AND current independent audit
+```
+
+计算结果只要改变 claim statement、量词、适用边界、效果强度、基线解释或失败
+条件，就是 material change；旧 V3 bundle 立即失效。失败结果同样进入
+`POSTCOMPUTE_CLAIM_FREEZE`，以实际支持的最弱 claim 重建新 epoch，不得维持原强度。
 
 ## 3. 无效性停止门
 

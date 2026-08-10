@@ -15,6 +15,9 @@
 8. [旧观点耗尽门](#8-旧观点耗尽门)
 9. [验证命令](#9-验证命令)
 
+本文件中的三个 JSON 注册表均使用 `schema_version: "2.0"`。旧 1.x 注册表不能
+通过 Schema 2.0 readiness；必须先迁移状态并重建当前 epoch 的证据合同。
+
 ## 1. 固定执行顺序
 
 每个新主题和每轮新碰撞严格按下列顺序执行，不得并步或倒置。旧观点耗尽是
@@ -57,6 +60,7 @@ P0 读取 workflow_state.json；耗尽所有 prior-round 旧观点
 
 ```json
 {
+  "schema_version": "2.0",
   "current_year": 2026,
   "recent_window": {
     "start_year": 2024,
@@ -67,7 +71,8 @@ P0 读取 workflow_state.json；耗尽所有 prior-round 旧观点
       {"database": "OpenAlex", "query": "...", "filters": "from:2024,to:2026", "hit_count": 0}
     ]
   },
-  "current_collision_round": 1
+  "current_collision_round": 1,
+  "records": []
 }
 ```
 
@@ -105,6 +110,23 @@ CONTEXT：背景或关键词近邻
 - `DOWNLOAD_BLOCKED` 的重要文献不能进入 E2/E4，也不能支持最终结论；找到合法
   作者稿或官方 HTML 后再升级同一记录。
 
+### 3.3 source artifact kind 与 evidence level
+
+每条 literature claim 必须明确它实际读取的 artifact，不得把 work 的最佳可用版本
+冒充本条 claim 的来源：
+
+| `source_artifact_kind` | 可承担的证据 |
+|---|---|
+| `OFFICIAL_METADATA` | 身份、出版和版本信息；仅 E0 |
+| `OFFICIAL_ABSTRACT` | 自我定位与碰撞发现；至多 E1 |
+| `FULL_ARTICLE_HTML` | 完整正文；可到 E2，带 proof locator 时可到 E4 |
+| `FULL_ARTICLE_PDF` | 完整正文；可到 E2，带 proof locator 时可到 E4 |
+| `PROOF_OR_APPENDIX` | 证明/附录的直接 artifact；可到 E4 |
+
+E2 只能来自 `FULL_ARTICLE_HTML | FULL_ARTICLE_PDF`。E4 必须来自
+`PROOF_OR_APPENDIX`，或来自 full article 且 `proof_locator` 明确覆盖证明机器。
+metadata/abstract 即使内容看似完整，也不得标 E2/E4。
+
 ## 4. `near_neighbor_registry.json` 增补字段
 
 在既有 canonical work 记录中加入：
@@ -121,6 +143,10 @@ CONTEXT：背景或关键词近邻
   "identity_verified_at": "2026-08-07",
   "search_phase": "RECENT_FRONTIER_PASS | FOUNDATIONAL_BACKFILL",
   "importance": "CRITICAL | IMPORTANT | CONTEXT",
+  "importance_history": [
+    {"importance": "CRITICAL", "at": "2026-08-07", "reason": "direct neighbor"}
+  ],
+  "reclassifications": [],
   "download": {
     "status": "FULLTEXT_ARCHIVED | OFFICIAL_HTML_ARCHIVED | DOWNLOAD_BLOCKED | NOT_REQUIRED",
     "source_url": "https://...",
@@ -137,9 +163,30 @@ CONTEXT：背景或关键词近邻
 要求：
 
 - `year` 落入近三年窗口时，`search_phase` 必须是 `RECENT_FRONTIER_PASS`；
+- `importance_history` 是 append-only；当前 `importance` 必须等于最后一项；
 - `CRITICAL/IMPORTANT` 必须身份已核验、全文已归档且观点提取完成；
 - `CONTEXT` 可以只保留元数据，但不能越级支持最终输出结论；
 - 论文记录只证明“哪篇文献存在”，不直接替代观点证据。
+
+任何 `CRITICAL | IMPORTANT → CONTEXT` 降级都必须在 history 追加新事件，并有
+且仅有一个 matching `reclassifications` 记录：
+
+```json
+{
+  "from_importance": "CRITICAL",
+  "to_importance": "CONTEXT",
+  "at": "2026-08-08",
+  "fulltext_artifact_id": "ART-W-0001-FULLTEXT",
+  "evidence_level": "E2",
+  "reviewer_agent_id": "<different agent>",
+  "reviewer_thread_id": "<thread id>",
+  "audited_artifact_sha256": "<sha256>"
+}
+```
+
+`fulltext_artifact_id` 必须指向同一 work 已注册、证据级一致的 fulltext claim
+artifact；reviewer 不得是 state 的 author。`DOWNLOAD_BLOCKED` 或能力不足绝不能作为
+降级理由：保持原 importance 并返回 BLOCKED。
 
 ## 5. `literature_claim_registry.json`
 
@@ -148,12 +195,14 @@ CONTEXT：背景或关键词近邻
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "current_collision_round": 1,
   "records": [
     {
       "claim_id": "LC-0001",
       "source_registry_id": "W-0001",
+      "source_artifact_id": "ART-W-0001-FULLTEXT",
+      "source_artifact_kind": "FULL_ARTICLE_PDF",
       "claim_type": "VIEWPOINT | CONCLUSION | METHOD | ASSUMPTION | LIMITATION | COUNTEREXAMPLE",
       "normalized_statement": "在条件 C 下，方法 A 相对基线 B 改善目标 T。",
       "source_excerpt": "可选的短原文片段",
@@ -169,6 +218,7 @@ CONTEXT：背景或关键词近邻
       "conditions": ["C"],
       "scope": "对象、信息边界与实验条件",
       "evidence_level": "E2",
+      "proof_locator": "",
       "verification_status": "VERIFIED_FULLTEXT | VERIFIED_OFFICIAL_HTML | ABSTRACT_ONLY | UNVERIFIED",
       "support_role": "SUPPORTS | CONTRADICTS | QUALIFIES | METHOD_FOR",
       "importance": "CRITICAL | IMPORTANT",
@@ -198,7 +248,7 @@ CONTEXT：背景或关键词近邻
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "current_collision_round": 1,
   "output_claims": [
     {

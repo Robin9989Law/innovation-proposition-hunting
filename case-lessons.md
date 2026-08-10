@@ -387,7 +387,8 @@ MI、copula、Shapley、counterfactual credit、profile matching 等均已有；
   → 上钻 Δ 所在推理桥的充分/失效/maximal validity
   → 在有效贡献域内裁决 L3（博士 A/B/C；期刊 M）
   → 每条输出结论绑定观点 ID 并通过三项机械验证
-  → 只有对应 L3 达 N0-4 才做定理、实验或模型调用
+  → 对应 L3 达 N0-4C 后冻结 exact claim，并通过 form-sensitive audit
+  → 只有 N0-4C + V3 + compute_authorized 才做实验或模型调用
 ```
 
 ## 五、新的一句话
@@ -403,3 +404,34 @@ MI、copula、Shapley、counterfactual credit、profile matching 等均已有；
 > 基线、分母和表格；对自己的 L3 候选只声明从最近可靠结果 K 向前推进一个
 > 不可机械推出的 Δ。L1 可以宽，L2 可以是域；博士三个贡献形成架构，期刊一个
 > 主贡献形成闭环，但每个真正创新责任都必须是一小步、可证伪、可关闭。
+
+## 七、Claim integrity 的四条通用教训
+
+### 1. 测 exact claim，不测容易通过的邻近版本
+
+`exact claim` 的每个量词、分母、条件和结论强度都属于被审对象。若稿件声称精确
+等式，测试一个同号趋势、零扰动特例或平均近似没有证明该主张。先把 statement
+逐字冻结并哈希，再从它直接生成 witness；测试命令、输出与 proof locator 都绑定
+同一 claim ID。任何“测试通过但 statement 不同”的结果都按 INVALID 处理。
+
+### 2. 默认加入 nonzero nuisance，而不是只测干净输入
+
+很多貌似精确的变换只在 nuisance 为零时成立。`nonzero nuisance` 见证应保留最小
+目标信号，同时给混杂项一个非零值；它不是压力测试附加项，而是揭示遗漏项、错误
+抵消和隐藏独立性假设的最低正例。再配合 premise removal 的预期失败，才能区分
+“代码能运行”和“命题依赖写明的前提”。
+
+### 3. 禁止 empirical-to-theorem promotion
+
+有限样本、有限枚举、随机 property test 或单次 benchmark 只能支持其实际覆盖的
+经验 claim。`empirical-to-theorem` 的升级必须显式新建/修改 inventory claim，写出
+一般量词和 proof obligation，并新开 validation epoch；不能把图表中的规律直接改写
+为 theorem、guarantee、universal 或 exact。计算后变强的文字同样属于 unaudited
+claim promotion。
+
+### 4. stale audit 是版本错误，不是 reviewer 信誉问题
+
+`stale audit` 表示 reviewer 审过的 bytes 已不是当前 bytes。即使改动者确信修改无害，
+只要 claim bundle 内任一文件变化，旧 hash 就不能证明当前稿件。先停止 compute/final
+lock，提升 epoch，重建 manifest，再由 different agent 审新 bundle。口头说“改动不
+影响结论”不能恢复旧 V3/V4。

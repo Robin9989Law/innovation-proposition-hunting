@@ -34,6 +34,47 @@ JOURNAL_ARTICLE
 N0 只用于 L3。博士 L2 必须容纳三贡献；一般期刊 L2 默认只设一个主贡献。
 旧版“L2=知识命题、L3=方法”的定义已废止。
 
+### 0.1 Schema 2.0 双轴裁决
+
+N 轴只回答候选与前沿的关系；V 轴回答准备写入稿件的精确 claim 是否成立。合法
+状态为 `N0-1 | N0-2 | N0-3 | N0-4C` 与 `V0 | V1 | V2 | V3 | V4`。只有
+N0-4C 才能进入 claim freeze；N0-4C 不能自动提升任何 V level。
+
+| V level | 裁决对象 | 绑定证据 | 不合格动作 |
+|---|---|---|---|
+| V0 | 尚未冻结的主张集合 | 无 readiness 声明 | 建 claim inventory |
+| V1 | 精确 claim inventory | 稿件 occurrence 一对一绑定、profile 已冻结 | 修 inventory，不做 proof/protocol 裁决 |
+| V2 | form-sensitive G9 | theory audit 和/或 protocol audit + code audit 均通过 | 修具体 obligation/trace/contract |
+| V3 | 当前 epoch 的精确 bundle | 不同 agent、PASS、相同 epoch/hash | 禁止计算或方向锁 |
+| V4 | 计算后新 epoch 的精确 bundle | 不同 agent 再审、PASS、相同 epoch/hash | 禁止最终锁或投稿强主张 |
+
+profile 路由是强制的：`THEORY` 运行 theory audit；`ALGORITHM` 同时运行 protocol
+audit 与 code audit；`MIXED` 运行三者。改变 profile 不能用来逃避缺失产物。V2
+只说明当前作者侧 obligation 可执行；V3/V4 还要求 reviewer 与所有
+`author_agent_ids` 不同，并审阅规范哈希固定的精确 bundle。
+
+### 0.2 G9 是 V2–V4 的绑定审计组
+
+G9 的三项组件分别约束不同失效面：
+
+- `theory audit`：逐 claim 核对 exact statement SHA-256、量词、前提、proof locator，
+  并检查 minimal positive、nonzero nuisance、boundary/limit、premise removal；
+- `protocol audit`：冻结 prediction/update unit、顺序、标签可得性、split/data role、
+  test access、在线 chronology 和同预算 comparator contract；
+- `code audit`：把稿件位置与 pseudocode symbol 绑定到可达实现 symbol、实现 hash、
+  实际调用该 symbol 的 executable test 及 PASS output。
+
+G9 在 V2 绑定作者侧 claim artifacts；V3 绑定第一次 independent audit；V4 绑定
+post-compute 新 epoch 的 independent audit。任一 material change 都使相应 bundle
+hash 过期，V3/V4 立即失效；“只重新阅读旧报告”不能恢复。
+
+### 0.3 高风险主张语义
+
+以下主张必须进入 inventory，而不能留在散文里：theorem/lemma/corollary 标题，
+exact/universal/necessary/sufficient/bounded/guaranteed/first/online 声称，以及
+strong/fair/matched-budget 比较。风险词只是 scanner 入口；独立 reviewer 审的是
+完整 statement、量词、前提和上下文，不能只审命中的词。
+
 ## 1. 为什么“找创新点”会失控
 
 十类风险：
@@ -459,7 +500,7 @@ L3 的不可替代机制。方法新不能挽救 L3 被占据；标准方法也�
 | PASS | PASS | FAIL | * | 重新划分贡献，不重开 L1/L2 |
 | PASS | PASS | PASS | FAIL/N0-1/2 | 替换该贡献域内命题 |
 | PASS | PASS | PASS | N0-3 | 封存候选，不启动昂贵验证 |
-| PASS | PASS | PASS | N0-4 | 锁定该贡献的创新方向 |
+| PASS | PASS | PASS | N0-4C | 锁定该贡献的创新方向 |
 
 博士 A/B/C 必须分别审计 L3；期刊只审计 M，并将其他结果降为后果或组件。禁止
 以整篇成果的宽口号掩盖有效贡献为空。
@@ -488,7 +529,7 @@ L3 的不可替代机制。方法新不能挽救 L3 被占据；标准方法也�
 
 一个候选可有次路径或次形式，但只按一个主路径和一个主形式审计，不得重复计数。
 例如 R2+F1 是深化成熟理论得到新数学命题；R3+F2 是用成熟理论正确论证新领域
-问题；R2+F4 是沿已知瓶颈深入改进算法。N0-4 必须同时通过通用非机械性门、
+问题；R2+F4 是沿已知瓶颈深入改进算法。N0-4C 必须同时通过通用非机械性门、
 主路径门和主形式门。
 
 ### R3 与 F2 的额外防伪
@@ -502,7 +543,7 @@ L3 的不可替代机制。方法新不能挽救 L3 被占据；标准方法也�
 - 新领域特有的适用/退出边界。
 
 若把领域名替换回源领域后所有定义、推理和结论都不变，或只需运行现成软件并
-报告性能，记为机械应用，不得给 N0-4。
+报告性能，记为机械应用，不得给 N0-4C。
 
 ## 7. Gate 不合格动作（完整表）
 
@@ -527,7 +568,7 @@ L3 的不可替代机制。方法新不能挽救 L3 被占据；标准方法也�
 | G6 精确性 | 是否尝试 converse/sharpness/严格反例？ | 仅单向观察 → **上钻**：对覆盖理论执行 Q2（像）Q3（逆）后再判定；上钻无开口 → 降级 |
 | G7 外壳吸收 | 去掉标准工具后，问题、映射、结论或算法规则还剩什么原创？ | 为空 → **上钻**：覆盖理论自身是否有未审查的结构承诺（Q1）？其关键引理能否多走一步（Q5）？有 → 以 T 为对象立新候选；无 → 关闭 |
 | G8 独立审计 | 异构术语与当年近邻能否推出核心？ | 能推出 → **上钻推出机制本身**：归约/同构是否完整？其边界在哪？无开口 → 关闭/重构 |
-| G9 证明审计 | 量词、空支撑、边界、编码是否闭合？ | 退回构造 |
+| G9 form audit | theory audit 的量词/前提/见证是否闭合；protocol audit 与 code audit 是否把稿件、时间线、实现、测试和公平预算绑定？ | 任一 profile 到期组件失败即保持 V1/V2；不得进入不同-agent V3 审计 |
 | G10 原型 | 能否 PASS 且不足条件下 FAIL？ | 重写测试 |
 | G11 成文 | 期刊 M 能否自足；博士 A/B/C 能否分别成章并共同成链？ | 重新排序或收敛贡献 |
 | G12 分层创新 | L1/L2/成果型贡献架构/L3 是否逐项裁决且互不代偿？ | 缺一层 → 不得宣称核心创新 |
@@ -754,7 +795,7 @@ L3 的不可替代机制。方法新不能挽救 L3 被占据；标准方法也�
 4. 必要性后立即追问 converse
 5. 区分贡献核心与证明外壳
 6. 编码/表示口径属于定理
-7. 成文门禁应提前进入流程（N0-4 后即检查期刊 M 自足性或博士章节衔接）
+7. 成文门禁应提前进入流程（N0-4C 后即检查期刊 M 自足性或博士章节衔接）
 8. 事实先于方案：未完成连续簇实际完成度表，不得连续生成候选
 9. 碰撞发现与覆盖裁决分离：E1 发现，E2/E4 裁决
 10. L1、L2、成果型贡献架构、L3 与方法支持互不代偿
