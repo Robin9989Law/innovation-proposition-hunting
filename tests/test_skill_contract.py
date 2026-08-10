@@ -135,6 +135,39 @@ class SkillContractTests(unittest.TestCase):
                 self.assertIn(required, text)
         self.assertNotIn("paper1-failure-case", text)
 
+    def test_readme_and_tutorial_explain_immutable_innovation_path(self):
+        readme = self.read("README.md")
+        for required in (
+            "路径一经确认",
+            "`PRIMARY`",
+            "`SUPPORTING`",
+            "`INNOVATION_PATH_DRIFT`",
+            "显式重启",
+            "算法优化路径中发现的定理",
+            "主创新路径：R2",
+            "主创新形式：F4",
+        ):
+            with self.subTest(document="README.md", required=required):
+                self.assertIn(required, readme)
+
+        tutorial = self.read("docs/tutorial.md")
+        for required in (
+            "### 10.6 路径锁定贯穿全过程",
+            "算法优化路径",
+            "支持性理论",
+            "不得转向理论创新",
+            "用户明确确认",
+            "新一代路径",
+            "回到 `SCOPE_LOCK`",
+            "INNOVATION_PATH_DRIFT",
+        ):
+            with self.subTest(document="docs/tutorial.md", required=required):
+                self.assertIn(required, tutorial)
+
+        forbidden = "发现更有潜力的创新形式时可以直接切换"
+        self.assertNotIn(forbidden, readme)
+        self.assertNotIn(forbidden, tutorial)
+
     def test_standalone_schema_v2_fixture_is_ready_and_read_only(self):
         source = ROOT / "tests" / "fixtures" / "minimal-valid-v2"
 

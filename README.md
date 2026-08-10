@@ -10,10 +10,11 @@
 - 从研究工作 L1 收敛到可行创新域 L2，再形成可证伪的 L3 命题；
 - 区分博士论文的三个有机主贡献 A/B/C 与一般期刊论文的单一主贡献 M；
 - 在空白发现、成熟理论深挖和成熟方法论证新问题之间选择正确创新路径；
+- 将用户最初确认的创新路径与成果形式贯穿整个研究周期，阻止中途换轨；
 - 管理近三年近邻文献、全文、重要观点和输出结论之间的可追溯证据链；
 - 阻止智能体跳步、重复检索、伪造引用或在证据不足时过早宣布创新。
 
-最后审阅：2026-08-08
+最后审阅：2026-08-10
 
 ## 核心设计
 
@@ -45,30 +46,35 @@ L1、L2 或贡献架构通过并不代表创新成立。N0 新颖性评级只用
 
 每个 L3 必须固定一个主路径和一个主形式。分类标签不能替代非机械性证据。
 
-### 唯一执行状态机
+#### 路径锁定纪律
+
+路径一经确认，就成为当前研究代次的主贡献合同，必须在检索、碰撞、命题冻结、
+理论或算法审计、计算和最终锁定中持续贯彻：
+
+- 每条候选声明区分主贡献（`PRIMARY`）与支持性贡献（`SUPPORTING`）；
+- `PRIMARY` 必须与已确认的路径和形式一致；
+- `SUPPORTING` 可以跨类型服务主贡献，但不得改变主线。例如，算法优化路径中发现的定理
+  可以解释机制、给出界或保护约束，但不能据此把主创新改成新理论；
+- 中途换主路径、换主形式或用 `MIXED` 包装第二条主线，均属于
+  `INNOVATION_PATH_DRIFT`，必须停止；
+- 只有用户明确同意后才能显式重启。重启保留旧路径记录，回到范围锁定并重做当前
+  路径所依赖的新颖性、有效性、独立审计和计算授权。
+
+发现另一条路径更有吸引力，不等于获得换轨授权。智能体应把它登记为支持性线索或
+候选重启理由，而不是同时推进两条主创新。
+
+### Schema 2.0 双轴状态机
 
 ```text
-BOOT
-  → SCOPE_LOCK
-  → PRIOR_CLAIM_DRAIN
-  → RECENT_FRONTIER
-  → LITERATURE_REGISTER
-  → IMPORTANT_FULLTEXT
-  → SOURCE_CLAIM_REGISTER
-  → SYNTHESIZE_COLLISION
-  → OUTPUT_CLAIM_BIND
-  → EVIDENCE_VALIDATE
-  → LAYER_DECISION
-       ├─ 新层级/新碰撞：回到 PRIOR_CLAIM_DRAIN
-       ├─ L3 候选：N0_AUDIT
-       ├─ N0-4 且获授权：COMPUTE
-       └─ COMPLETE / BLOCKED
+新颖性：BOOT → SCOPE_LOCK → ... → N0_AUDIT → N0-4C
+有效性：CLAIM_FREEZE → VALIDITY_AUDIT → INDEPENDENT_REVIEW
+       → DIRECTION_LOCK → COMPUTE → POSTCOMPUTE_CLAIM_FREEZE
+       → FINAL_VALIDITY_AUDIT → FINAL_LOCK
 ```
 
 每个研究主题都必须维护工作流状态文件（`workflow_state.json`）。智能体一次只能
-执行一个
-`active_state`，失败时停留在当前状态或进入 `BLOCKED`，用户要求“继续”时只能从
-`next_required_action` 恢复。
+执行一个 `active_state`，并同时报告新颖性 N0-1 至 N0-4C 与有效性 V0 至 V4。
+用户要求“继续”时只能从 `next_required_action` 恢复，不得重新选择创新路径。
 
 ## 文献与观点证据链
 
@@ -130,8 +136,11 @@ git clone \
 
 成果类型：DOCTORAL_DISSERTATION
 研究目录：/path/to/research
+主创新路径：R2（DEPTH_EXTENSION）
+主创新形式：F4（ALGORITHM_DEEPENING）
 当前目标：从 L1 开始，建立可执行的 workflow_state.json 和 scope_lock.md。
-不要开始实验；先完成状态、近三年文献和证据注册门。
+不要开始实验；先完成状态、路径确认、近三年文献和证据注册门。
+算法优化中得到的定理只作为 SUPPORTING，不得将其升级为理论主创新。
 ```
 
 一般期刊论文示例：
@@ -147,7 +156,8 @@ git clone \
 
 1. 读取 [`SKILL.md`](SKILL.md)；
 2. 从 [`templates.md`](templates.md) 创建 `workflow_state.json`；
-3. 冻结成果类型、当前层级、研究范围（scope）和关键比较基线；
+3. 取得用户确认并冻结成果类型、当前层级、研究范围、主创新路径、主创新形式和
+   关键比较基线；
 4. 按状态机逐步生成证据产物；
 5. 在裁决或新碰撞前运行总校验器。
 
@@ -172,12 +182,16 @@ python3 /path/to/innovation-proposition-hunting/scripts/validate_all.py \
 
 | 脚本 | 检查内容 |
 |---|---|
-| `validate_workflow_state.py` | 状态、成果合同、层级、门禁（gate）、计算授权和产物存在性 |
-| `validate_literature_registry.py` | 文献身份、出版状态、URL 注册、去重和综合锁 |
-| `validate_evidence_chain.py` | 全文哈希、原子观点、输出支持、双向追溯和旧观点耗尽门 |
+| `validate_schema_v2.py` / `validate_workflow_state.py` | Schema 2.0、双轴状态、阶段门和计算授权 |
+| `validate_claim_inventory.py` | 高风险声明出现、类型和 inventory 绑定 |
+| `validate_theory_obligations.py` | 理论命题、证明责任和可反驳见证 |
+| `validate_protocol_contract.py` / `validate_claim_code_trace.py` | 算法协议、基线预算、实现、测试和输出追溯 |
+| `validate_literature_registry.py` / `validate_evidence_chain.py` | 文献身份、全文、原子观点和输出支持 |
+| `validate_frontier_integrity.py` | 近期前沿覆盖、重要性历史和证据降级 |
+| `validate_artifact_hashes.py` / `validate_audit_provenance.py` | 当前 bundle、epoch 和独立 reviewer 来源 |
 
-出现非零退出码时，不得宣布 `PASS`、`FAIL`、`LOCKED`、`CLOSED`，也不得启动
-新碰撞或昂贵计算。
+退出码为 `READY=0`、`INVALID=1`、`BLOCKED=2`、`MIGRATION_REQUIRED=3`。出现非零
+退出码时不得宣布 `READY`、`LOCKED` 或 `CLOSED`，也不得启动新碰撞或昂贵计算。
 
 ## 研究目录的核心产物
 
@@ -204,9 +218,9 @@ hierarchy_status.md
 | [`evidence-pipeline.md`](evidence-pipeline.md) | 文献—观点—输出 JSON 数据合同 |
 | [`templates.md`](templates.md) | 状态文件、冻结卡、碰撞卡和审计模板 |
 | [`reference.md`](reference.md) | E0–E4、出版资格、Gate、上钻和综合锁细节 |
-| [`compute-funnel.md`](compute-funnel.md) | N0-4 后且获授权时使用的 S0–S4 计算漏斗 |
+| [`compute-funnel.md`](compute-funnel.md) | N0-4C、V3 且获授权后使用的 S0–S4 计算漏斗 |
 | [`case-lessons.md`](case-lessons.md) | 成功上钻与失败纠偏案例 |
-| [`scripts/`](scripts) | 四个确定性校验脚本 |
+| [`scripts/`](scripts) | Schema、声明、证据、审计和计算门的确定性校验脚本 |
 
 ## 适用边界
 
