@@ -1,0 +1,116 @@
+{
+ "schema_version": "2.0",
+ "validation_epoch": 1,
+ "manuscript_sources": [
+  "manuscript.md"
+ ],
+ "claims": [
+  {
+   "claim_id": "C-MODEL-1",
+   "statement": "本文首次提出面向六区域 2400 小时真实数据、统一口径的多区域算—储—电协同六目标统一调度模型，覆盖任务异构性（实时推理/批量推理/AI 训练）、储能时序、购售电边界、PUE 功率映射与服务等级约束；其必要前提是批量与训练任务的可延迟性不损害服务质量约束，实时推理任务到达即开工。",
+   "claim_type": "METHOD",
+   "locations": [
+    "manuscript.md:7",
+    "manuscript.md:11"
+   ],
+   "evidence_responsibility": "模型定义、决策变量、约束与六目标的可复现实现；必要前提的合理性论证",
+   "risk_terms": [
+    "首次",
+    "必要"
+   ],
+   "status": "FROZEN",
+   "validation_epoch": 1,
+   "occurrence_ids": [
+    "3651ef8ac958877eb3866f8bf2a49ec06a0a12572cadf3855fc85fb8c3d1c93d",
+    "e3cec236e8030266421cfae06e73451585d05740d545a1710e6af8dc62ce93c3"
+   ]
+  },
+  {
+   "claim_id": "C-BASELINE-1",
+   "statement": "在统一口径下，以附件基准运行结果与三种启发式（FCFS 本地执行、最低电价优先、最低碳强度优先）作为强基线，给出绩效量化框架；所有情景结论必须来自统一口径重算。",
+   "claim_type": "BASELINE",
+   "locations": [
+    "manuscript.md:7",
+    "manuscript.md:41"
+   ],
+   "evidence_responsibility": "基线集定义与统一口径（PUE、碳强度×购电、新能源利用率公式）的可执行实现；基线结果文件",
+   "risk_terms": [
+    "强基线"
+   ],
+   "status": "FROZEN",
+   "validation_epoch": 1,
+   "occurrence_ids": [
+    "3026692740135635854328013e21ddbb15812b51f840651895528d175efe5e19",
+    "0c730182f41aa930e12e692ec92d3945844ad04aac56ed46136f0dc088e6e235"
+   ]
+  },
+  {
+   "claim_id": "C-PROP-1",
+   "statement": "命题 P：存在边界 E*(p,c,λ,σ) 与 S*(p,c,λ,σ)，使得 (1) 当 E<E* 且 S<S* 时组合节省低于可加和的幅度不低于 10%；(2) E* 定义为延迟价值达到其渐近上限 95% 的最小延迟弹性（延迟价值在 E≥E* 后饱和，边际延迟价值趋于零）；(3) 电价与碳强度负相关时成本最优调度与碳最优调度不一致；(4) E* 随碳约束强度与新能源波动增强而增大。对任意满足前提的任务弹性分布与电价—碳强度结构，四条规律均可被统一口径下的计算验证或证伪。",
+   "claim_type": "PROPOSITION",
+   "locations": [
+    "manuscript.md:32"
+   ],
+   "evidence_responsibility": "四条规律的计算验证或证伪记录；边界 E*/S* 的数值估计；失败条件（替代区消失/饱和不存在）的检验",
+   "risk_terms": [
+    "对任意"
+   ],
+   "status": "FROZEN",
+   "validation_epoch": 1,
+   "occurrence_ids": [
+    "859b6fd7d1da1dddd8ae5ed4def8191fbbf28d99ff5447bb4d214c5b7cde90c4"
+   ]
+  },
+  {
+   "claim_id": "C-COMPLEX-1",
+   "statement": "分层—分解求解算法（任务层时空指派 + 储能层时序优化 + 购售电层平衡，边际信息迭代耦合）对时间尺度具有有界计算复杂度；命题 P 的单调结构采用参数化扫描与二分定位边界。",
+   "claim_type": "COMPLEXITY",
+   "locations": [
+    "manuscript.md:40"
+   ],
+   "evidence_responsibility": "算法实现、复杂度界论证、可执行测试与运行时间证据",
+   "risk_terms": [
+    "有界"
+   ],
+   "status": "FROZEN",
+   "validation_epoch": 1,
+   "occurrence_ids": [
+    "d40f6873aa9a4a4ba87a50e4dde7a53efb31a9dfcff2e1d1a35e1b1c4e6d5c8e"
+   ]
+  },
+  {
+   "claim_id": "C-EMPIRICAL-1",
+   "statement": "在满足全部容量与 SLA 约束的前提下，统一模型保证与附件基准相同的服务水平，同时改进运行成本与区域峰值净购电，并提升新能源利用率（改进幅度待 COMPUTE 验证后精确量化）。",
+   "claim_type": "EMPIRICAL",
+   "locations": [
+    "manuscript.md:47"
+   ],
+   "evidence_responsibility": "六区域 2400h 统一口径计算结果；与附件基准/启发式基线的对比表；改进幅度的精确数字",
+   "risk_terms": [
+    "保证"
+   ],
+   "status": "FROZEN",
+   "validation_epoch": 1,
+   "occurrence_ids": [
+    "b3aca443efd2464ac3fa482c799388d15ad3ed5706cfaa6b16577a2d81d91de2"
+   ]
+  },
+  {
+   "claim_id": "C-SCENARIO-1",
+   "statement": "本文首次给出碳约束强度、电价机制与新能源波动三情景下的六目标权衡规律（帕累托结构、替代/互补边界移动），形成面向算电协同运营企业与产业政策的建议。",
+   "claim_type": "EMPIRICAL",
+   "locations": [
+    "manuscript.md:51"
+   ],
+   "evidence_responsibility": "三情景扫描结果；权衡规律与帕累托前沿的可复现证据；管理启示与证据的对应",
+   "risk_terms": [
+    "首次"
+   ],
+   "status": "FROZEN",
+   "validation_epoch": 1,
+   "occurrence_ids": [
+    "00a39f79f0a13e6139f8bc2c9774c0210a05254ff83e6c6106b4f3399616b868"
+   ]
+  }
+ ]
+}

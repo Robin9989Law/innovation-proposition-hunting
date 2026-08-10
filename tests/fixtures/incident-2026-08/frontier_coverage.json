@@ -1,0 +1,32 @@
+{
+  "schema_version": "2.0",
+  "axes": {
+    "method_synonyms": ["算电协同", "computing-electricity collaboration", "碳感知调度", "carbon-aware scheduling", "时空负载迁移", "spatial-temporal workload shifting", "多目标调度优化", "multi-objective scheduling", "需求响应", "demand response", "储能协同调度", "workload scheduling", "任务调度"],
+    "target_tasks": ["数据中心算力调度", "AI 训练任务调度", "实时/批量推理调度", "跨区域任务迁移", "多区域协同优化", "储能充放电协同", "新能源消纳调度", "电网响应型运行", "碳排放最小化调度", "电价响应调度"],
+    "theory_terms": ["碳排放", "碳强度", "carbon intensity", "电价", "electricity price", "分时电价", "PUE", "新能源出力", "renewable generation", "网络时延", "SLA", "储能 SOC", "购售电", "碳预算", "多目标优化"],
+    "algorithm_structures": ["MILP", "混合整数线性规划", "DRL", "深度强化学习", "分层优化", "hierarchical multi-agent RL", "两阶段框架", "day-ahead + real-time", "鲁棒优化", "robust optimization", "分布鲁棒", "启发式调度", "预测-优化"],
+    "author_continuations": ["碳感知计算链：Radovanović TPWRS 2023 → Caspian MASCOTS 2024 → 时空迁移 2025-2026 系列（Sustainability 2025、Shao EPSR 2026）", "AI 数据中心调度链：ARX-02 2026（产消者 MILP）→ 中国科学 2024 算-电-热协同 → Energy 2026 电-算-热数据驱动协同", "弹性训练调度链：Weng AIMLR 2024 → 分布式 AI 训练可再生协同 2025-2026"],
+    "backward_citations": ["GreenHadoop 2012 → Carbon-Aware Computing TPWRS 2023 → Caspian 2024（Kubernetes 多集群）", "碳感知负载均衡 TCC 2022 → Shao EPSR 2026 时空迁移", "集成能源系统 APEN 2021 → 数据中心智能电网服务 Energy 2025"],
+    "forward_citations": ["Caspian 2024 → Sustainability 2025 时空迁移 → IEEE ICICCS 2026 LLM 训练碳感知调度", "Shao EPSR 2026 → Energy 2026 电-算-热协同、SSRN 2026 多时间尺度绿电调度、SSRN 2026 预测-实现碳感知评估", "Nkwawir e-Energy 2025 → EEM 2026 负载平移、AnyScale 2026 碳成本地理迁移"]
+  },
+  "routes": [
+    {
+      "route_id": "openalex-discovery",
+      "route_type": "DISCOVERY",
+      "independent": true,
+      "details": "OpenAlex works?search= 检索（api_key 认证）：6 条查询覆盖 method_synonyms/target_tasks/theory_terms（carbon-aware workload scheduling data center 等），filter=from_publication_date:2024-01-01,to_publication_date:2026-12-31，命中 212-10849；2026-08-10 执行，结果逐条经 OpenAlex/Crossref 核验"
+    },
+    {
+      "route_id": "arxiv-discovery",
+      "route_type": "DISCOVERY",
+      "independent": true,
+      "details": "export.arxiv.org API 6 条查询（all:\"carbon aware\" AND all:\"data center\" 等），sortBy=submittedDate desc，2024-2026 预印本前沿；命中并归档 6 篇全文 PDF（含 3 篇 2026 年直接近邻）"
+    },
+    {
+      "route_id": "openalex-citation-graph",
+      "route_type": "CITATION_GRAPH",
+      "independent": true,
+      "details": "对 W7143426932（Han TIA 2026）、W7152621564（Shao EPSR 2026）、W4411345923（Nkwawir 2025）、W4405361825（Caspian 2024）取 referenced_works（后向）与 filter=cites:{id}（前向），共遍历 4 个枢纽节点，识别 2024-2026 前向系列与 2012-2023 奠基后向链"
+    }
+  ]
+}
