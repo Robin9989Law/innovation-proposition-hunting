@@ -339,3 +339,139 @@ def render(name: str, issues: list[Issue], as_json: bool = False) -> str:
         for issue in issues
     )
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# ProjectContext：单进程校验的共享解析上下文（第 2 期效率架构）
+# ---------------------------------------------------------------------------
+
+# state 的 artifacts dict 逻辑键 -> 默认相对路径（fallback）。路径的唯一权威
+# 来源是 state["artifacts"]；默认名仅为兼容存量项目。
+DEFAULT_ARTIFACT_PATHS = {
+    "literature_registry": "near_neighbor_registry.json",
+    "claim_registry": "literature_claim_registry.json",
+    "output_support": "output_claim_support.json",
+    "claim_inventory": "claim_inventory.json",
+    "theory_obligations": "theory_obligation_registry.json",
+    "protocol_contract": "protocol_contract.json",
+    "baseline_budget": "baseline_budget.json",
+    "claim_code_trace": "claim_code_trace.json",
+    "audit_manifest": "audit_manifest.json",
+    "independent_audit": "independent_audit.json",
+    "frontier_coverage": "frontier_coverage.json",
+    "exploration_registry": "exploration_registry.json",
+    "manuscript": "manuscript.md",
+    "validation_log": "validation.log",
+}
+
+# include_data=True 读取的上限（防止巨型 pass_output 整文件进内存）。
+MAX_INLINE_FILE_BYTES = 64 * 1024 * 1024
+
+
+class ProjectContext:
+    """一次解析、多方共享：state、注册表 JSON、文件哈希。
+
+    校验器库函数接收 ctx 以避免每个子进程重复解析相同大文件；
+    ctx 在一次校验运行内有效（运行期间文件不应变化）。
+    """
+
+    def __init__(self, root: Path, state_path: Path) -> None:
+        self.root = Path(os.path.abspath(root))
+        self.state_path = Path(os.path.abspath(state_path))
+        self.root_fd = open_root_fd(self.root)
+        self._json_cache: dict[str, tuple[tuple[int, int], Any]] = {}
+        self._snapshot_cache: dict[tuple[str, bool], SafeFileSnapshot] = {}
+        try:
+            relative_state = lexical_relative_cli_path(
+                self.root, self.state_path, "state"
+            )
+            payload = read_json_object_at(self.root_fd, relative_state, "state")
+        except Exception:
+            os.close(self.root_fd)
+            self.root_fd = None  # type: ignore[assignment]
+            raise
+        self.state: dict[str, Any] = payload
+        self.state_relative_path = relative_state
+
+    def close(self) -> None:
+        if self.root_fd is not None:
+            os.close(self.root_fd)
+            self.root_fd = None  # type: ignore[assignment]
+
+    def __enter__(self) -> "ProjectContext":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
+    # -- 路径解析 ---------------------------------------------------------
+
+    def artifact_relative_path(self, key: str) -> str:
+        """state artifacts dict 优先；缺省回退默认文件名。"""
+
+        artifacts = self.state.get("artifacts")
+        raw = artifacts.get(key) if isinstance(artifacts, dict) else None
+        if nonempty_string(raw):
+            if not canonical_relative_path(raw):
+                raise UnsafePathError(f"artifacts.{key}:noncanonical_path")
+            return raw
+        if key in DEFAULT_ARTIFACT_PATHS:
+            return DEFAULT_ARTIFACT_PATHS[key]
+        raise KeyError(f"unknown_artifact_key:{key}")
+
+    def artifact_path(self, key: str) -> Path:
+        return self.root / self.artifact_relative_path(key)
+
+    # -- 缓存读取 ---------------------------------------------------------
+
+    def snapshot(self, relative_path: str, *, include_data: bool = False) -> SafeFileSnapshot:
+        cache_key = (relative_path, include_data)
+        if cache_key not in self._snapshot_cache:
+            if include_data:
+                metadata = os.stat(
+                    os.path.join(self.root, relative_path),
+                    dir_fd=self.root_fd,
+                    follow_symlinks=False,
+                )
+                if metadata.st_size > MAX_INLINE_FILE_BYTES:
+                    raise UnsafePathError(
+                        f"file_too_large:{relative_path}:{metadata.st_size}"
+                    )
+            self._snapshot_cache[cache_key] = read_regular_file_at(
+                self.root_fd, relative_path, include_data=include_data
+            )
+        return self._snapshot_cache[cache_key]
+
+    def load_json(self, relative_path: str, label: str = "json") -> Any:
+        """按 (mtime_ns, size) 失效的 strict JSON 缓存。"""
+
+        absolute = os.path.join(self.root, relative_path)
+        metadata = os.stat(absolute, dir_fd=self.root_fd, follow_symlinks=False)
+        stamp = (metadata.st_mtime_ns, metadata.st_size)
+        cached = self._json_cache.get(relative_path)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
+        payload = read_json_object_at(self.root_fd, relative_path, label)
+        self._json_cache[relative_path] = (stamp, payload)
+        return payload
+
+    def load_json_array(self, relative_path: str, label: str = "json") -> list[Any]:
+        snapshot = self.snapshot(relative_path, include_data=True)
+        assert snapshot.data is not None
+        payload = strict_json_load_bytes(snapshot.data)
+        if not isinstance(payload, list):
+            raise TypeError(f"{label}:top_level_not_array")
+        return payload
+
+    # -- 常用状态派生 ------------------------------------------------------
+
+    def effective_state(self) -> str:
+        active = self.state.get("active_state")
+        if active == "BLOCKED":
+            resume = self.state.get("resume_state")
+            return resume if isinstance(resume, str) else ""
+        return active if isinstance(active, str) else ""
+
+    def gates(self) -> dict[str, Any]:
+        gates = self.state.get("gates")
+        return gates if isinstance(gates, dict) else {}

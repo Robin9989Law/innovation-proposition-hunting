@@ -8,10 +8,12 @@ from collections import Counter
 import os
 from pathlib import Path, PurePosixPath
 import re
-from typing import Any
+from typing import Any, Callable
 
 from validation_common import (
     Issue,
+    ProjectContext,
+    SafeFileSnapshot,
     StrictJSONError,
     UnsafePathError,
     canonical_relative_path,
@@ -85,6 +87,51 @@ def load_object(
         ]
 
 
+# 文件快照读取函数签名：与 ProjectContext.snapshot 一致。单次校验运行内
+# 可按 (路径, include_data) 缓存，避免按 binding 重复读盘/重哈希。
+SnapshotReader = Callable[..., SafeFileSnapshot]
+
+# AST 测试契约缓存的键：(测试路径, 实现路径, 实现符号)。缓存只在单次
+# validate_with_context 调用内有效；同一测试路径的内容由 ctx.snapshot
+# 缓存保证在运行期间不变。
+TestContractCache = dict[
+    tuple[str, str, str], tuple[set[str] | None, list[str]]
+]
+
+
+def load_object_via_ctx(
+    ctx: ProjectContext,
+    relative_path: str,
+    label: str,
+    *,
+    required: bool = True,
+) -> tuple[dict[str, Any] | None, list[Issue]]:
+    """load_object 的 ctx 版本：JSON 读取走 ProjectContext 的缓存。
+
+    错误码与文本和 load_object 逐条对齐，仅读取通道不同。
+    """
+
+    try:
+        payload = ctx.load_json(relative_path, label)
+    except FileNotFoundError:
+        if not required:
+            return None, []
+        return None, [
+            Issue(f"{label.upper()}_REQUIRED", "INVALID", label, relative_path)
+        ]
+    except UnsafePathError as error:
+        return None, [Issue("UNSAFE_TRACE_PATH", "INVALID", label, str(error))]
+    except OSError as error:
+        return None, [
+            Issue("VALIDATOR_ERROR", "INVALID", label, type(error).__name__)
+        ]
+    except (StrictJSONError, TypeError) as error:
+        return None, [
+            Issue(f"INVALID_{label.upper()}_JSON", "INVALID", label, str(error))
+        ]
+    return payload, []
+
+
 def canonical_identifier(value: Any) -> bool:
     return nonempty_string(value) and value.strip() == value
 
@@ -101,7 +148,7 @@ def exact_token_present(data: bytes, token: str) -> bool:
 
 
 def read_bound_file(
-    root_fd: int,
+    snapshot_fn: SnapshotReader,
     item_id: str,
     raw_path: Any,
     declared_hash: Any,
@@ -129,7 +176,7 @@ def read_bound_file(
             )
         )
     try:
-        snapshot = read_regular_file_at(root_fd, raw_path, include_data=include_data)
+        snapshot = snapshot_fn(raw_path, include_data=include_data)
     except FileNotFoundError:
         return None, issues + [
             Issue("MISSING_TRACE_FILE", "INVALID", item_id, f"{kind}:{raw_path}")
@@ -185,7 +232,7 @@ def parse_location(value: Any) -> tuple[str, int] | None:
 
 
 def validate_manuscript_binding(
-    root_fd: int,
+    snapshot_fn: SnapshotReader,
     claim: dict[str, Any],
     binding: dict[str, Any],
     item_id: str,
@@ -214,7 +261,7 @@ def validate_manuscript_binding(
         )
     source_path, line_number = parsed
     try:
-        snapshot = read_regular_file_at(root_fd, source_path, include_data=True)
+        snapshot = snapshot_fn(source_path, include_data=True)
     except FileNotFoundError:
         return issues + [
             Issue("MISSING_TRACE_FILE", "INVALID", item_id, f"manuscript:{source_path}")
@@ -347,7 +394,7 @@ def validate_pass_manifest(
 
 
 def validate_binding(
-    root_fd: int,
+    snapshot_fn: SnapshotReader,
     claim: dict[str, Any],
     binding: Any,
     index: int,
@@ -391,10 +438,10 @@ def validate_binding(
                     f"{field}:expected_canonical_nonempty_string",
                 )
             )
-    issues.extend(validate_manuscript_binding(root_fd, claim, binding, item_id))
+    issues.extend(validate_manuscript_binding(snapshot_fn, claim, binding, item_id))
 
     implementation_data, implementation_issues = read_bound_file(
-        root_fd,
+        snapshot_fn,
         item_id,
         binding.get("implementation_relative_path"),
         binding.get("implementation_sha256"),
@@ -427,7 +474,7 @@ def validate_binding(
             )
 
     _, test_issues = read_bound_file(
-        root_fd,
+        snapshot_fn,
         item_id,
         binding.get("executable_test_relative_path"),
         binding.get("executable_test_sha256"),
@@ -437,7 +484,7 @@ def validate_binding(
     issues.extend(test_issues)
 
     output_data, output_issues = read_bound_file(
-        root_fd,
+        snapshot_fn,
         item_id,
         binding.get("pass_output_relative_path"),
         binding.get("pass_output_sha256"),
@@ -465,9 +512,10 @@ def grouped_bindings(
 
 
 def validate_test_reference_groups(
-    root_fd: int,
+    snapshot_fn: SnapshotReader,
     raw_bindings: list[Any],
     algorithm_claims: dict[str, dict[str, Any]],
+    contract_cache: TestContractCache,
 ) -> list[Issue]:
     issues: list[Issue] = []
     for test_path, bindings in grouped_bindings(
@@ -484,19 +532,33 @@ def validate_test_reference_groups(
                 )
             )
         try:
-            snapshot = read_regular_file_at(root_fd, test_path, include_data=True)
+            snapshot = snapshot_fn(test_path, include_data=True)
         except (FileNotFoundError, UnsafePathError, OSError):
             continue  # Per-binding path validation already reports the exact failure.
         assert snapshot.data is not None
         declared_targets: set[str] | None = None
         target_contract_reported = False
         for binding in bindings:
-            parsed_targets, contract_errors = parse_python_test_contract(
-                snapshot.data,
-                test_path,
-                binding.get("implementation_relative_path"),
-                binding.get("implementation_symbol"),
+            # 同一 (测试, 实现, 符号) 组合的 AST 契约只解析一次。
+            raw_implementation_path = binding.get("implementation_relative_path")
+            raw_implementation_symbol = binding.get("implementation_symbol")
+            cache_key = (
+                (test_path, raw_implementation_path, raw_implementation_symbol)
+                if isinstance(raw_implementation_path, str)
+                and isinstance(raw_implementation_symbol, str)
+                else None
             )
+            if cache_key is not None and cache_key in contract_cache:
+                parsed_targets, contract_errors = contract_cache[cache_key]
+            else:
+                parsed_targets, contract_errors = parse_python_test_contract(
+                    snapshot.data,
+                    test_path,
+                    raw_implementation_path,
+                    raw_implementation_symbol,
+                )
+                if cache_key is not None:
+                    contract_cache[cache_key] = (parsed_targets, contract_errors)
             if declared_targets is None and parsed_targets is not None:
                 declared_targets = parsed_targets
             target_errors = [
@@ -551,7 +613,7 @@ def validate_test_reference_groups(
 
 
 def validate_output_reference_groups(
-    root_fd: int,
+    snapshot_fn: SnapshotReader,
     raw_bindings: list[Any],
     algorithm_claims: dict[str, dict[str, Any]],
 ) -> list[Issue]:
@@ -561,7 +623,7 @@ def validate_output_reference_groups(
     ).items():
         expected_targets = {binding["claim_id"] for binding in bindings}
         try:
-            snapshot = read_regular_file_at(root_fd, output_path, include_data=True)
+            snapshot = snapshot_fn(output_path, include_data=True)
         except (FileNotFoundError, UnsafePathError, OSError):
             continue
         assert snapshot.data is not None
@@ -593,7 +655,7 @@ def validate_output_reference_groups(
 
 
 def validate_protocol_cross_binding(
-    root_fd: int,
+    snapshot_fn: SnapshotReader,
     protocol: dict[str, Any] | None,
     bindings: dict[str, dict[str, Any]],
     algorithm_claims: dict[str, dict[str, Any]],
@@ -617,7 +679,7 @@ def validate_protocol_cross_binding(
     output_path = chronology.get("output_file")
     if canonical_relative_path(output_path):
         try:
-            snapshot = read_regular_file_at(root_fd, output_path, include_data=True)
+            snapshot = snapshot_fn(output_path, include_data=True)
             assert snapshot.data is not None
             manifest = strict_object(snapshot.data, "chronology_test_output")
         except (FileNotFoundError, UnsafePathError, OSError, StrictJSONError, TypeError):
@@ -671,7 +733,8 @@ def validate_protocol_cross_binding(
 
 
 def validate_loaded(
-    root_fd: int,
+    snapshot_fn: SnapshotReader,
+    contract_cache: TestContractCache,
     state: dict[str, Any],
     inventory: dict[str, Any],
     registry: dict[str, Any],
@@ -736,7 +799,7 @@ def validate_loaded(
             continue
         claim = algorithm_claims.get(raw_claim_id, {}) if valid_raw_claim_id else {}
         claim_id, binding_issues = validate_binding(
-            root_fd, claim, raw_binding, index
+            snapshot_fn, claim, raw_binding, index
         )
         issues.extend(binding_issues)
         if claim_id is not None:
@@ -764,16 +827,79 @@ def validate_loaded(
             )
         )
     issues.extend(
-        validate_test_reference_groups(root_fd, raw_bindings, algorithm_claims)
+        validate_test_reference_groups(
+            snapshot_fn, raw_bindings, algorithm_claims, contract_cache
+        )
     )
     issues.extend(
-        validate_output_reference_groups(root_fd, raw_bindings, algorithm_claims)
+        validate_output_reference_groups(snapshot_fn, raw_bindings, algorithm_claims)
     )
     issues.extend(
         validate_protocol_cross_binding(
-            root_fd, protocol, unique_bindings, algorithm_claims
+            snapshot_fn, protocol, unique_bindings, algorithm_claims
         )
     )
+    return issues
+
+
+def validate_with_context(
+    ctx: ProjectContext,
+    *,
+    inventory: str | None = None,
+    trace: str | None = None,
+    protocol: str | None = None,
+) -> list[Issue]:
+    """库函数入口：复用 ProjectContext 完成全部校验，供 CLI 与批量调用共用。
+
+    state 直接取 ctx.state（构建 ctx 时已 strict 解析）；各 JSON 走
+    ctx.load_json；稿件/实现/测试/输出文件走 ctx.snapshot（按路径缓存，
+    消除按 binding 的重复读盘与重哈希）；测试 AST 契约按
+    (测试路径, 实现路径, 实现符号) 缓存。各可选参数为 CLI 显式覆盖的
+    相对路径；缺省按 state["artifacts"] 解析。
+    """
+
+    state = ctx.state
+    issues: list[Issue] = []
+    profile = state.get("claim_profile")
+    if not isinstance(profile, str) or profile not in {
+        "THEORY",
+        "ALGORITHM",
+        "MIXED",
+    }:
+        issues.append(
+            Issue(
+                "INVALID_CLAIM_PROFILE",
+                "INVALID",
+                "workflow_state",
+                f"claim_profile:{profile}",
+            )
+        )
+        return issues
+    if profile not in ALGORITHM_PROFILES:
+        return issues
+    inventory_data, inventory_issues = load_object_via_ctx(
+        ctx,
+        inventory or ctx.artifact_relative_path("claim_inventory"),
+        "claim_inventory",
+    )
+    registry, registry_issues = load_object_via_ctx(
+        ctx,
+        trace or ctx.artifact_relative_path("claim_code_trace"),
+        "claim_code_trace",
+    )
+    protocol_data, protocol_issues = load_object_via_ctx(
+        ctx,
+        protocol or ctx.artifact_relative_path("protocol_contract"),
+        "protocol_contract",
+        required=False,
+    )
+    issues.extend(inventory_issues + registry_issues + protocol_issues)
+    if inventory_data is not None and registry is not None:
+        issues.extend(
+            validate_loaded(
+                ctx.snapshot, {}, state, inventory_data, registry, protocol_data
+            )
+        )
     return issues
 
 
@@ -791,52 +917,29 @@ def main() -> int:
     try:
         root_fd = open_root_fd(args.root)
         state_path = lexical_relative_cli_path(args.root, args.state, "state")
-        inventory_path = lexical_relative_cli_path(
-            args.root,
-            args.inventory or (args.root / "claim_inventory.json"),
-            "inventory",
-        )
-        trace_path = lexical_relative_cli_path(
-            args.root,
-            args.trace or (args.root / "claim_code_trace.json"),
-            "trace",
-        )
-        protocol_path = lexical_relative_cli_path(
-            args.root,
-            args.protocol or (args.root / "protocol_contract.json"),
-            "protocol",
-        )
+        # 显式 CLI 覆盖：先做与旧版一致的词法校验，缺省则交由
+        # validate_with_context 按 state["artifacts"] 解析。
+        overrides = {
+            "inventory": ("inventory", args.inventory),
+            "trace": ("trace", args.trace),
+            "protocol": ("protocol", args.protocol),
+        }
+        resolved = {
+            key: (
+                lexical_relative_cli_path(args.root, raw, label)
+                if raw is not None
+                else None
+            )
+            for key, (label, raw) in overrides.items()
+        }
+        # state 预读沿用旧的 root_fd 通道，确保 state 缺失/损坏时的
+        # 错误码与文本与旧版完全一致；ctx 随后会再解析一次同一文件。
         state, issues = load_object(root_fd, state_path, "workflow_state")
         if state is not None:
-            profile = state.get("claim_profile")
-            if not isinstance(profile, str) or profile not in {
-                "THEORY",
-                "ALGORITHM",
-                "MIXED",
-            }:
-                issues.append(
-                    Issue(
-                        "INVALID_CLAIM_PROFILE",
-                        "INVALID",
-                        "workflow_state",
-                        f"claim_profile:{profile}",
-                    )
+            with ProjectContext(args.root, args.state) as ctx:
+                issues.extend(
+                    validate_with_context(ctx, **resolved)
                 )
-            elif profile in ALGORITHM_PROFILES:
-                inventory, inventory_issues = load_object(
-                    root_fd, inventory_path, "claim_inventory"
-                )
-                registry, registry_issues = load_object(
-                    root_fd, trace_path, "claim_code_trace"
-                )
-                protocol, protocol_issues = load_object(
-                    root_fd, protocol_path, "protocol_contract", required=False
-                )
-                issues.extend(inventory_issues + registry_issues + protocol_issues)
-                if inventory is not None and registry is not None:
-                    issues.extend(
-                        validate_loaded(root_fd, state, inventory, registry, protocol)
-                    )
     except Exception as error:
         issues = [
             Issue("VALIDATOR_ERROR", "INVALID", "claim_code_trace", str(error))

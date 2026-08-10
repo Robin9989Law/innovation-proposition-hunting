@@ -10,12 +10,14 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
-from typing import Any
+from typing import Any, Callable
 
 from validation_common import (
     ALGORITHM_CLAIM_TYPES,
     CLAIM_TYPES,
     Issue,
+    ProjectContext,
+    SafeFileSnapshot,
     StrictJSONError,
     UnsafePathError,
     canonical_relative_path,
@@ -159,6 +161,11 @@ def strict_object_from_snapshot(data: bytes, label: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise TypeError(f"{label}:top_level_not_object")
     return payload
+
+
+# 文件快照读取函数签名：与 ProjectContext.snapshot 一致。单次校验运行内
+# 可按 (路径, include_data) 缓存，避免按 binding 重复读盘/重哈希。
+SnapshotReader = Callable[..., SafeFileSnapshot]
 
 
 def _dotted_name(node: ast.AST) -> str | None:
@@ -1023,6 +1030,39 @@ def load_object(
         ]
 
 
+def load_object_via_ctx(
+    ctx: ProjectContext,
+    relative_path: str,
+    label: str,
+    *,
+    required: bool = True,
+) -> tuple[dict[str, Any] | None, list[Issue]]:
+    """load_object 的 ctx 版本：JSON 读取走 ProjectContext 的缓存。
+
+    错误码与文本和 load_object 逐条对齐，仅读取通道不同。
+    """
+
+    try:
+        payload = ctx.load_json(relative_path, label)
+    except FileNotFoundError:
+        if not required:
+            return None, []
+        return None, [
+            Issue(f"{label.upper()}_REQUIRED", "INVALID", label, relative_path)
+        ]
+    except UnsafePathError as error:
+        return None, [Issue("VALIDATOR_ERROR", "INVALID", label, str(error))]
+    except OSError as error:
+        return None, [
+            Issue("VALIDATOR_ERROR", "INVALID", label, type(error).__name__)
+        ]
+    except (StrictJSONError, TypeError) as error:
+        return None, [
+            Issue(f"INVALID_{label.upper()}_JSON", "INVALID", label, str(error))
+        ]
+    return payload, []
+
+
 def is_algorithm_claim_type(value: Any) -> bool:
     return isinstance(value, str) and value in ALGORITHM_CLAIM_TYPES
 
@@ -1373,7 +1413,7 @@ def chronology_issue(detail: str, item_id: str = "chronology_test") -> Issue:
 
 
 def validate_chronology(
-    root_fd: int,
+    snapshot_fn: SnapshotReader,
     protocol: dict[str, Any],
     algorithm_claims: dict[str, dict[str, Any]],
     trace: dict[str, Any] | None,
@@ -1460,8 +1500,8 @@ def validate_chronology(
     implementation_snapshot = None
     if canonical_relative_path(implementation_path):
         try:
-            implementation_snapshot = read_regular_file_at(
-                root_fd, implementation_path, include_data=True
+            implementation_snapshot = snapshot_fn(
+                implementation_path, include_data=True
             )
         except (FileNotFoundError, UnsafePathError, OSError) as error:
             issues.append(
@@ -1498,7 +1538,7 @@ def validate_chronology(
     manifest: dict[str, Any] | None = None
     if canonical_relative_path(output_path):
         try:
-            output_snapshot = read_regular_file_at(root_fd, output_path, include_data=True)
+            output_snapshot = snapshot_fn(output_path, include_data=True)
         except (FileNotFoundError, UnsafePathError, OSError) as error:
             issues.append(chronology_issue(f"output_unavailable:{type(error).__name__}:{error}"))
         else:
@@ -1568,8 +1608,8 @@ def validate_chronology(
                     issues.append(chronology_issue("executable_test_sha256:invalid"))
                 else:
                     try:
-                        test_snapshot = read_regular_file_at(
-                            root_fd, test_path, include_data=True
+                        test_snapshot = snapshot_fn(
+                            test_path, include_data=True
                         )
                     except (FileNotFoundError, UnsafePathError, OSError) as error:
                         issues.append(
@@ -1798,7 +1838,7 @@ def validate_baselines(
 
 
 def validate_loaded(
-    root_fd: int,
+    snapshot_fn: SnapshotReader,
     state: dict[str, Any],
     inventory: dict[str, Any],
     protocol: dict[str, Any],
@@ -1809,13 +1849,100 @@ def validate_loaded(
     issues = validate_protocol_fields(protocol, state_epoch)
     algorithm_claims, claim_issues = collect_algorithm_claims(inventory, state_epoch)
     issues.extend(claim_issues)
-    issues.extend(validate_chronology(root_fd, protocol, algorithm_claims, trace))
+    issues.extend(validate_chronology(snapshot_fn, protocol, algorithm_claims, trace))
     trigger_claims = {
         claim_id
         for claim_id, claim in algorithm_claims.items()
         if claim_triggers_budget(claim)
     }
     issues.extend(validate_baselines(baseline, trigger_claims, state_epoch))
+    return issues
+
+
+def validate_with_context(
+    ctx: ProjectContext,
+    *,
+    baseline_only: bool = False,
+    inventory: str | None = None,
+    protocol: str | None = None,
+    baseline_budget: str | None = None,
+    claim_code_trace: str | None = None,
+) -> list[Issue]:
+    """库函数入口：复用 ProjectContext 完成全部校验，供 CLI 与批量调用共用。
+
+    state 直接取 ctx.state（构建 ctx 时已 strict 解析）；各 JSON 走
+    ctx.load_json；实现/测试/输出文件走 ctx.snapshot（按路径缓存）。
+    各可选参数为 CLI 显式覆盖的相对路径；缺省按 state["artifacts"] 解析。
+    """
+
+    state = ctx.state
+    issues: list[Issue] = []
+    profile = state.get("claim_profile")
+    if not isinstance(profile, str) or profile not in {
+        "THEORY",
+        "ALGORITHM",
+        "MIXED",
+    }:
+        issues.append(
+            Issue(
+                "INVALID_CLAIM_PROFILE",
+                "INVALID",
+                "workflow_state",
+                f"claim_profile:{profile}",
+            )
+        )
+        return issues
+    if profile not in ALGORITHM_PROFILES:
+        return issues
+    inventory_data, inventory_issues = load_object_via_ctx(
+        ctx,
+        inventory or ctx.artifact_relative_path("claim_inventory"),
+        "claim_inventory",
+    )
+    baseline, baseline_issues = load_object_via_ctx(
+        ctx,
+        baseline_budget or ctx.artifact_relative_path("baseline_budget"),
+        "baseline_budget",
+        required=baseline_only,
+    )
+    issues.extend(inventory_issues + baseline_issues)
+    if baseline_only:
+        if inventory_data is not None and baseline is not None:
+            algorithm_claims, claim_issues = collect_algorithm_claims(
+                inventory_data, state.get("validation_epoch")
+            )
+            issues.extend(claim_issues)
+            trigger_claims = {
+                claim_id
+                for claim_id, claim in algorithm_claims.items()
+                if claim_triggers_budget(claim)
+            }
+            issues.extend(
+                validate_baselines(
+                    baseline,
+                    trigger_claims,
+                    state.get("validation_epoch"),
+                )
+            )
+        return issues
+    protocol_data, protocol_issues = load_object_via_ctx(
+        ctx,
+        protocol or ctx.artifact_relative_path("protocol_contract"),
+        "protocol_contract",
+    )
+    trace, trace_issues = load_object_via_ctx(
+        ctx,
+        claim_code_trace or ctx.artifact_relative_path("claim_code_trace"),
+        "claim_code_trace",
+        required=False,
+    )
+    issues.extend(protocol_issues + trace_issues)
+    if inventory_data is not None and protocol_data is not None:
+        issues.extend(
+            validate_loaded(
+                ctx.snapshot, state, inventory_data, protocol_data, baseline, trace
+            )
+        )
     return issues
 
 
@@ -1834,93 +1961,35 @@ def main() -> int:
     root_fd: int | None = None
     try:
         root_fd = open_root_fd(args.root)
-        paths = {
-            "workflow_state": lexical_relative_cli_path(args.root, args.state, "state"),
-            "claim_inventory": lexical_relative_cli_path(
-                args.root,
-                args.inventory or (args.root / "claim_inventory.json"),
-                "inventory",
-            ),
-            "protocol_contract": lexical_relative_cli_path(
-                args.root,
-                args.protocol or (args.root / "protocol_contract.json"),
-                "protocol",
-            ),
-            "baseline_budget": lexical_relative_cli_path(
-                args.root,
-                args.baseline_budget or (args.root / "baseline_budget.json"),
-                "baseline_budget",
-            ),
-            "claim_code_trace": lexical_relative_cli_path(
-                args.root,
-                args.claim_code_trace or (args.root / "claim_code_trace.json"),
-                "claim_code_trace",
-            ),
+        state_path = lexical_relative_cli_path(args.root, args.state, "state")
+        # 显式 CLI 覆盖：先做与旧版一致的词法校验，缺省则交由
+        # validate_with_context 按 state["artifacts"] 解析。
+        overrides = {
+            "inventory": ("inventory", args.inventory),
+            "protocol": ("protocol", args.protocol),
+            "baseline_budget": ("baseline_budget", args.baseline_budget),
+            "claim_code_trace": ("claim_code_trace", args.claim_code_trace),
         }
-        state, issues = load_object(
-            root_fd, paths["workflow_state"], "workflow_state"
-        )
+        resolved = {
+            key: (
+                lexical_relative_cli_path(args.root, raw, label)
+                if raw is not None
+                else None
+            )
+            for key, (label, raw) in overrides.items()
+        }
+        # state 预读沿用旧的 root_fd 通道，确保 state 缺失/损坏时的
+        # 错误码与文本与旧版完全一致；ctx 随后会再解析一次同一文件。
+        state, issues = load_object(root_fd, state_path, "workflow_state")
         if state is not None:
-            profile = state.get("claim_profile")
-            if not isinstance(profile, str) or profile not in {
-                "THEORY",
-                "ALGORITHM",
-                "MIXED",
-            }:
-                issues.append(
-                    Issue(
-                        "INVALID_CLAIM_PROFILE",
-                        "INVALID",
-                        "workflow_state",
-                        f"claim_profile:{profile}",
+            with ProjectContext(args.root, args.state) as ctx:
+                issues.extend(
+                    validate_with_context(
+                        ctx,
+                        baseline_only=args.baseline_only,
+                        **resolved,
                     )
                 )
-            elif profile in ALGORITHM_PROFILES:
-                inventory, inventory_issues = load_object(
-                    root_fd, paths["claim_inventory"], "claim_inventory"
-                )
-                baseline, baseline_issues = load_object(
-                    root_fd,
-                    paths["baseline_budget"],
-                    "baseline_budget",
-                    required=args.baseline_only,
-                )
-                issues.extend(inventory_issues + baseline_issues)
-                if args.baseline_only:
-                    if inventory is not None and baseline is not None:
-                        algorithm_claims, claim_issues = collect_algorithm_claims(
-                            inventory, state.get("validation_epoch")
-                        )
-                        issues.extend(claim_issues)
-                        trigger_claims = {
-                            claim_id
-                            for claim_id, claim in algorithm_claims.items()
-                            if claim_triggers_budget(claim)
-                        }
-                        issues.extend(
-                            validate_baselines(
-                                baseline,
-                                trigger_claims,
-                                state.get("validation_epoch"),
-                            )
-                        )
-                else:
-                    protocol, protocol_issues = load_object(
-                        root_fd, paths["protocol_contract"], "protocol_contract"
-                    )
-                    trace, trace_issues = load_object(
-                        root_fd,
-                        paths["claim_code_trace"],
-                        "claim_code_trace",
-                        required=False,
-                    )
-                    issues.extend(protocol_issues + trace_issues)
-                    if inventory is not None and protocol is not None:
-                        issues.extend(
-                            validate_loaded(
-                                root_fd, state, inventory, protocol, baseline, trace
-                            )
-                        )
     except Exception as error:
         issues = [
             Issue(

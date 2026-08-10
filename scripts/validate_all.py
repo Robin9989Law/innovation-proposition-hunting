@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import subprocess
@@ -15,10 +16,12 @@ from typing import Any
 from validation_common import (
     ExitCode,
     Issue,
+    ProjectContext,
     choose_exit,
     file_sha256,
     render,
 )
+from validate_workflow_state import issue_severity
 from validate_schema_v2 import validate as validate_schema_v2
 
 
@@ -202,6 +205,54 @@ def state_rank(name: Any) -> int:
         return -1
 
 
+# ---------------------------------------------------------------------------
+# 进程内校验（默认）：共享 ProjectContext，消除每校验器重复解析
+# ---------------------------------------------------------------------------
+
+
+def run_in_process(
+    label: str,
+    module_name: str,
+    ctx: ProjectContext,
+    ctx_kwargs: dict[str, Any],
+) -> int:
+    """在进程内调用校验器的 validate_with_context 库函数。"""
+
+    print(f"=== {label} ===", flush=True)
+    try:
+        module = importlib.import_module(module_name)
+        issues = module.validate_with_context(ctx, **ctx_kwargs)
+    except Exception as error:  # 库函数异常按 VALIDATOR_ERROR 收敛
+        issues = [Issue("VALIDATOR_ERROR", "INVALID", label, str(error))]
+    print(render(label, issues), flush=True)
+    _VALIDATOR_FAULTS[label] = False
+    exit_code = int(choose_exit(issues))
+    print(f"{label}_exit={exit_code}", flush=True)
+    return exit_code
+
+
+def execute(
+    label: str,
+    command: list[str],
+    *,
+    ctx: ProjectContext | None,
+    module: str,
+    ctx_kwargs: dict[str, Any] | None = None,
+) -> int:
+    """默认进程内执行；--subprocess 或 ctx 不可用时回退子进程模式。"""
+
+    if ctx is not None:
+        try:
+            return run_in_process(label, module, ctx, ctx_kwargs or {})
+        except Exception:
+            pass  # 进程内失败时回退子进程，保证校验结果可用
+    return run(label, command)
+
+
+def relative_cli_path(root: Path, path: Path) -> str:
+    return path.resolve().relative_to(root).as_posix()
+
+
 def require_within_root(root: Path, path: Path, label: str) -> None:
     try:
         path.relative_to(root)
@@ -226,6 +277,11 @@ def main() -> int:
     parser.add_argument("--independent-audit", type=Path)
     parser.add_argument("--frontier-coverage", type=Path)
     parser.add_argument("--strict-new-checks", action="store_true")
+    parser.add_argument(
+        "--subprocess",
+        action="store_true",
+        help="旧模式：每个校验器独立子进程（默认进程内共享 ProjectContext）",
+    )
     parser.add_argument("--clear-lock", action="store_true")
     parser.add_argument("--recovery-note", type=str, default="")
     args = parser.parse_args()
@@ -313,6 +369,45 @@ def main() -> int:
         print(render("validation_suite", issues))
         return int(choose_exit(issues))
 
+    # 路径单一来源：未显式 CLI 覆盖时，state["artifacts"] 优先于默认文件名。
+    artifacts_map = state.get("artifacts")
+    if isinstance(artifacts_map, dict):
+
+        def _prefer_artifact(key: str, explicit: Any, current: Path) -> Path:
+            if explicit is not None:
+                return current
+            raw = artifacts_map.get(key)
+            if isinstance(raw, str) and raw.strip():
+                candidate = (root / raw).resolve()
+                try:
+                    candidate.relative_to(root)
+                except ValueError:
+                    return current
+                return candidate
+            return current
+
+        literature = _prefer_artifact(
+            "literature_registry", args.literature_registry, literature
+        )
+        claims = _prefer_artifact("claim_registry", args.claim_registry, claims)
+        outputs = _prefer_artifact("output_support", args.output_support, outputs)
+        inventory = _prefer_artifact("claim_inventory", args.claim_inventory, inventory)
+        theory_obligations = _prefer_artifact(
+            "theory_obligations", args.theory_obligations, theory_obligations
+        )
+        protocol_contract = _prefer_artifact(
+            "protocol_contract", args.protocol_contract, protocol_contract
+        )
+        baseline_budget = _prefer_artifact(
+            "baseline_budget", args.baseline_budget, baseline_budget
+        )
+        claim_code_trace = _prefer_artifact(
+            "claim_code_trace", args.claim_code_trace, claim_code_trace
+        )
+        frontier_coverage = _prefer_artifact(
+            "frontier_coverage", args.frontier_coverage, frontier_coverage
+        )
+
     # STOP 锁：上一次非零退出后，状态未变时直接以锁内退出码拦截；
     # 状态已变则继续校验，并在推进状态时追加 STATE_ADVANCED_UNDER_STOP_LOCK。
     pending_lock: dict[str, Any] | None = None
@@ -360,19 +455,63 @@ def main() -> int:
         print(render("validation_suite", suite_issues))
         return int(ExitCode.MIGRATION_REQUIRED)
 
-    workflow_command = [
-        sys.executable,
-        str(script_dir / "validate_workflow_state.py"),
-        "--root",
-        str(root),
-        "--state",
-        str(state_path),
-        "--current-year",
-        str(args.current_year),
-    ]
-    if args.strict_new_checks:
-        workflow_command.append("--strict-new-checks")
-    workflow_exit = run("workflow_state", workflow_command)
+    # 进程内共享上下文：默认开启；构建失败整体回退子进程模式。
+    ctx: ProjectContext | None = None
+    if not args.subprocess:
+        try:
+            ctx = ProjectContext(root, state_path)
+        except Exception:
+            ctx = None
+
+    if ctx is not None:
+        print("=== workflow_state ===", flush=True)
+        try:
+            from validate_workflow_state import (
+                validate as _validate_workflow_state,
+            )
+
+            try:
+                state_mtime = datetime.fromtimestamp(
+                    state_path.stat().st_mtime, tz=timezone.utc
+                )
+            except OSError:
+                state_mtime = None
+            raw_errors = _validate_workflow_state(
+                root, state, args.current_year, state_mtime
+            )
+            workflow_issues = [
+                Issue(
+                    error.split("\t", 1)[0],
+                    issue_severity(
+                        error.split("\t", 1)[0], args.strict_new_checks
+                    ),
+                    "workflow_state",
+                    error.split("\t", 1)[1] if "\t" in error else error,
+                )
+                for error in raw_errors
+            ]
+        except Exception as error:
+            workflow_issues = [
+                Issue("VALIDATOR_ERROR", "INVALID", "workflow_state", str(error))
+            ]
+        print(render("workflow_state", workflow_issues), flush=True)
+        workflow_exit = int(choose_exit(workflow_issues))
+        _VALIDATOR_FAULTS["workflow_state"] = False
+        print(f"workflow_state_exit={workflow_exit}", flush=True)
+    else:
+        workflow_command = [
+            sys.executable,
+            str(script_dir / "validate_workflow_state.py"),
+            "--root",
+            str(root),
+            "--state",
+            str(state_path),
+            "--current-year",
+            str(args.current_year),
+        ]
+        if args.strict_new_checks:
+            workflow_command.append("--strict-new-checks")
+        workflow_exit = run("workflow_state", workflow_command)
     workflow_issue = issue_for_exit("workflow_state", workflow_exit)
     if workflow_issue:
         suite_issues.append(workflow_issue)
@@ -398,7 +537,7 @@ def main() -> int:
             print("=== artifact_hashes ===")
             print("SKIP\tno_existing_manifest_and_reviewer_capability_unavailable")
         else:
-            artifact_exit = run(
+            artifact_exit = execute(
                 "artifact_hashes",
                 [
                     sys.executable,
@@ -410,12 +549,17 @@ def main() -> int:
                     "--manifest",
                     str(audit_manifest),
                 ],
+                ctx=ctx,
+                module="validate_artifact_hashes",
+                ctx_kwargs={
+                    "manifest_path": relative_cli_path(root, audit_manifest)
+                },
             )
             artifact_issue = issue_for_exit("artifact_hashes", artifact_exit)
             if artifact_issue:
                 suite_issues.append(artifact_issue)
 
-        audit_exit = run(
+        audit_exit = execute(
             "audit_provenance",
             [
                 sys.executable,
@@ -429,6 +573,12 @@ def main() -> int:
                 "--audit",
                 str(independent_audit),
             ],
+            ctx=ctx,
+            module="validate_audit_provenance",
+            ctx_kwargs={
+                "manifest_path": relative_cli_path(root, audit_manifest),
+                "audit_path": relative_cli_path(root, independent_audit),
+            },
         )
         audit_issue = issue_for_exit("audit_provenance", audit_exit)
         if audit_issue:
@@ -445,7 +595,7 @@ def main() -> int:
         gates.get("recent_frontier_complete")
     )
     if run_frontier:
-        frontier_exit = run(
+        frontier_exit = execute(
             "frontier_integrity",
             [
                 sys.executable,
@@ -461,6 +611,15 @@ def main() -> int:
                 "--frontier-coverage",
                 str(frontier_coverage),
             ],
+            ctx=ctx,
+            module="validate_frontier_integrity",
+            ctx_kwargs={
+                "paths": {
+                    "near_neighbor_registry": literature,
+                    "literature_claim_registry": claims,
+                    "frontier_coverage": frontier_coverage,
+                }
+            },
         )
         frontier_issue = issue_for_exit("frontier_integrity", frontier_exit)
         if frontier_issue:
@@ -484,7 +643,7 @@ def main() -> int:
                 )
             )
         else:
-            inventory_exit = run(
+            inventory_exit = execute(
                 "claim_inventory",
                 [
                     sys.executable,
@@ -496,6 +655,9 @@ def main() -> int:
                     "--inventory",
                     str(inventory),
                 ],
+                ctx=ctx,
+                module="validate_claim_inventory",
+                ctx_kwargs={"inventory_path": relative_cli_path(root, inventory)},
             )
             inventory_issue = issue_for_exit("claim_inventory", inventory_exit)
             if inventory_issue:
@@ -526,7 +688,7 @@ def main() -> int:
                 )
             )
         else:
-            theory_exit = run(
+            theory_exit = execute(
                 "theory_obligations",
                 [
                     sys.executable,
@@ -540,6 +702,12 @@ def main() -> int:
                     "--registry",
                     str(theory_obligations),
                 ],
+                ctx=ctx,
+                module="validate_theory_obligations",
+                ctx_kwargs={
+                    "registry_path": relative_cli_path(root, theory_obligations),
+                    "inventory_path": relative_cli_path(root, inventory),
+                },
             )
             theory_issue = issue_for_exit("theory_obligations", theory_exit)
             if theory_issue:
@@ -573,7 +741,7 @@ def main() -> int:
                     )
                 )
             elif baseline_budget.exists():
-                baseline_exit = run(
+                baseline_exit = execute(
                     "baseline_budget",
                     [
                         sys.executable,
@@ -588,12 +756,19 @@ def main() -> int:
                         str(baseline_budget),
                         "--baseline-only",
                     ],
+                    ctx=ctx,
+                    module="validate_protocol_contract",
+                    ctx_kwargs={
+                        "baseline_only": True,
+                        "baseline_budget": relative_cli_path(root, baseline_budget),
+                        "inventory": relative_cli_path(root, inventory),
+                    },
                 )
                 baseline_issue = issue_for_exit("baseline_budget", baseline_exit)
                 if baseline_issue:
                     suite_issues.append(baseline_issue)
         else:
-            protocol_exit = run(
+            protocol_exit = execute(
                 "protocol_contract",
                 [
                     sys.executable,
@@ -611,6 +786,14 @@ def main() -> int:
                     "--claim-code-trace",
                     str(claim_code_trace),
                 ],
+                ctx=ctx,
+                module="validate_protocol_contract",
+                ctx_kwargs={
+                    "inventory": relative_cli_path(root, inventory),
+                    "protocol": relative_cli_path(root, protocol_contract),
+                    "baseline_budget": relative_cli_path(root, baseline_budget),
+                    "claim_code_trace": relative_cli_path(root, claim_code_trace),
+                },
             )
             protocol_issue = issue_for_exit("protocol_contract", protocol_exit)
             if protocol_issue:
@@ -628,7 +811,7 @@ def main() -> int:
                     )
                 )
         else:
-            trace_exit = run(
+            trace_exit = execute(
                 "claim_code_trace",
                 [
                     sys.executable,
@@ -644,6 +827,13 @@ def main() -> int:
                     "--protocol",
                     str(protocol_contract),
                 ],
+                ctx=ctx,
+                module="validate_claim_code_trace",
+                ctx_kwargs={
+                    "inventory": relative_cli_path(root, inventory),
+                    "trace": relative_cli_path(root, claim_code_trace),
+                    "protocol": relative_cli_path(root, protocol_contract),
+                },
             )
             trace_issue = issue_for_exit("claim_code_trace", trace_exit)
             if trace_issue:
@@ -673,7 +863,7 @@ def main() -> int:
                     Issue("EVIDENCE_REQUIRED", "INVALID", "evidence_chain", path)
                 )
         else:
-            evidence_exit = run(
+            evidence_exit = execute(
                 "evidence_chain",
                 [
                     sys.executable,
@@ -689,6 +879,14 @@ def main() -> int:
                     "--current-year",
                     str(args.current_year),
                 ],
+                ctx=ctx,
+                module="validate_evidence_chain",
+                ctx_kwargs={
+                    "literature_path": relative_cli_path(root, literature),
+                    "claim_path": relative_cli_path(root, claims),
+                    "output_path": relative_cli_path(root, outputs),
+                    "current_year": args.current_year,
+                },
             )
             evidence_issue = issue_for_exit("evidence_chain", evidence_exit)
             if evidence_issue:
@@ -709,7 +907,7 @@ def main() -> int:
                 )
             )
         else:
-            literature_exit = run(
+            literature_exit = execute(
                 "literature_registry",
                 [
                     sys.executable,
@@ -720,6 +918,9 @@ def main() -> int:
                     str(literature),
                     "--read-only",
                 ],
+                ctx=ctx,
+                module="validate_literature_registry",
+                ctx_kwargs={"registry_path": relative_cli_path(root, literature)},
             )
             literature_issue = issue_for_exit("literature_registry", literature_exit)
             if literature_issue:
@@ -730,6 +931,8 @@ def main() -> int:
 
     # STOP 锁落地：锁期间状态被推进一律追加 INVALID（无论本次校验是否通过）；
     # 非零退出写锁；READY 自动清锁。
+    if ctx is not None:
+        ctx.close()
     if pending_lock is not None and state_rank(
         effective_state_of(state)
     ) > state_rank(pending_lock.get("effective_state")):

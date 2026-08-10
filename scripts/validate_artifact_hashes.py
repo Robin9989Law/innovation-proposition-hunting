@@ -9,17 +9,17 @@ import json
 import os
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Callable
 
 from validation_common import (
     Issue,
+    ProjectContext,
+    SafeFileSnapshot,
     UnsafePathError,
     canonical_relative_path,
     choose_exit,
     lexical_relative_cli_path,
     nonempty_string,
-    open_root_fd,
-    read_json_object_at,
     read_regular_file_at,
     render,
 )
@@ -47,11 +47,13 @@ def bundle_sha256(entries: list[dict[str, str]]) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def validate(
-    root_fd: int,
+def _validate_bundle(
+    read: Callable[[str], SafeFileSnapshot],
     state: dict[str, Any],
     manifest: dict[str, Any],
 ) -> list[Issue]:
+    # read：按 manifest 相对路径取当前文件快照（哈希）；库入口传
+    # ctx.snapshot 以复用缓存，CLI 包装传 read_regular_file_at。
     issues: list[Issue] = []
     if manifest.get("schema_version") != "2.0":
         issues.append(
@@ -160,7 +162,7 @@ def validate(
             continue
 
         try:
-            snapshot = read_regular_file_at(root_fd, raw_path)
+            snapshot = read(raw_path)
         except FileNotFoundError:
             issues.append(
                 Issue(
@@ -252,6 +254,30 @@ def validate(
     return issues
 
 
+def validate(
+    root_fd: int,
+    state: dict[str, Any],
+    manifest: dict[str, Any],
+) -> list[Issue]:
+    """兼容包装：逐条目现场哈希（无缓存），保持原模块 API。"""
+
+    return _validate_bundle(
+        lambda raw_path: read_regular_file_at(root_fd, raw_path), state, manifest
+    )
+
+
+def validate_with_context(
+    ctx: ProjectContext, *, manifest_path: str | None = None
+) -> list[Issue]:
+    """库入口：state 复用 ctx.state，manifest 经 ctx.load_json 缓存解析，
+    条目哈希核验走 ctx.snapshot 缓存。manifest_path 为相对路径覆盖
+    （CLI 覆盖参数由此传入）；缺省按 state["artifacts"] 解析。"""
+
+    relative = manifest_path or ctx.artifact_relative_path("audit_manifest")
+    manifest = ctx.load_json(relative, "audit_manifest")
+    return _validate_bundle(ctx.snapshot, ctx.state, manifest)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
@@ -261,20 +287,19 @@ def main() -> int:
     args = parser.parse_args()
 
     root = Path(os.path.abspath(args.root))
-    root_fd: int | None = None
     try:
-        state_relative = lexical_relative_cli_path(root, args.state, "state")
-        manifest_path = args.manifest or root / "audit_manifest.json"
-        manifest_relative = lexical_relative_cli_path(root, manifest_path, "manifest")
-        root_fd = open_root_fd(root)
-        state = read_json_object_at(root_fd, state_relative, "workflow_state")
-        manifest = read_json_object_at(root_fd, manifest_relative, "audit_manifest")
-        issues = validate(root_fd, state, manifest)
+        with ProjectContext(root, args.state) as ctx:
+            manifest_relative = lexical_relative_cli_path(
+                root, args.manifest or root / "audit_manifest.json", "manifest"
+            )
+            issues = validate_with_context(ctx, manifest_path=manifest_relative)
     except Exception as error:
-        issues = [Issue("VALIDATOR_ERROR", "INVALID", "artifact_hashes", str(error))]
-    finally:
-        if root_fd is not None:
-            os.close(root_fd)
+        # ctx.load_json 的 os.stat 用绝对路径，OSError 文本需剥掉 root 前缀；
+        # ctx 内部以 label "state" 抛 TypeError，历史输出用 "workflow_state"。
+        detail = str(error).replace(f"{root}/", "")
+        if detail.startswith("state:top_level_not_object"):
+            detail = "workflow_state:" + detail[len("state:"):]
+        issues = [Issue("VALIDATOR_ERROR", "INVALID", "artifact_hashes", detail)]
 
     print(render("artifact_hashes", issues, args.json))
     return int(choose_exit(issues))

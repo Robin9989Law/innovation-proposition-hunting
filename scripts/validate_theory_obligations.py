@@ -6,24 +6,22 @@ from __future__ import annotations
 import argparse
 from collections import Counter, defaultdict
 import hashlib
-import os
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Callable
 
 from validation_common import (
     Issue,
+    ProjectContext,
+    SafeFileSnapshot,
     StrictJSONError,
     UnsafePathError,
     canonical_relative_path,
     choose_exit,
     lexical_relative_cli_path,
     nonempty_string,
-    open_root_fd,
     positive_integer,
-    read_regular_file_at,
     render,
-    strict_json_load_bytes,
     string_list,
 )
 
@@ -55,6 +53,9 @@ JSON_OBJECT_ERROR_CODES = {
     "theory_obligation_registry": "INVALID_THEORY_REGISTRY",
 }
 
+# 见证输出文件的读取通道：相对路径 -> fd 级安全快照（CLI 与库函数共用）。
+SnapshotReader = Callable[[str], SafeFileSnapshot]
+
 
 def statement_sha256(statement: str) -> str:
     return hashlib.sha256(statement.encode("utf-8")).hexdigest()
@@ -68,27 +69,24 @@ def missing_issue(code: str, item_id: str, field: str) -> Issue:
     return Issue(code, "INVALID", item_id, f"missing_or_empty:{field}")
 
 
-def load_required_json(
-    root_fd: int, relative_path: str, label: str
+def load_required_json_ctx(
+    ctx: ProjectContext, relative_path: str, label: str
 ) -> tuple[dict[str, Any] | None, list[Issue]]:
+    """与原 load_required_json 同语义，但读取改走 ctx 的缓存 strict JSON 通道。"""
+
     try:
-        snapshot = read_regular_file_at(root_fd, relative_path, include_data=True)
+        payload = ctx.load_json(relative_path, label)
     except FileNotFoundError:
         return None, []
     except UnsafePathError as error:
         return None, [Issue("VALIDATOR_ERROR", "INVALID", label, str(error))]
-    except OSError as error:
-        return None, [
-            Issue("VALIDATOR_ERROR", "INVALID", label, type(error).__name__)
-        ]
-    assert snapshot.data is not None
-    try:
-        payload = strict_json_load_bytes(snapshot.data)
     except StrictJSONError as error:
         return None, [
             Issue(JSON_ERROR_CODES[label], "INVALID", label, str(error))
         ]
-    if not isinstance(payload, dict):
+    except TypeError as error:
+        if "top_level_not_object" not in str(error):
+            raise
         return None, [
             Issue(
                 JSON_OBJECT_ERROR_CODES[label],
@@ -97,6 +95,11 @@ def load_required_json(
                 "top_level_not_object",
             )
         ]
+    except OSError as error:
+        return None, [
+            Issue("VALIDATOR_ERROR", "INVALID", label, type(error).__name__)
+        ]
+    assert isinstance(payload, dict)
     return payload, []
 
 
@@ -380,7 +383,7 @@ def validate_random_property_na(
 
 
 def validate_witnesses(
-    root_fd: int,
+    read_snapshot: SnapshotReader,
     obligation: dict[str, Any],
     state: dict[str, Any],
     item_id: str,
@@ -532,7 +535,7 @@ def validate_witnesses(
             continue
         output_paths[output_path].append(witness_id)
         try:
-            snapshot = read_regular_file_at(root_fd, output_path)
+            snapshot = read_snapshot(output_path)
         except FileNotFoundError:
             issues.append(
                 Issue(
@@ -629,7 +632,7 @@ def validate_witnesses(
 
 
 def validate(
-    root_fd: int,
+    read_snapshot: SnapshotReader,
     state: dict[str, Any],
     inventory: dict[str, Any],
     registry: dict[str, Any],
@@ -834,7 +837,7 @@ def validate(
                     "claim_not_found_or_not_theorem_lemma_corollary",
                 )
             )
-        issues.extend(validate_witnesses(root_fd, obligation, state, item_id))
+        issues.extend(validate_witnesses(read_snapshot, obligation, state, item_id))
 
     counts = Counter(obligation_ids)
     for claim_id, count in counts.items():
@@ -860,6 +863,76 @@ def validate(
     return issues
 
 
+def validate_with_context(
+    ctx: ProjectContext,
+    *,
+    registry_path: str | None = None,
+    inventory_path: str | None = None,
+) -> list[Issue]:
+    """库函数入口：复用 ctx 已解析的 state 与缓存读取，校验语义与 CLI 完全一致。
+
+    registry_path / inventory_path 为 CLI 显式覆盖（调用方需已词法相对化）；
+    缺省走 state["artifacts"]（ctx.artifact_relative_path），再回退默认文件名。
+    """
+
+    state = ctx.state
+    profile = state.get("claim_profile")
+    if not isinstance(profile, str) or profile not in {
+        "THEORY",
+        "MIXED",
+        "ALGORITHM",
+    }:
+        return [
+            Issue(
+                "INVALID_CLAIM_PROFILE",
+                "INVALID",
+                "workflow_state",
+                f"claim_profile:{profile}",
+            )
+        ]
+    registry_relative = registry_path or ctx.artifact_relative_path(
+        "theory_obligations"
+    )
+    inventory_relative = inventory_path or ctx.artifact_relative_path(
+        "claim_inventory"
+    )
+    registry, registry_issues = load_required_json_ctx(
+        ctx, registry_relative, "theory_obligation_registry"
+    )
+    if registry is None and not registry_issues:
+        return (
+            [
+                Issue(
+                    "THEORY_OBLIGATION_REGISTRY_REQUIRED",
+                    "INVALID",
+                    "theory_obligation_registry",
+                    registry_relative,
+                )
+            ]
+            if profile in THEORY_PROFILES
+            else []
+        )
+    if registry is None:
+        return registry_issues
+    inventory, inventory_issues = load_required_json_ctx(
+        ctx, inventory_relative, "claim_inventory"
+    )
+    if inventory is None and not inventory_issues:
+        return [
+            Issue(
+                "CLAIM_INVENTORY_REQUIRED",
+                "INVALID",
+                "claim_inventory",
+                inventory_relative,
+            )
+        ]
+    if inventory is None:
+        return inventory_issues
+    return registry_issues + inventory_issues + validate(
+        ctx.snapshot, state, inventory, registry
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
@@ -869,23 +942,24 @@ def main() -> int:
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    root_fd: int | None = None
+    ctx: ProjectContext | None = None
     try:
-        root_fd = open_root_fd(args.root)
+        # 显式 CLI 覆盖参数保持原语义：先做词法相对化，越界即 UnsafePathError。
         state_relative = lexical_relative_cli_path(args.root, args.state, "state")
-        inventory_path = args.inventory or (args.root / "claim_inventory.json")
-        registry_path = args.registry or (args.root / "theory_obligation_registry.json")
-        inventory_relative = lexical_relative_cli_path(
-            args.root, inventory_path, "inventory"
+        inventory_override = (
+            lexical_relative_cli_path(args.root, args.inventory, "inventory")
+            if args.inventory is not None
+            else None
         )
-        registry_relative = lexical_relative_cli_path(
-            args.root, registry_path, "registry"
+        registry_override = (
+            lexical_relative_cli_path(args.root, args.registry, "registry")
+            if args.registry is not None
+            else None
         )
-        state, state_issues = load_required_json(
-            root_fd, state_relative, "workflow_state"
-        )
-        if state is None:
-            issues = state_issues or [
+        try:
+            ctx = ProjectContext(args.root, args.state)
+        except FileNotFoundError:
+            issues = [
                 Issue(
                     "WORKFLOW_STATE_REQUIRED",
                     "INVALID",
@@ -893,59 +967,48 @@ def main() -> int:
                     state_relative,
                 )
             ]
-        else:
-            profile = state.get("claim_profile")
-            if not isinstance(profile, str) or profile not in {
-                "THEORY",
-                "MIXED",
-                "ALGORITHM",
-            }:
-                issues = [
-                    Issue(
-                        "INVALID_CLAIM_PROFILE",
-                        "INVALID",
-                        "workflow_state",
-                        f"claim_profile:{profile}",
-                    )
-                ]
-            else:
-                registry, registry_issues = load_required_json(
-                    root_fd, registry_relative, "theory_obligation_registry"
+        except StrictJSONError as error:
+            issues = [
+                Issue(
+                    JSON_ERROR_CODES["workflow_state"],
+                    "INVALID",
+                    "workflow_state",
+                    str(error),
                 )
-                if registry is None and not registry_issues:
-                    issues = (
-                        [
-                            Issue(
-                                "THEORY_OBLIGATION_REGISTRY_REQUIRED",
-                                "INVALID",
-                                "theory_obligation_registry",
-                                registry_relative,
-                            )
-                        ]
-                        if profile in THEORY_PROFILES
-                        else []
-                    )
-                elif registry is None:
-                    issues = registry_issues
-                else:
-                    inventory, inventory_issues = load_required_json(
-                        root_fd, inventory_relative, "claim_inventory"
-                    )
-                    if inventory is None and not inventory_issues:
-                        issues = [
-                            Issue(
-                                "CLAIM_INVENTORY_REQUIRED",
-                                "INVALID",
-                                "claim_inventory",
-                                inventory_relative,
-                            )
-                        ]
-                    elif inventory is None:
-                        issues = inventory_issues
-                    else:
-                        issues = registry_issues + inventory_issues + validate(
-                            root_fd, state, inventory, registry
-                        )
+            ]
+        except TypeError as error:
+            if "top_level_not_object" not in str(error):
+                raise
+            issues = [
+                Issue(
+                    JSON_OBJECT_ERROR_CODES["workflow_state"],
+                    "INVALID",
+                    "workflow_state",
+                    "top_level_not_object",
+                )
+            ]
+        except UnsafePathError as error:
+            # root 本身不可安全打开时维持原通用 VALIDATOR_ERROR 语义。
+            if str(error).startswith("root:"):
+                raise
+            issues = [
+                Issue("VALIDATOR_ERROR", "INVALID", "workflow_state", str(error))
+            ]
+        except OSError as error:
+            issues = [
+                Issue(
+                    "VALIDATOR_ERROR",
+                    "INVALID",
+                    "workflow_state",
+                    type(error).__name__,
+                )
+            ]
+        else:
+            issues = validate_with_context(
+                ctx,
+                registry_path=registry_override,
+                inventory_path=inventory_override,
+            )
     except Exception as error:
         issues = [
             Issue(
@@ -956,8 +1019,8 @@ def main() -> int:
             )
         ]
     finally:
-        if root_fd is not None:
-            os.close(root_fd)
+        if ctx is not None:
+            ctx.close()
 
     print(render("theory_obligations", issues, args.json))
     return int(choose_exit(issues))

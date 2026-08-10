@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ from typing import Any
 from validation_common import (
     ExitCode,
     Issue,
+    ProjectContext,
     StrictJSONError,
     UnsafePathError,
     choose_exit,
@@ -443,6 +445,89 @@ def validate(
     ]
 
 
+def _state_label_detail(error: Exception) -> str:
+    # ctx 内部以 label "state" 抛错；CLI 历史输出使用 "workflow_state"。
+    detail = str(error)
+    if detail.startswith("state:"):
+        return "workflow_state:" + detail[len("state:"):]
+    return detail
+
+
+def _relative_error_detail(root: Path, error: Exception) -> str:
+    # ctx.load_json 的 os.stat 使用绝对路径，OSError 文本含绝对路径；
+    # 历史 CLI 以 dir_fd 相对打开，文本为相对路径。剥掉 root 前缀保持一致。
+    return str(error).replace(f"{root}/", "")
+
+
+def validate_with_context(
+    ctx: ProjectContext, *, paths: dict[str, Path] | None = None
+) -> list[Issue]:
+    """库入口：复用 ctx 已解析的 state 与 strict JSON 缓存。
+
+    paths 为调用方显式覆盖（label -> 路径，CLI 覆盖参数由此传入）；
+    缺省按 state["artifacts"] 解析并回退默认文件名。逐文件做路径
+    转换+读取，保持与原 CLI 完全一致的逐文件错误顺序。
+    """
+
+    issues: list[Issue] = []
+    payloads: dict[str, dict[str, Any]] = {}
+    artifact_keys = {
+        "near_neighbor_registry": "literature_registry",
+        "literature_claim_registry": "claim_registry",
+        "frontier_coverage": "frontier_coverage",
+    }
+    overrides = paths or {}
+    for label, key in artifact_keys.items():
+        try:
+            override = overrides.get(label)
+            relative = (
+                lexical_relative_cli_path(ctx.root, override, label)
+                if override is not None
+                else ctx.artifact_relative_path(key)
+            )
+            payloads[label] = ctx.load_json(relative, label)
+        except StrictJSONError as error:
+            add(issues, "STRICT_JSON", label, str(error))
+        except (OSError, TypeError, UnsafePathError, ValueError) as error:
+            add(
+                issues,
+                "UNSAFE_OR_MISSING_ARTIFACT",
+                label,
+                _relative_error_detail(ctx.root, error),
+            )
+    if issues:
+        return issues
+    return validate(
+        ctx.state,
+        payloads["near_neighbor_registry"],
+        payloads["literature_claim_registry"],
+        payloads["frontier_coverage"],
+    )
+
+
+def _collect_artifact_errors(root: Path, paths: dict[str, Path]) -> list[Issue]:
+    # state 读取失败后的兼容回退：原 CLI 会继续逐个读取其余输入以聚合
+    # 错误（不跑 validate）。root 此前已成功打开，此处失败则无新增可报告项。
+    issues: list[Issue] = []
+    root_fd: int | None = None
+    try:
+        root_fd = open_root_fd(root)
+        for label, path in paths.items():
+            try:
+                relative = lexical_relative_cli_path(root, path, label)
+                read_json_object_at(root_fd, relative, label)
+            except StrictJSONError as error:
+                add(issues, "STRICT_JSON", label, str(error))
+            except (OSError, TypeError, UnsafePathError, ValueError) as error:
+                add(issues, "UNSAFE_OR_MISSING_ARTIFACT", label, str(error))
+    except (OSError, UnsafePathError, RuntimeError):
+        pass
+    finally:
+        if root_fd is not None:
+            os.close(root_fd)
+    return issues
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
@@ -453,45 +538,50 @@ def main() -> int:
     args = parser.parse_args()
 
     root = args.root.absolute()
-    paths = {
-        "workflow_state": args.state,
+    cli_paths = {
         "near_neighbor_registry": args.literature_registry
         or root / "near_neighbor_registry.json",
         "literature_claim_registry": args.claim_registry
         or root / "literature_claim_registry.json",
         "frontier_coverage": args.frontier_coverage or root / "frontier_coverage.json",
     }
-    root_fd: int | None = None
     issues: list[Issue] = []
-    payloads: dict[str, dict[str, Any]] = {}
+    ctx: ProjectContext | None = None
+    root_failed = False
     try:
-        root_fd = open_root_fd(root)
-        for label, path in paths.items():
-            try:
-                relative = lexical_relative_cli_path(root, path, label)
-                payloads[label] = read_json_object_at(root_fd, relative, label)
-            except StrictJSONError as error:
-                add(issues, "STRICT_JSON", label, str(error))
-            except (OSError, TypeError, UnsafePathError, ValueError) as error:
-                add(issues, "UNSAFE_OR_MISSING_ARTIFACT", label, str(error))
-    except (OSError, UnsafePathError, RuntimeError) as error:
-        add(issues, "UNSAFE_PROJECT_ROOT", "root", str(error))
-    finally:
-        if root_fd is not None:
-            import os
-
-            os.close(root_fd)
-
-    required = set(paths)
-    if not issues and required == set(payloads):
-        issues.extend(
-            validate(
-                payloads["workflow_state"],
-                payloads["near_neighbor_registry"],
-                payloads["literature_claim_registry"],
-                payloads["frontier_coverage"],
-            )
+        ctx = ProjectContext(root, args.state)
+    except StrictJSONError as error:
+        add(issues, "STRICT_JSON", "workflow_state", str(error))
+    except UnsafePathError as error:
+        detail = _state_label_detail(error)
+        if str(error).startswith("root:"):
+            root_failed = True
+            add(issues, "UNSAFE_PROJECT_ROOT", "root", detail)
+        else:
+            add(issues, "UNSAFE_OR_MISSING_ARTIFACT", "workflow_state", detail)
+    except (OSError, RuntimeError) as error:
+        if isinstance(error, OSError):
+            # open_root_fd 内部已把 OSError 包成 UnsafePathError；裸 OSError
+            # 只可能来自 state 文件读取（如 FileNotFoundError）。
+            add(issues, "UNSAFE_OR_MISSING_ARTIFACT", "workflow_state", str(error))
+        else:
+            root_failed = True
+            add(issues, "UNSAFE_PROJECT_ROOT", "root", str(error))
+    except (TypeError, ValueError) as error:
+        add(
+            issues,
+            "UNSAFE_OR_MISSING_ARTIFACT",
+            "workflow_state",
+            _state_label_detail(error),
         )
+
+    if ctx is not None and not issues:
+        with ctx:
+            # 显式 CLI 覆盖参数优先；缺省保持固定的默认文件名（不读
+            # state["artifacts"]），与历史 CLI 行为一致。
+            issues.extend(validate_with_context(ctx, paths=cli_paths))
+    elif ctx is None and not root_failed:
+        issues.extend(_collect_artifact_errors(root, cli_paths))
     print(render("frontier_integrity", issues))
     return int(choose_exit(issues))
 
