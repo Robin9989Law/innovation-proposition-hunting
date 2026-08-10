@@ -1,0 +1,40 @@
+{
+  "schema_version": "2.0",
+  "axes": {
+    "method_synonyms": [
+      "robust online regression"
+    ],
+    "target_tasks": [
+      "streaming prediction"
+    ],
+    "theory_terms": [
+      "bounded influence"
+    ],
+    "algorithm_structures": [
+      "predict then update"
+    ],
+    "author_continuations": [
+      "follow-up works by key authors"
+    ],
+    "backward_citations": [
+      "references of the nearest neighbor"
+    ],
+    "forward_citations": [
+      "works citing the nearest neighbor"
+    ]
+  },
+  "routes": [
+    {
+      "route_id": "keyword-search",
+      "route_type": "DISCOVERY",
+      "independent": true,
+      "details": "Search method, task, and theory terms."
+    },
+    {
+      "route_id": "citation-graph",
+      "route_type": "CITATION_GRAPH",
+      "independent": true,
+      "details": "Traverse backward and forward citations."
+    }
+  ]
+}

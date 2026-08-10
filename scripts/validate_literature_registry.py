@@ -108,6 +108,32 @@ def load_registry(
         if record_id in seen_ids:
             duplicate_ids.append(record_id)
         seen_ids.add(record_id)
+        history = record.get("importance_history")
+        if history is not None:
+            if not isinstance(history, list) or not history or not all(
+                isinstance(event, dict) for event in history
+            ):
+                publication_errors.append(
+                    (record_id, "invalid_importance_history")
+                )
+            elif record.get("importance") != history[-1].get("importance"):
+                publication_errors.append(
+                    (record_id, "importance_history_mismatch")
+                )
+            else:
+                downgrade = any(
+                    prior.get("importance") in {"CRITICAL", "IMPORTANT"}
+                    and current.get("importance") == "CONTEXT"
+                    for prior, current in zip(history, history[1:])
+                )
+                download = record.get("download")
+                download_status = (
+                    download.get("status") if isinstance(download, dict) else None
+                )
+                if downgrade and download_status in {"DOWNLOAD_BLOCKED", "BLOCKED"}:
+                    publication_errors.append(
+                        (record_id, "download_blocked_cannot_downgrade")
+                    )
         publication_status = record.get("publication_status")
         eligibility = record.get("terminal_rejection_eligibility")
         verification_url = record.get("publication_verification_url")

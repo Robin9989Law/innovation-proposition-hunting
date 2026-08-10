@@ -117,6 +117,7 @@ def main() -> int:
     parser.add_argument("--claim-code-trace", type=Path)
     parser.add_argument("--audit-manifest", type=Path)
     parser.add_argument("--independent-audit", type=Path)
+    parser.add_argument("--frontier-coverage", type=Path)
     args = parser.parse_args()
 
     root = args.root.resolve()
@@ -172,6 +173,11 @@ def main() -> int:
         if args.independent_audit
         else root / "independent_audit.json"
     )
+    frontier_coverage = (
+        args.frontier_coverage.absolute()
+        if args.frontier_coverage
+        else root / "frontier_coverage.json"
+    )
 
     try:
         if not root.is_dir():
@@ -188,6 +194,7 @@ def main() -> int:
             ("claim_code_trace", claim_code_trace),
             ("audit_manifest", audit_manifest),
             ("independent_audit", independent_audit),
+            ("frontier_coverage", frontier_coverage),
         ):
             require_within_root(root, path, label)
         state = load_state(state_path)
@@ -283,6 +290,34 @@ def main() -> int:
     )
     dispatch_state = effective_state if isinstance(effective_state, str) else ""
     gates = state.get("gates") if isinstance(state.get("gates"), dict) else {}
+
+    run_frontier = dispatch_state == "RECENT_FRONTIER" or bool(
+        gates.get("recent_frontier_complete")
+    )
+    if run_frontier:
+        frontier_exit = run(
+            "frontier_integrity",
+            [
+                sys.executable,
+                str(script_dir / "validate_frontier_integrity.py"),
+                "--root",
+                str(root),
+                "--state",
+                str(state_path),
+                "--literature-registry",
+                str(literature),
+                "--claim-registry",
+                str(claims),
+                "--frontier-coverage",
+                str(frontier_coverage),
+            ],
+        )
+        frontier_issue = issue_for_exit("frontier_integrity", frontier_exit)
+        if frontier_issue:
+            suite_issues.append(frontier_issue)
+    else:
+        print("=== frontier_integrity ===")
+        print(f"SKIP\tnot_required_at_state:{effective_state}")
 
     run_claim_inventory = (
         inventory.exists() or dispatch_state in CLAIM_INVENTORY_REQUIRED_STATES

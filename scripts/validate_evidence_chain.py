@@ -24,6 +24,14 @@ CLAIM_TYPES = {
     "COUNTEREXAMPLE",
 }
 EVIDENCE_LEVELS = {"E0", "E1", "E2", "E3", "E4"}
+ARTIFACT_KINDS = {
+    "OFFICIAL_METADATA",
+    "OFFICIAL_ABSTRACT",
+    "FULL_ARTICLE_HTML",
+    "FULL_ARTICLE_PDF",
+    "PROOF_OR_APPENDIX",
+}
+FULL_ARTICLE_KINDS = {"FULL_ARTICLE_HTML", "FULL_ARTICLE_PDF"}
 VERIFIED_CLAIM_STATUSES = {"VERIFIED_FULLTEXT", "VERIFIED_OFFICIAL_HTML"}
 SUPPORT_ROLES = {"SUPPORTS", "CONTRADICTS", "QUALIFIES", "METHOD_FOR"}
 USE_STATUSES = {"UNUSED", "USED", "EXCLUDED_WITH_REASON"}
@@ -236,6 +244,20 @@ def validate(
             add(errors, "CLAIM", claim_id, f"invalid_evidence_level:{claim.get('evidence_level')}")
         elif claim.get("evidence_level") not in {"E2", "E3", "E4"}:
             add(errors, "CLAIM", claim_id, f"important_claim_below_E2:{claim.get('evidence_level')}")
+        artifact_kind = claim.get("source_artifact_kind")
+        if artifact_kind is not None:
+            if artifact_kind not in ARTIFACT_KINDS:
+                add(errors, "INVALID_ARTIFACT_KIND", claim_id, f"source_artifact_kind:{artifact_kind}")
+            elif claim.get("evidence_level") == "E2" and artifact_kind not in FULL_ARTICLE_KINDS:
+                add(errors, "E2_REQUIRES_FULLTEXT", claim_id, f"source_artifact_kind:{artifact_kind}")
+            elif claim.get("evidence_level") == "E4" and not (
+                artifact_kind == "PROOF_OR_APPENDIX"
+                or (
+                    artifact_kind in FULL_ARTICLE_KINDS
+                    and nonempty(claim.get("proof_locator"))
+                )
+            ):
+                add(errors, "E4_REQUIRES_PROOF", claim_id, f"source_artifact_kind:{artifact_kind}")
         if claim.get("verification_status") not in VERIFIED_CLAIM_STATUSES:
             add(errors, "CLAIM", claim_id, f"not_fulltext_verified:{claim.get('verification_status')}")
         locator = claim.get("locator")
