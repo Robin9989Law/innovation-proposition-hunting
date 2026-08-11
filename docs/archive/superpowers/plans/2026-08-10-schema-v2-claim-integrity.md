@@ -1,3 +1,5 @@
+> **状态：已归档（2026-08-11）**。本文件是 Schema 2.0 实施前的设计/计划档案，内容可能已过时；现行规范以 SKILL.md、templates.md 与 scripts/ 校验器为准。
+
 # Schema v2 Claim Integrity Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

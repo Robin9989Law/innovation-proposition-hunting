@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -25,26 +25,33 @@ from validate_schema_v2 import validate as validate_schema_v2
 
 
 STATES = {
+    # L1_SCOUT 段（证据层级 L1：仅元数据，零全文零原子观点）
     "BOOT",
     "SCOPE_LOCK",
     "PRIOR_CLAIM_DRAIN",
     "RECENT_FRONTIER",
     "LITERATURE_REGISTER",
-    "IMPORTANT_FULLTEXT",
-    "SOURCE_CLAIM_REGISTER",
+    "L1_FREEZE",
+    # L2_TRIAGE 段（证据层级 L2：≤12 全文试读、K 集合选拔，不提取原子观点）
+    "L2_TRIAGE",
+    "LAYER_DECISION",
+    # L3_EVIDENCE 段（证据层级 L3：只对 K 集合跑全文归档与观点提取）
+    "K_FULLTEXT",
+    "K_CLAIM_REGISTER",
     "SYNTHESIZE_COLLISION",
     "OUTPUT_CLAIM_BIND",
     "EVIDENCE_VALIDATE",
-    "LAYER_DECISION",
     "N0_AUDIT",
+    # VALIDITY 轴
     "CLAIM_FREEZE",
     "VALIDITY_AUDIT",
     "INDEPENDENT_REVIEW",
     "DIRECTION_LOCK",
-    "COMPUTE",
     "POSTCOMPUTE_CLAIM_FREEZE",
     "FINAL_VALIDITY_AUDIT",
     "FINAL_LOCK",
+    # COMPUTE 轴与终态
+    "COMPUTE",
     "BLOCKED",
     "COMPLETE",
 }
@@ -59,7 +66,6 @@ CONTRACTS = {
     "THREE_ORGANIC_A_B_C",
     "ONE_MAIN_M",
 }
-LAYERS = {"UNRESOLVED", "L1", "L2", "ARCHITECTURE", "L3"}
 CONTRIBUTIONS = {"NONE", "M", "A", "B", "C"}
 SEARCH_MODES = {"SEARCH_OPEN", "SYNTHESIS_LOCK", "EXCEPTION_REOPEN"}
 COMPUTE_STAGES = {"NOT_STARTED", "S0", "S1", "S2", "S3", "S4", "STOPPED"}
@@ -69,13 +75,14 @@ GATE_KEYS = {
     "prior_claims_drained",
     "recent_frontier_complete",
     "literature_registry_valid",
-    "important_fulltext_complete",
-    "source_claims_complete",
-    "output_claims_traced",
-    "evidence_validated",
     "l1_frozen",
+    "k_set_selected",
     "l2_frozen",
     "architecture_frozen",
+    "k_fulltext_complete",
+    "k_claims_complete",
+    "output_claims_traced",
+    "evidence_validated",
     "n0_4_locked",
     "compute_authorized",
 }
@@ -90,45 +97,25 @@ STATE_PREREQUISITES = {
         "prior_claims_drained",
         "recent_frontier_complete",
     ),
-    "IMPORTANT_FULLTEXT": (
+    "L1_FREEZE": (
         "scope_locked",
         "prior_claims_drained",
         "recent_frontier_complete",
         "literature_registry_valid",
     ),
-    "SOURCE_CLAIM_REGISTER": (
+    "L2_TRIAGE": (
         "scope_locked",
         "prior_claims_drained",
         "recent_frontier_complete",
         "literature_registry_valid",
-        "important_fulltext_complete",
+        "l1_frozen",
     ),
-    "SYNTHESIZE_COLLISION": (
-        "scope_locked",
-        "prior_claims_drained",
-        "recent_frontier_complete",
-        "literature_registry_valid",
-        "important_fulltext_complete",
-        "source_claims_complete",
-    ),
-    "OUTPUT_CLAIM_BIND": (
-        "scope_locked",
-        "prior_claims_drained",
-        "recent_frontier_complete",
-        "literature_registry_valid",
-        "important_fulltext_complete",
-        "source_claims_complete",
-    ),
-    "EVIDENCE_VALIDATE": (
-        "scope_locked",
-        "prior_claims_drained",
-        "recent_frontier_complete",
-        "literature_registry_valid",
-        "important_fulltext_complete",
-        "source_claims_complete",
-        "output_claims_traced",
-    ),
-    "LAYER_DECISION": ("scope_locked", "evidence_validated"),
+    "LAYER_DECISION": ("scope_locked", "k_set_selected"),
+    "K_FULLTEXT": ("scope_locked", "l2_frozen", "architecture_frozen"),
+    "K_CLAIM_REGISTER": ("scope_locked", "k_fulltext_complete"),
+    "SYNTHESIZE_COLLISION": ("scope_locked", "k_claims_complete"),
+    "OUTPUT_CLAIM_BIND": ("scope_locked", "k_claims_complete"),
+    "EVIDENCE_VALIDATE": ("scope_locked", "output_claims_traced"),
     "N0_AUDIT": (
         "scope_locked",
         "evidence_validated",
@@ -143,8 +130,12 @@ STATE_PREREQUISITES = {
 GATE_ARTIFACTS = {
     "scope_locked": ("scope_lock", "hierarchy_status"),
     "literature_registry_valid": ("literature_registry",),
-    "important_fulltext_complete": ("literature_archive",),
-    "source_claims_complete": ("claim_registry",),
+    "l1_frozen": ("l1_card",),
+    "k_set_selected": ("k_triage",),
+    "l2_frozen": ("l2_card",),
+    "architecture_frozen": ("contribution_architecture",),
+    "k_fulltext_complete": ("literature_archive",),
+    "k_claims_complete": ("claim_registry",),
     "output_claims_traced": ("output_support",),
     "evidence_validated": (
         "literature_registry",
@@ -152,11 +143,174 @@ GATE_ARTIFACTS = {
         "output_support",
         "validation_log",
     ),
-    "l1_frozen": ("l1_card",),
-    "l2_frozen": ("l2_card",),
-    "architecture_frozen": ("contribution_architecture",),
     "n0_4_locked": ("hierarchy_novelty_audit",),
 }
+
+# gate -> 置真该 gate 的状态。置真必须能在 decision_log 中找到对应状态的完成
+# 记录（条目 state 允许 "BLOCKED@<STATE>" 形式），否则视为"自报置真"。
+GATE_COMPLETION_STATE = {
+    "scope_locked": "SCOPE_LOCK",
+    "prior_claims_drained": "PRIOR_CLAIM_DRAIN",
+    "recent_frontier_complete": "RECENT_FRONTIER",
+    "literature_registry_valid": "LITERATURE_REGISTER",
+    "l1_frozen": "L1_FREEZE",
+    "k_set_selected": "L2_TRIAGE",
+    "l2_frozen": "LAYER_DECISION",
+    "architecture_frozen": "LAYER_DECISION",
+    "k_fulltext_complete": "K_FULLTEXT",
+    "k_claims_complete": "K_CLAIM_REGISTER",
+    "output_claims_traced": "OUTPUT_CLAIM_BIND",
+    "evidence_validated": "EVIDENCE_VALIDATE",
+    "n0_4_locked": "N0_AUDIT",
+}
+
+TRACK_STATES = {
+    "NOVELTY": {
+        "BOOT",
+        "SCOPE_LOCK",
+        "PRIOR_CLAIM_DRAIN",
+        "RECENT_FRONTIER",
+        "LITERATURE_REGISTER",
+        "L1_FREEZE",
+        "L2_TRIAGE",
+        "LAYER_DECISION",
+        "K_FULLTEXT",
+        "K_CLAIM_REGISTER",
+        "SYNTHESIZE_COLLISION",
+        "OUTPUT_CLAIM_BIND",
+        "EVIDENCE_VALIDATE",
+        "N0_AUDIT",
+    },
+    "VALIDITY": {
+        "CLAIM_FREEZE",
+        "VALIDITY_AUDIT",
+        "INDEPENDENT_REVIEW",
+        "DIRECTION_LOCK",
+        "POSTCOMPUTE_CLAIM_FREEZE",
+        "FINAL_VALIDITY_AUDIT",
+        "FINAL_LOCK",
+    },
+    "COMPUTE": {"COMPUTE"},
+}
+
+# 新增检查码：默认 WARNING（不计入退出码），--strict-new-checks 升为 INVALID。
+# 不在此集合内的码维持原有严重级语义。
+NEW_CHECK_CODES = frozenset(
+    {
+        "DECISION_LOG_ENTRY_SCHEMA",
+        "DECISION_LOG_UNKNOWN_STATE",
+        "DECISION_LOG_NON_MONOTONIC",
+        "FUTURE_DECISION_TIMESTAMP",
+        "DECISION_LOG_AFTER_STATE_WRITE",
+        "UPDATED_AT_BEFORE_DECISION_LOG",
+        "GATE_COMPLETION_RECORD_MISSING",
+        "SELF_DECLARED_LEVEL",
+        "COMPLETE_REQUIRES_FINAL_LOCK_CONDITIONS",
+        "UNREGISTERED_COMPUTE_ARTIFACT",
+    }
+)
+
+
+# 主线是 L1→L2→L3 逐段构建；证据深度按段供给（SKILL.md §3.1、R-LAYER-13）。
+# 证据层级 -> (全文预算, 原子观点预算)；超出即报 EVIDENCE_DEPTH_EXCEEDS_LAYER。
+# schema 3.0 起状态机按段排布，合规流程不会超预算，故本检查为常驻 INVALID。
+EVIDENCE_DEPTH_BUDGETS = {
+    "L1": (0, 0),
+    "L2": (12, 0),
+    "L3": (20, 60),
+}
+
+# 证据层级不再持久化（design-schema-3.0 §4），由 effective_state 派生：
+# 未列出的状态（L3_EVIDENCE 段、VALIDITY/COMPUTE 轴、COMPLETE）均为 L3。
+STATE_EVIDENCE_TIER = {
+    "BOOT": "L1",
+    "SCOPE_LOCK": "L1",
+    "PRIOR_CLAIM_DRAIN": "L1",
+    "RECENT_FRONTIER": "L1",
+    "LITERATURE_REGISTER": "L1",
+    "L1_FREEZE": "L1",
+    "L2_TRIAGE": "L2",
+    "LAYER_DECISION": "L2",
+}
+
+
+def evidence_tier(effective_state: str) -> str:
+    """由有效状态派生证据层级；BLOCKED 请先解析为 resume_state 再传入。"""
+    return STATE_EVIDENCE_TIER.get(effective_state, "L3")
+
+
+def count_registered_evidence(root: Path, state: dict[str, Any]) -> tuple[int, int]:
+    """统计已注册的全文数与原子观点数；注册表缺失或损坏按 0 计。"""
+
+    def registry_path(key: str, default: str) -> Path:
+        artifacts = state.get("artifacts")
+        raw = artifacts.get(key) if isinstance(artifacts, dict) else None
+        return root / (raw if isinstance(raw, str) else default)
+
+    fulltext = 0
+    try:
+        literature_path = registry_path("literature_registry", "near_neighbor_registry.json")
+        if literature_path.is_file():
+            payload = json.loads(literature_path.read_text(encoding="utf-8"))
+            records = payload.get("works") or payload.get("records") or []
+            for record in records:
+                if isinstance(record, dict) and (
+                    record.get("download") or {}
+                ).get("status") == "FULLTEXT_ARCHIVED":
+                    fulltext += 1
+    except (OSError, ValueError):
+        pass
+    atomic_claims = 0
+    try:
+        claims_path = registry_path("claim_registry", "literature_claim_registry.json")
+        if claims_path.is_file():
+            payload = json.loads(claims_path.read_text(encoding="utf-8"))
+            records = payload.get("claims") or payload.get("records") or []
+            atomic_claims = sum(isinstance(record, dict) for record in records)
+    except (OSError, ValueError):
+        pass
+    return fulltext, atomic_claims
+
+
+# compute_authorized=false 时视为"未授权计算产物"的路径模式（根相对 glob）。
+COMPUTE_ARTIFACT_GLOBS = ("s0_*", "s0_outputs/**/*")
+
+
+def find_unregistered_compute_artifacts(
+    root: Path, state: dict[str, Any]
+) -> list[str]:
+    """S0-SCREEN 之前的数值产物必须登记 exploration_registry，否则逐一上报。"""
+
+    registered: set[str] = set()
+    try:
+        artifacts = state.get("artifacts")
+        relative = (
+            artifacts.get("exploration_registry")
+            if isinstance(artifacts, dict)
+            else None
+        )
+        registry_path = root / (
+            relative if isinstance(relative, str) else "exploration_registry.json"
+        )
+        if registry_path.is_file():
+            registry = json.loads(registry_path.read_text(encoding="utf-8"))
+            entries = registry.get("explorations")
+            if isinstance(entries, list):
+                for entry in entries:
+                    if isinstance(entry, dict) and isinstance(
+                        entry.get("path"), str
+                    ):
+                        registered.add(entry["path"])
+    except (OSError, ValueError):
+        pass
+    found: list[str] = []
+    for pattern in COMPUTE_ARTIFACT_GLOBS:
+        for path in sorted(root.glob(pattern)):
+            if path.is_file():
+                relative = path.relative_to(root).as_posix()
+                if relative not in registered:
+                    found.append(relative)
+    return sorted(set(found))
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -288,10 +442,153 @@ def current_independent_audit(state: dict[str, Any]) -> bool:
     )
 
 
+def _parse_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def validate_decision_log(
+    root: Path,
+    state: dict[str, Any],
+    state_mtime: datetime | None,
+    errors: list[str],
+) -> set[str]:
+    """校验 decision_log 的条目 schema、时间完整性与工件哈希登记。
+
+    返回条目中出现过的状态集合（"BLOCKED@" 前缀已剥离），供 gate 完成
+    记录交叉检查使用。
+    """
+
+    decision_log = state.get("decision_log")
+    if not isinstance(decision_log, list):
+        add(errors, "DECISION_LOG", "not_list")
+        return set()
+
+    tolerance = timedelta(seconds=300)
+    now = datetime.now(timezone.utc)
+    previous: datetime | None = None
+    seen_states: set[str] = set()
+    root_fd: int | None = None
+    try:
+        for index, entry in enumerate(decision_log):
+            if not isinstance(entry, dict):
+                add(errors, "DECISION_LOG_ENTRY_SCHEMA", f"index:{index}:not_object")
+                continue
+            raw_state = entry.get("state")
+            base_state = (
+                raw_state.removeprefix("BLOCKED@")
+                if isinstance(raw_state, str)
+                else raw_state
+            )
+            if base_state not in STATES:
+                add(
+                    errors,
+                    "DECISION_LOG_UNKNOWN_STATE",
+                    f"index:{index}:state:{raw_state!r}",
+                )
+            else:
+                seen_states.add(base_state)
+            if not nonempty(entry.get("action")):
+                add(
+                    errors,
+                    "DECISION_LOG_ENTRY_SCHEMA",
+                    f"index:{index}:empty_action",
+                )
+            timestamp = _parse_timestamp(entry.get("at"))
+            if timestamp is None:
+                add(
+                    errors,
+                    "DECISION_LOG_ENTRY_SCHEMA",
+                    f"index:{index}:unparseable_at:{entry.get('at')!r}",
+                )
+            else:
+                if previous is not None and timestamp < previous:
+                    add(
+                        errors,
+                        "DECISION_LOG_NON_MONOTONIC",
+                        f"index:{index}:at:{entry.get('at')}",
+                    )
+                if previous is None or timestamp > previous:
+                    previous = timestamp
+                if timestamp > now + tolerance:
+                    add(
+                        errors,
+                        "FUTURE_DECISION_TIMESTAMP",
+                        f"index:{index}:at:{entry.get('at')}",
+                    )
+                if state_mtime is not None and timestamp > state_mtime + tolerance:
+                    add(
+                        errors,
+                        "DECISION_LOG_AFTER_STATE_WRITE",
+                        f"index:{index}:at:{entry.get('at')};"
+                        f"state_mtime:{state_mtime.isoformat()}",
+                    )
+            artifacts = entry.get("artifacts")
+            if artifacts is None:
+                continue
+            if not isinstance(artifacts, list):
+                add(
+                    errors,
+                    "DECISION_LOG_ENTRY_SCHEMA",
+                    f"index:{index}:artifacts_not_list",
+                )
+                continue
+            for artifact in artifacts:
+                if (
+                    not isinstance(artifact, dict)
+                    or not canonical_relative_path(artifact.get("path"))
+                    or not valid_sha256(artifact.get("sha256"))
+                ):
+                    add(
+                        errors,
+                        "DECISION_LOG_ENTRY_SCHEMA",
+                        f"index:{index}:bad_artifact_entry:{artifact!r}",
+                    )
+                    continue
+                if root_fd is None:
+                    root_fd = open_root_fd(root)
+                try:
+                    snapshot = read_regular_file_at(root_fd, artifact["path"])
+                except Exception as error:
+                    add(
+                        errors,
+                        "STALE_DECISION_ARTIFACT",
+                        f"index:{index}:unavailable:{artifact['path']}:{error}",
+                    )
+                    continue
+                if snapshot.sha256 != artifact["sha256"]:
+                    add(
+                        errors,
+                        "STALE_DECISION_ARTIFACT",
+                        f"index:{index}:declared:{artifact['sha256']};"
+                        f"current:{snapshot.sha256}",
+                    )
+    finally:
+        if root_fd is not None:
+            os.close(root_fd)
+
+    updated = _parse_timestamp(state.get("updated_at"))
+    if previous is not None and updated is not None and updated < previous:
+        add(
+            errors,
+            "UPDATED_AT_BEFORE_DECISION_LOG",
+            f"updated_at:{state.get('updated_at')};last_entry:{previous.isoformat()}",
+        )
+    return seen_states
+
+
 def validate(
     root: Path,
     state: dict[str, Any],
     expected_year: int,
+    state_mtime: datetime | None = None,
 ) -> list[str]:
     errors: list[str] = []
 
@@ -334,7 +631,6 @@ def validate(
 
     output_type = state.get("output_type")
     contract = state.get("contribution_contract")
-    layer = state.get("active_layer")
     contribution = state.get("active_contribution")
     active_state = state.get("active_state")
     resume_state = state.get("resume_state")
@@ -343,20 +639,12 @@ def validate(
         add(errors, "OUTPUT_TYPE", f"invalid:{output_type}")
     if contract not in CONTRACTS:
         add(errors, "CONTRACT", f"invalid:{contract}")
-    if layer not in LAYERS:
-        add(errors, "LAYER", f"invalid:{layer}")
     if contribution not in CONTRIBUTIONS:
         add(errors, "CONTRIBUTION", f"invalid:{contribution}")
     if active_state not in STATES:
         add(errors, "STATE", f"invalid_active_state:{active_state}")
     if resume_state not in STATES:
         add(errors, "STATE", f"invalid_resume_state:{resume_state}")
-    if state.get("last_completed_state") not in STATES | {"NONE"}:
-        add(
-            errors,
-            "STATE",
-            f"invalid_last_completed:{state.get('last_completed_state')}",
-        )
     if state.get("search_mode") not in SEARCH_MODES:
         add(errors, "SEARCH_MODE", f"invalid:{state.get('search_mode')}")
     if state.get("compute_stage") not in COMPUTE_STAGES:
@@ -391,7 +679,6 @@ def validate(
     if not unresolved_allowed and (
         output_type == "UNRESOLVED"
         or contract == "UNRESOLVED"
-        or layer == "UNRESOLVED"
     ):
         add(errors, "SCOPE", "unresolved_after_scope_state")
 
@@ -406,10 +693,12 @@ def validate(
             f"output_type:{output_type};contract:{contract};expected:{expected_contract}",
         )
 
-    if layer in {"L1", "L2", "ARCHITECTURE", "UNRESOLVED"}:
+    # 证据层级由 effective_state 派生（schema 3.0 起 active_layer 不再持久化）。
+    tier = evidence_tier(str(effective_state))
+    if tier in {"L1", "L2"}:
         if contribution != "NONE":
-            add(errors, "CONTRIBUTION", f"layer:{layer};expected:NONE")
-    elif layer == "L3":
+            add(errors, "CONTRIBUTION", f"tier:{tier};expected:NONE")
+    else:
         allowed = (
             {"A", "B", "C"}
             if output_type == "DOCTORAL_DISSERTATION"
@@ -419,7 +708,7 @@ def validate(
             add(
                 errors,
                 "CONTRIBUTION",
-                f"layer:L3;output_type:{output_type};invalid:{contribution}",
+                f"tier:L3;output_type:{output_type};invalid:{contribution}",
             )
 
     gates = state.get("gates")
@@ -429,17 +718,22 @@ def validate(
     for gate in sorted(GATE_KEYS):
         if not isinstance(gates.get(gate), bool):
             add(errors, "GATE", f"{gate}:not_boolean")
+    for gate in sorted(gates):
+        if gate not in GATE_KEYS:
+            add(errors, "GATE", f"{gate}:unknown_key")
 
     implications = {
         "prior_claims_drained": ("scope_locked",),
         "recent_frontier_complete": ("scope_locked", "prior_claims_drained"),
         "literature_registry_valid": ("recent_frontier_complete",),
-        "important_fulltext_complete": ("literature_registry_valid",),
-        "source_claims_complete": ("important_fulltext_complete",),
-        "output_claims_traced": ("source_claims_complete",),
+        "l1_frozen": ("literature_registry_valid",),
+        "k_set_selected": ("l1_frozen",),
+        "l2_frozen": ("k_set_selected",),
+        "architecture_frozen": ("l2_frozen",),
+        "k_fulltext_complete": ("architecture_frozen",),
+        "k_claims_complete": ("k_fulltext_complete",),
+        "output_claims_traced": ("k_claims_complete",),
         "evidence_validated": ("output_claims_traced",),
-        "l2_frozen": ("l1_frozen",),
-        "architecture_frozen": ("l1_frozen", "l2_frozen"),
         "n0_4_locked": ("architecture_frozen", "evidence_validated"),
     }
     for gate, prerequisites in implications.items():
@@ -457,6 +751,27 @@ def validate(
     )
     novelty_level = state.get("novelty_level")
     compute_authorized = gates.get("compute_authorized") is True
+
+    if not compute_authorized:
+        for artifact in find_unregistered_compute_artifacts(root, state):
+            add(errors, "UNREGISTERED_COMPUTE_ARTIFACT", f"path:{artifact}")
+
+    # R-LAYER-13：证据深度按段供给；超段超量取证即主次颠倒。
+    tier = evidence_tier(str(effective_state))
+    fulltext_budget, claim_budget = EVIDENCE_DEPTH_BUDGETS[tier]
+    fulltext_count, claim_count = count_registered_evidence(root, state)
+    if fulltext_count > fulltext_budget:
+        add(
+            errors,
+            "EVIDENCE_DEPTH_EXCEEDS_LAYER",
+            f"tier:{tier};fulltext:{fulltext_count}>budget:{fulltext_budget}",
+        )
+    if claim_count > claim_budget:
+        add(
+            errors,
+            "EVIDENCE_DEPTH_EXCEEDS_LAYER",
+            f"tier:{tier};atomic_claims:{claim_count}>budget:{claim_budget}",
+        )
 
     if effective_state == "CLAIM_FREEZE" and novelty_level != "N0-4C":
         add(
@@ -575,15 +890,6 @@ def validate(
         if not gates.get(gate):
             add(errors, "STATE_GATE", f"{effective_state}_requires:{gate}")
 
-    if layer == "L2" and not gates.get("l1_frozen"):
-        add(errors, "LAYER_GATE", "L2_requires:l1_frozen")
-    if layer == "ARCHITECTURE" and not gates.get("l2_frozen"):
-        add(errors, "LAYER_GATE", "ARCHITECTURE_requires:l2_frozen")
-    if layer == "L3" and not gates.get("architecture_frozen"):
-        add(errors, "LAYER_GATE", "L3_requires:architecture_frozen")
-    if effective_state == "N0_AUDIT" and layer != "L3":
-        add(errors, "STATE_LAYER", "N0_AUDIT_requires:L3")
-
     compute_stage = state.get("compute_stage")
     if compute_stage not in {"NOT_STARTED", "STOPPED"}:
         if gates.get("compute_authorized") is not True:
@@ -613,11 +919,55 @@ def validate(
             elif key != "literature_archive" and not path.is_file():
                 add(errors, "ARTIFACT", f"{key}:not_file:{path}")
 
-    decision_log = state.get("decision_log")
-    if not isinstance(decision_log, list):
-        add(errors, "DECISION_LOG", "not_list")
+    seen_states = validate_decision_log(root, state, state_mtime, errors)
+
+    # gate 置真必须有对应状态的完成记录，否则视为自报置真。
+    for gate, completion_state in GATE_COMPLETION_STATE.items():
+        if gates.get(gate) and completion_state not in seen_states:
+            add(
+                errors,
+                "GATE_COMPLETION_RECORD_MISSING",
+                f"{gate}:requires_decision_log_state:{completion_state}",
+            )
+
+    # level 不得手填：N0-4C 与 n0_4_locked 必须互证。
+    if (novelty_level == "N0-4C") != bool(gates.get("n0_4_locked")):
+        add(
+            errors,
+            "SELF_DECLARED_LEVEL",
+            f"novelty_level:{novelty_level};n0_4_locked:{gates.get('n0_4_locked')}",
+        )
+
+    # COMPLETE 是终态，必须满足与 FINAL_LOCK 等价的条件。
+    if effective_state == "COMPLETE":
+        complete_problems: list[str] = []
+        if novelty_level != "N0-4C":
+            complete_problems.append(f"novelty_level:{novelty_level}")
+        if current_validity < 4:
+            complete_problems.append(f"validity_level:{validity_level}")
+        state_audit = state.get("independent_audit")
+        capability_unavailable = (
+            isinstance(state_audit, dict)
+            and state_audit.get("capability_available") is False
+        )
+        if not capability_unavailable and not current_independent_audit(state):
+            complete_problems.append("independent_audit:not_current")
+        if complete_problems:
+            add(
+                errors,
+                "COMPLETE_REQUIRES_FINAL_LOCK_CONDITIONS",
+                ";".join(complete_problems),
+            )
 
     return errors
+
+
+def issue_severity(code: str, strict_new_checks: bool) -> str:
+    if code == "EXTERNAL_BLOCKER":
+        return "BLOCKED"
+    if code in NEW_CHECK_CODES and not strict_new_checks:
+        return "WARNING"
+    return "INVALID"
 
 
 def main() -> int:
@@ -625,6 +975,7 @@ def main() -> int:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--state", type=Path, required=True)
     parser.add_argument("--current-year", type=int, default=datetime.now().year)
+    parser.add_argument("--strict-new-checks", action="store_true")
     args = parser.parse_args()
 
     root = args.root.resolve()
@@ -649,7 +1000,14 @@ def main() -> int:
         return int(choose_exit(schema_issues))
 
     try:
-        errors = validate(root, state, args.current_year)
+        state_mtime = datetime.fromtimestamp(
+            state_path.stat().st_mtime, tz=timezone.utc
+        )
+    except OSError:
+        state_mtime = None
+
+    try:
+        errors = validate(root, state, args.current_year, state_mtime)
     except Exception as error:
         errors = []
         schema_issues.append(
@@ -658,11 +1016,7 @@ def main() -> int:
     issues = schema_issues + [
         Issue(
             error.split("\t", 1)[0],
-            (
-                "BLOCKED"
-                if error.split("\t", 1)[0] == "EXTERNAL_BLOCKER"
-                else "INVALID"
-            ),
+            issue_severity(error.split("\t", 1)[0], args.strict_new_checks),
             "workflow_state",
             error.split("\t", 1)[1] if "\t" in error else error,
         )

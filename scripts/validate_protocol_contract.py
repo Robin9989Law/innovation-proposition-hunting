@@ -4,18 +4,19 @@
 from __future__ import annotations
 
 import argparse
-import ast
 from collections import Counter
 import json
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Callable
 
 from validation_common import (
     ALGORITHM_CLAIM_TYPES,
     CLAIM_TYPES,
     Issue,
+    ProjectContext,
+    SafeFileSnapshot,
     StrictJSONError,
     UnsafePathError,
     canonical_relative_path,
@@ -28,6 +29,12 @@ from validation_common import (
     render,
     strict_json_load_bytes,
     string_list,
+)
+from python_test_contract import (
+    canonical_identifier,
+    parse_python_test_contract,
+    python_top_level_symbol_status,
+    self_attesting_test_issues,
 )
 
 
@@ -94,64 +101,6 @@ REQUIRED_CHRONOLOGY_FIELDS = (
     "implementation_symbol",
     "implementation_sha256",
 )
-REQUIRED_COMPARATOR_FIELDS = (
-    "width_or_parameter_budget",
-    "seeds",
-    "regularization_search_space",
-    "tuning_data",
-    "label_access",
-    "update_frequency",
-    "compute_budget",
-    "stopping_rules",
-)
-ENGLISH_BUDGET_TERMS = (
-    re.compile(r"(?<![A-Za-z0-9_])strong(?![A-Za-z0-9_])", re.I),
-    re.compile(r"(?<![A-Za-z0-9_])strong(?:[ -]+)baseline(?![A-Za-z0-9_])", re.I),
-    re.compile(r"(?<![A-Za-z0-9_])fair(?:[ -]+(?:baseline|comparison))?(?![A-Za-z0-9_])", re.I),
-    re.compile(r"(?<![A-Za-z0-9_])matched(?:[ -]+)budget(?![A-Za-z0-9_])", re.I),
-    re.compile(r"(?<![A-Za-z0-9_])same(?:[ -]+)budget(?![A-Za-z0-9_])", re.I),
-)
-CHINESE_BUDGET_TERMS = (
-    "强基线",
-    "强比较基线",
-    "公平基线",
-    "公平比较",
-    "匹配预算",
-    "预算匹配",
-    "同预算",
-    "相同预算",
-    "等预算",
-)
-CANONICAL_BUDGET_RISK_TERMS = {
-    "strong",
-    "strong baseline",
-    "fair",
-    "fair comparison",
-    "matched budget",
-    "same budget",
-    "强基线",
-    "公平",
-    "公平比较",
-    "匹配预算",
-    "同预算",
-}
-CHINESE_FAIR_COMPARISON_PATTERN = re.compile(
-    r"(?:作|做|进行|开展|报告)?\s*公平(?:的|地|性)?\s*(?:比较|对比|基线)"
-)
-CONTEXTUAL_STRONGER_PATTERN = re.compile(
-    r"(?:"
-    r"(?<![A-Za-z0-9_])strong(?:er|est)(?![A-Za-z0-9_])"
-    r"[^\n]{0,40}(?<![A-Za-z0-9_])(?:baseline|comparison)(?![A-Za-z0-9_])"
-    r"|"
-    r"(?<![A-Za-z0-9_])(?:baseline|comparison)(?![A-Za-z0-9_])"
-    r"[^\n]{0,40}(?<![A-Za-z0-9_])strong(?:er|est)(?![A-Za-z0-9_])"
-    r")",
-    re.IGNORECASE,
-)
-
-
-def canonical_identifier(value: Any) -> bool:
-    return nonempty_string(value) and value.strip() == value
 
 
 def strict_object_from_snapshot(data: bytes, label: str) -> dict[str, Any]:
@@ -161,836 +110,9 @@ def strict_object_from_snapshot(data: bytes, label: str) -> dict[str, Any]:
     return payload
 
 
-def _dotted_name(node: ast.AST) -> str | None:
-    if isinstance(node, ast.Name):
-        return node.id
-    if isinstance(node, ast.Attribute):
-        prefix = _dotted_name(node.value)
-        return f"{prefix}.{node.attr}" if prefix else None
-    return None
-
-
-def _implementation_module(raw_path: str) -> str | None:
-    if not canonical_relative_path(raw_path):
-        return None
-    path = PurePosixPath(raw_path)
-    if path.suffix != ".py":
-        return None
-    parts = list(path.with_suffix("").parts)
-    if parts and parts[-1] == "__init__":
-        parts.pop()
-    return ".".join(parts) if parts else None
-
-
-def _literal_truth(node: ast.AST) -> bool | None:
-    """Evaluate only Python literal syntax and return its truth value."""
-
-    try:
-        value = ast.literal_eval(node)
-    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
-        return None
-    try:
-        return bool(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _literal_empty_iterable(node: ast.AST) -> bool:
-    try:
-        value = ast.literal_eval(node)
-    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
-        return False
-    return isinstance(value, (tuple, list, set, dict, str, bytes)) and not value
-
-
-def _pattern_is_irrefutable(pattern: ast.pattern) -> bool:
-    if isinstance(pattern, ast.MatchAs):
-        return pattern.pattern is None or _pattern_is_irrefutable(pattern.pattern)
-    if isinstance(pattern, ast.MatchOr):
-        return any(_pattern_is_irrefutable(item) for item in pattern.patterns)
-    return False
-
-
-def _class_global_names(statements: list[ast.stmt]) -> set[str]:
-    """Collect globals from class code, including recursively executed classes."""
-
-    names: set[str] = set()
-
-    class GlobalVisitor(ast.NodeVisitor):
-        def visit_Global(self, node: ast.Global) -> None:
-            names.update(node.names)
-
-        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-            return
-
-        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-            return
-
-        def visit_Lambda(self, node: ast.Lambda) -> None:
-            return
-
-    visitor = GlobalVisitor()
-    for statement in statements:
-        visitor.visit(statement)
-    return names
-
-
-def _direct_class_global_names(statements: list[ast.stmt]) -> set[str]:
-    """Collect globals belonging to one class scope, not nested class scopes."""
-
-    names: set[str] = set()
-
-    class DirectGlobalVisitor(ast.NodeVisitor):
-        def visit_Global(self, node: ast.Global) -> None:
-            names.update(node.names)
-
-        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-            return
-
-        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-            return
-
-        def visit_ClassDef(self, node: ast.ClassDef) -> None:
-            return
-
-        def visit_Lambda(self, node: ast.Lambda) -> None:
-            return
-
-    visitor = DirectGlobalVisitor()
-    for statement in statements:
-        visitor.visit(statement)
-    return names
-
-
-def _direct_function_global_names(node: ast.AST) -> set[str]:
-    """Collect globals in one function scope without entering nested scopes."""
-
-    names: set[str] = set()
-
-    class DirectGlobalVisitor(ast.NodeVisitor):
-        def visit_Global(self, child: ast.Global) -> None:
-            names.update(child.names)
-
-        def visit_FunctionDef(self, child: ast.FunctionDef) -> None:
-            return
-
-        def visit_AsyncFunctionDef(self, child: ast.AsyncFunctionDef) -> None:
-            return
-
-        def visit_ClassDef(self, child: ast.ClassDef) -> None:
-            return
-
-        def visit_Lambda(self, child: ast.Lambda) -> None:
-            return
-
-    DirectGlobalVisitor().visit(node)
-    return names
-
-
-class _ModuleBindingVisitor(ast.NodeVisitor):
-    """Find a module-scope binding without descending into nested scopes."""
-
-    def __init__(
-        self,
-        name: str,
-        *,
-        ignored_nodes: set[ast.AST] | None = None,
-        skip_static_false: bool = False,
-    ) -> None:
-        self.name = name
-        self.ignored_nodes = ignored_nodes or set()
-        self.skip_static_false = skip_static_false
-        self.found = False
-
-    def visit(self, node: ast.AST) -> Any:
-        if node in self.ignored_nodes:
-            return None
-        return super().visit(node)
-
-    def visit_Name(self, node: ast.Name) -> None:
-        if node.id == self.name and isinstance(node.ctx, (ast.Store, ast.Del)):
-            self.found = True
-
-    def _visit_definition_header(
-        self, node: ast.FunctionDef | ast.AsyncFunctionDef
-    ) -> None:
-        if node.name == self.name:
-            self.found = True
-        for decorator in node.decorator_list:
-            self.visit(decorator)
-        for default in (*node.args.defaults, *node.args.kw_defaults):
-            if default is not None:
-                self.visit(default)
-        if node.returns is not None:
-            self.visit(node.returns)
-
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-        self._visit_definition_header(node)
-        self._visit_function_body_module_effects(node.body)
-
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-        self._visit_definition_header(node)
-        self._visit_function_body_module_effects(node.body)
-
-    def _visit_function_body_module_effects(self, body: list[ast.stmt]) -> None:
-        direct_globals = {
-            name
-            for statement in body
-            for name in _direct_function_global_names(statement)
-        }
-        if self.name in direct_globals:
-            for statement in body:
-                self.visit(statement)
-            return
-        self._visit_nested_function_effects(body)
-
-    def _visit_nested_function_effects(self, statements: list[ast.stmt]) -> None:
-        for statement in statements:
-            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                self._visit_function_body_module_effects(statement.body)
-                continue
-            if isinstance(statement, ast.ClassDef):
-                self._visit_class_body_module_effects(statement.body)
-                self._visit_nested_function_effects(statement.body)
-                continue
-            if isinstance(statement, ast.If) and self.skip_static_false:
-                truth = _literal_truth(statement.test)
-                branches = (
-                    statement.orelse
-                    if truth is False
-                    else statement.body
-                    if truth is True
-                    else [*statement.body, *statement.orelse]
-                )
-                self._visit_nested_function_effects(branches)
-                continue
-            if (
-                isinstance(statement, ast.While)
-                and self.skip_static_false
-                and _literal_truth(statement.test) is False
-            ):
-                self._visit_nested_function_effects(statement.orelse)
-                continue
-            for child in ast.iter_child_nodes(statement):
-                if isinstance(child, ast.stmt):
-                    self._visit_nested_function_effects([child])
-
-    def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        if node.name == self.name:
-            self.found = True
-        for decorator in node.decorator_list:
-            self.visit(decorator)
-        for base in node.bases:
-            self.visit(base)
-        for keyword in node.keywords:
-            self.visit(keyword.value)
-        self._visit_class_body_module_effects(node.body)
-        self._visit_nested_function_effects(node.body)
-
-    def _visit_class_body_module_effects(self, body: list[ast.stmt]) -> None:
-        if self.name in _direct_class_global_names(body):
-            for statement in body:
-                self.visit(statement)
-            return
-        if self.name in _class_global_names(body):
-            self._visit_nested_class_effects(body)
-
-    def _visit_nested_class_effects(self, statements: list[ast.stmt]) -> None:
-        """Inspect executed nested class bodies without treating class locals as module binds."""
-
-        for statement in statements:
-            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            if isinstance(statement, ast.ClassDef):
-                self._visit_class_body_module_effects(statement.body)
-                continue
-            if isinstance(statement, ast.If):
-                truth = _literal_truth(statement.test)
-                if self.skip_static_false and truth is False:
-                    self._visit_nested_class_effects(statement.orelse)
-                elif self.skip_static_false and truth is True:
-                    self._visit_nested_class_effects(statement.body)
-                else:
-                    self._visit_nested_class_effects(statement.body)
-                    self._visit_nested_class_effects(statement.orelse)
-                continue
-            if isinstance(statement, ast.While):
-                truth = _literal_truth(statement.test)
-                if self.skip_static_false and truth is False:
-                    self._visit_nested_class_effects(statement.orelse)
-                else:
-                    self._visit_nested_class_effects(statement.body)
-                    self._visit_nested_class_effects(statement.orelse)
-                continue
-            for child in ast.iter_child_nodes(statement):
-                if isinstance(child, ast.stmt):
-                    self._visit_nested_class_effects([child])
-
-    def visit_Lambda(self, node: ast.Lambda) -> None:
-        return  # Lambda parameters and walrus targets are local to the lambda.
-
-    def visit_Import(self, node: ast.Import) -> None:
-        for alias in node.names:
-            if (alias.asname or alias.name.split(".")[0]) == self.name:
-                self.found = True
-
-    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-        for alias in node.names:
-            if alias.name == "*" or (alias.asname or alias.name) == self.name:
-                self.found = True
-
-    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
-        if node.name == self.name:
-            self.found = True
-        self.generic_visit(node)
-
-    def visit_MatchAs(self, node: ast.MatchAs) -> None:
-        if node.name == self.name:
-            self.found = True
-        self.generic_visit(node)
-
-    def visit_MatchStar(self, node: ast.MatchStar) -> None:
-        if node.name == self.name:
-            self.found = True
-
-    def visit_If(self, node: ast.If) -> None:
-        if not self.skip_static_false:
-            self.generic_visit(node)
-            return
-        truth = _literal_truth(node.test)
-        self.visit(node.test)
-        branch = node.orelse if truth is False else node.body if truth is True else None
-        for statement in branch if branch is not None else (*node.body, *node.orelse):
-            self.visit(statement)
-
-    def visit_While(self, node: ast.While) -> None:
-        if not self.skip_static_false or _literal_truth(node.test) is not False:
-            self.generic_visit(node)
-            return
-        self.visit(node.test)
-        for statement in node.orelse:
-            self.visit(statement)
-
-
-def _module_binds_name(
-    nodes: list[ast.stmt],
-    name: str,
-    *,
-    ignored_nodes: set[ast.AST] | None = None,
-    skip_static_false: bool = False,
-) -> bool:
-    visitor = _ModuleBindingVisitor(
-        name,
-        ignored_nodes=ignored_nodes,
-        skip_static_false=skip_static_false,
-    )
-    for node in nodes:
-        visitor.visit(node)
-    return visitor.found
-
-
-def python_top_level_symbol_status(data: bytes, symbol: str) -> str:
-    """Classify whether the final provable module binding is a definition."""
-
-    if not canonical_identifier(symbol):
-        return "MISSING"
-    try:
-        tree = ast.parse(data.decode("utf-8"))
-    except (UnicodeError, SyntaxError):
-        return "MISSING"
-    definitions = [
-        index
-        for index, node in enumerate(tree.body)
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-        and node.name == symbol
-    ]
-    if not definitions:
-        return "MISSING"
-    final_definition = definitions[-1]
-    definition = tree.body[final_definition]
-    if isinstance(definition, (ast.FunctionDef, ast.AsyncFunctionDef)):
-        if definition.decorator_list:
-            return "INVALID_FINAL_BINDING"
-    elif isinstance(definition, ast.ClassDef):
-        safe_bases = not definition.bases or (
-            len(definition.bases) == 1
-            and isinstance(definition.bases[0], ast.Name)
-            and definition.bases[0].id == "object"
-        )
-        if definition.decorator_list or definition.keywords or not safe_bases:
-            return "INVALID_FINAL_BINDING"
-    if _module_binds_name(
-        tree.body[final_definition + 1 :], symbol, skip_static_false=True
-    ):
-        return "INVALID_FINAL_BINDING"
-    return "VALID"
-
-
-def _bound_names_in_scope(node: ast.AST) -> set[str]:
-    """Conservatively collect names local to one module/function lexical scope."""
-
-    names: set[str] = set()
-    body = (
-        node.body
-        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef))
-        else []
-    )
-    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-        arguments = (
-            list(node.args.posonlyargs)
-            + list(node.args.args)
-            + list(node.args.kwonlyargs)
-        )
-        names.update(argument.arg for argument in arguments)
-        if node.args.vararg:
-            names.add(node.args.vararg.arg)
-        if node.args.kwarg:
-            names.add(node.args.kwarg.arg)
-
-    class Binder(ast.NodeVisitor):
-        def visit_Name(self, child: ast.Name) -> None:
-            if isinstance(child.ctx, (ast.Store, ast.Del)):
-                names.add(child.id)
-
-        def visit_FunctionDef(self, child: ast.FunctionDef) -> None:
-            names.add(child.name)
-
-        def visit_AsyncFunctionDef(self, child: ast.AsyncFunctionDef) -> None:
-            names.add(child.name)
-
-        def visit_ClassDef(self, child: ast.ClassDef) -> None:
-            names.add(child.name)
-
-        def visit_Import(self, child: ast.Import) -> None:
-            for alias in child.names:
-                names.add(alias.asname or alias.name.split(".")[0])
-
-        def visit_ImportFrom(self, child: ast.ImportFrom) -> None:
-            for alias in child.names:
-                names.add(alias.asname or alias.name)
-
-        def visit_ExceptHandler(self, child: ast.ExceptHandler) -> None:
-            if child.name:
-                names.add(child.name)
-            self.generic_visit(child)
-
-        def visit_MatchAs(self, child: ast.MatchAs) -> None:
-            if child.name:
-                names.add(child.name)
-            self.generic_visit(child)
-
-        def visit_MatchStar(self, child: ast.MatchStar) -> None:
-            if child.name:
-                names.add(child.name)
-
-    binder = Binder()
-    for statement in body:
-        binder.visit(statement)
-    return names
-
-
-def _reachable_nodes_with_scopes(
-    statements: list[ast.stmt], scopes: tuple[set[str], ...]
-) -> list[tuple[ast.AST, tuple[set[str], ...]]]:
-    """Conservatively enumerate reachable AST nodes with lexical scopes."""
-
-    found: list[tuple[ast.AST, tuple[set[str], ...]]] = []
-    fallthrough = "FALLTHROUGH"
-    function_scope_stack: list[dict[str, tuple[Any, ...]]] = [{}]
-    executed_functions: set[int] = set()
-
-    def visit_function_header(
-        node: ast.FunctionDef | ast.AsyncFunctionDef,
-        active_scopes: tuple[set[str], ...],
-    ) -> None:
-        for decorator in node.decorator_list:
-            visit_expression(decorator, active_scopes)
-        for argument in (
-            *node.args.posonlyargs,
-            *node.args.args,
-            *node.args.kwonlyargs,
-        ):
-            visit_expression(argument.annotation, active_scopes)
-        if node.args.vararg:
-            visit_expression(node.args.vararg.annotation, active_scopes)
-        if node.args.kwarg:
-            visit_expression(node.args.kwarg.annotation, active_scopes)
-        for default in (*node.args.defaults, *node.args.kw_defaults):
-            visit_expression(default, active_scopes)
-        visit_expression(node.returns, active_scopes)
-
-    def visit_called_function(
-        function: ast.AST, active_scopes: tuple[set[str], ...]
-    ) -> None:
-        if not isinstance(function, ast.Name):
-            return
-        binding: tuple[Any, ...] | None = None
-        for index in range(len(function_scope_stack) - 1, -1, -1):
-            binding = function_scope_stack[index].get(function.id)
-            if binding is not None:
-                break
-            if index > 0 and function.id in active_scopes[index - 1]:
-                return
-        if binding is None:
-            return
-        node, lexical_scopes, parent_function_scopes = binding
-        if id(node) in executed_functions:
-            return
-        executed_functions.add(id(node))
-        saved_function_scopes = list(function_scope_stack)
-        try:
-            function_scope_stack[:] = [*parent_function_scopes, {}]
-            visit_block(
-                node.body,
-                lexical_scopes + (_bound_names_in_scope(node),),
-            )
-        finally:
-            function_scope_stack[:] = saved_function_scopes
-
-    def visit_expression(
-        node: ast.AST | None, active_scopes: tuple[set[str], ...]
-    ) -> None:
-        if node is None:
-            return
-        found.append((node, active_scopes))
-        if isinstance(node, ast.Lambda):
-            return  # Lambda bodies are not accepted as executable trace evidence.
-        if isinstance(node, ast.BoolOp):
-            stop_truth = False if isinstance(node.op, ast.And) else True
-            for value in node.values:
-                visit_expression(value, active_scopes)
-                if _literal_truth(value) is stop_truth:
-                    break
-            return
-        if isinstance(node, ast.IfExp):
-            visit_expression(node.test, active_scopes)
-            truth = _literal_truth(node.test)
-            if truth is True:
-                visit_expression(node.body, active_scopes)
-            elif truth is False:
-                visit_expression(node.orelse, active_scopes)
-            else:
-                visit_expression(node.body, active_scopes)
-                visit_expression(node.orelse, active_scopes)
-            return
-        for child in ast.iter_child_nodes(node):
-            if not isinstance(child, ast.stmt):
-                visit_expression(child, active_scopes)
-        if isinstance(node, ast.Call):
-            visit_called_function(node.func, active_scopes)
-
-    def visit_block(
-        block: list[ast.stmt], active_scopes: tuple[set[str], ...]
-    ) -> set[str]:
-        outcomes: set[str] = set()
-        can_continue = True
-        for statement in block:
-            if not can_continue:
-                break
-            statement_outcomes = visit_statement(statement, active_scopes)
-            outcomes.update(statement_outcomes - {fallthrough})
-            can_continue = fallthrough in statement_outcomes
-        if can_continue:
-            outcomes.add(fallthrough)
-        return outcomes
-
-    def visit_statement(
-        node: ast.stmt, active_scopes: tuple[set[str], ...]
-    ) -> set[str]:
-        found.append((node, active_scopes))
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            visit_function_header(node, active_scopes)
-            function_scope_stack[-1][node.name] = (
-                node,
-                active_scopes,
-                tuple(function_scope_stack),
-            )
-            return {fallthrough}
-        if isinstance(node, ast.ClassDef):
-            return {fallthrough}  # Class bodies are not trusted as call proof.
-        if isinstance(node, ast.If):
-            visit_expression(node.test, active_scopes)
-            truth = _literal_truth(node.test)
-            if truth is False:
-                return visit_block(node.orelse, active_scopes)
-            if truth is True:
-                return visit_block(node.body, active_scopes)
-            return visit_block(node.body, active_scopes) | visit_block(
-                node.orelse, active_scopes
-            )
-        if isinstance(node, ast.While):
-            visit_expression(node.test, active_scopes)
-            truth = _literal_truth(node.test)
-            if truth is False:
-                return visit_block(node.orelse, active_scopes)
-            body_outcomes = visit_block(node.body, active_scopes)
-            if truth is True:
-                outcomes = body_outcomes & {"RETURN", "RAISE"}
-                if "BREAK" in body_outcomes:
-                    outcomes.add(fallthrough)
-                return outcomes
-            else_outcomes = visit_block(node.orelse, active_scopes)
-            return (
-                {fallthrough}
-                | (body_outcomes & {"RETURN", "RAISE"})
-                | (else_outcomes - {"BREAK", "CONTINUE"})
-            )
-        if isinstance(node, (ast.For, ast.AsyncFor)):
-            visit_expression(node.target, active_scopes)
-            visit_expression(node.iter, active_scopes)
-            if _literal_empty_iterable(node.iter):
-                return visit_block(node.orelse, active_scopes)
-            body_outcomes = visit_block(node.body, active_scopes)
-            else_outcomes = visit_block(node.orelse, active_scopes)
-            outcomes = (
-                (body_outcomes & {"RETURN", "RAISE"})
-                | (else_outcomes - {"BREAK", "CONTINUE"})
-            )
-            if "BREAK" in body_outcomes:
-                outcomes.add(fallthrough)
-            return outcomes
-        if isinstance(node, (ast.With, ast.AsyncWith)):
-            for item in node.items:
-                visit_expression(item.context_expr, active_scopes)
-                visit_expression(item.optional_vars, active_scopes)
-            return visit_block(node.body, active_scopes)
-        if isinstance(node, (ast.Try, ast.TryStar)):
-            body_outcomes = visit_block(node.body, active_scopes)
-            handler_outcomes: set[str] = set()
-            for handler in node.handlers:
-                if handler.type is not None:
-                    visit_expression(handler.type, active_scopes)
-                handler_outcomes.update(visit_block(handler.body, active_scopes))
-            if fallthrough in body_outcomes:
-                else_outcomes = visit_block(node.orelse, active_scopes)
-                body_outcomes = (body_outcomes - {fallthrough}) | else_outcomes
-            protected_outcomes = body_outcomes | handler_outcomes
-            final_outcomes = visit_block(node.finalbody, active_scopes)
-            return (final_outcomes - {fallthrough}) | (
-                protected_outcomes if fallthrough in final_outcomes else set()
-            )
-        if isinstance(node, ast.Match):
-            visit_expression(node.subject, active_scopes)
-            outcomes: set[str] = set()
-            for case in node.cases:
-                visit_expression(case.guard, active_scopes)
-                outcomes.update(visit_block(case.body, active_scopes))
-            last_case_is_irrefutable = bool(node.cases) and (
-                node.cases[-1].guard is None
-                and _pattern_is_irrefutable(node.cases[-1].pattern)
-            )
-            if not last_case_is_irrefutable:
-                outcomes.add(fallthrough)
-            return outcomes
-        if isinstance(node, ast.Assert):
-            visit_expression(node.test, active_scopes)
-            truth = _literal_truth(node.test)
-            if truth is True:
-                return {fallthrough}
-            visit_expression(node.msg, active_scopes)
-            return {"RAISE"} if truth is False else {fallthrough}
-        if isinstance(node, ast.Return):
-            visit_expression(node.value, active_scopes)
-            return {"RETURN"}
-        if isinstance(node, ast.Raise):
-            visit_expression(node.exc, active_scopes)
-            visit_expression(node.cause, active_scopes)
-            return {"RAISE"}
-        if isinstance(node, ast.Break):
-            return {"BREAK"}
-        if isinstance(node, ast.Continue):
-            return {"CONTINUE"}
-        for child in ast.iter_child_nodes(node):
-            if isinstance(child, ast.expr):
-                visit_expression(child, active_scopes)
-        return {fallthrough}
-
-    visit_block(statements, scopes)
-    return found
-
-
-def parse_python_test_contract(
-    data: bytes,
-    test_path: str,
-    implementation_path: str,
-    implementation_symbol: str,
-) -> tuple[set[str] | None, list[str]]:
-    """Parse a non-executed Python test contract and prove its code binding."""
-
-    if PurePosixPath(test_path).suffix != ".py":
-        return None, ["executable_test:python_AST_contract_required"]
-    module = _implementation_module(implementation_path)
-    if module is None or not canonical_identifier(implementation_symbol):
-        return None, ["implementation_binding:invalid_module_or_symbol"]
-    try:
-        text = data.decode("utf-8")
-        tree = ast.parse(text, filename=test_path)
-    except (UnicodeError, SyntaxError) as error:
-        return None, [f"executable_test:unparseable:{type(error).__name__}"]
-
-    declarations: list[tuple[ast.Assign, ast.AST]] = []
-    for statement in tree.body:
-        if (
-            isinstance(statement, ast.Assign)
-            and len(statement.targets) == 1
-            and isinstance(statement.targets[0], ast.Name)
-            and statement.targets[0].id == "TARGET_CLAIM_IDS"
-        ):
-            declarations.append((statement, statement.value))
-    if len(declarations) != 1:
-        return None, [
-            f"TARGET_CLAIM_IDS:expected_one_top_level_literal;found:{len(declarations)}"
-        ]
-    declaration, value = declarations[0]
-    if not isinstance(value, ast.Tuple) or not value.elts:
-        return None, ["TARGET_CLAIM_IDS:expected_nonempty_tuple_literal"]
-    if not all(
-        isinstance(item, ast.Constant) and isinstance(item.value, str)
-        for item in value.elts
-    ):
-        return None, ["TARGET_CLAIM_IDS:expected_literal_strings"]
-    raw_targets = tuple(item.value for item in value.elts)
-    if not all(canonical_identifier(target) for target in raw_targets):
-        return None, ["TARGET_CLAIM_IDS:expected_canonical_strings"]
-    if len(set(raw_targets)) != len(raw_targets):
-        return None, ["TARGET_CLAIM_IDS:duplicate_claim_id"]
-
-    if _module_binds_name(
-        tree.body,
-        "TARGET_CLAIM_IDS",
-        ignored_nodes={declaration.targets[0]},
-        skip_static_false=True,
-    ):
-        return None, ["TARGET_CLAIM_IDS:rebound_or_deleted"]
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Subscript)
-            and isinstance(node.value, ast.Name)
-            and node.value.id == "TARGET_CLAIM_IDS"
-            and isinstance(node.ctx, (ast.Store, ast.Del))
-        ):
-            return None, ["TARGET_CLAIM_IDS:mutated"]
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "TARGET_CLAIM_IDS"
-            and node.func.attr
-            in {"append", "extend", "insert", "pop", "remove", "clear", "sort", "reverse"}
-        ):
-            return None, ["TARGET_CLAIM_IDS:mutation_call_forbidden"]
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id in {"setattr", "delattr"}
-            and node.args
-            and isinstance(node.args[0], ast.Name)
-            and node.args[0].id == "TARGET_CLAIM_IDS"
-        ):
-            return None, ["TARGET_CLAIM_IDS:mutation_call_forbidden"]
-
-    bindings: list[tuple[str, str]] = []
-    import_statements: set[ast.stmt] = set()
-    for node in tree.body:
-        if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module == module:
-            for alias in node.names:
-                if alias.name == implementation_symbol:
-                    local = alias.asname or alias.name
-                    bindings.append((local, local))
-                    import_statements.add(node)
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name == module:
-                    if alias.asname:
-                        bindings.append((alias.asname, f"{alias.asname}.{implementation_symbol}"))
-                    else:
-                        bindings.append(
-                            (module.split(".")[0], f"{module}.{implementation_symbol}")
-                        )
-                    import_statements.add(node)
-
-    if not bindings:
-        return set(raw_targets), [
-            f"implementation_import_missing:{module}:{implementation_symbol}"
-        ]
-
-    # Remove only the names established by the trusted exact imports. Any other
-    # module-level binder of the same name conservatively shadows the import.
-    other_module_binders: set[str] = set()
-    binding_roots = {root for root, _ in bindings}
-    for statement in tree.body:
-        if statement in import_statements:
-            if isinstance(statement, ast.Import):
-                for alias in statement.names:
-                    local = alias.asname or alias.name.split(".")[0]
-                    if local in binding_roots and alias.name != module:
-                        other_module_binders.add(local)
-            elif isinstance(statement, ast.ImportFrom):
-                for alias in statement.names:
-                    local = alias.asname or alias.name
-                    if local in binding_roots and alias.name != implementation_symbol:
-                        other_module_binders.add(local)
-            continue
-        for root in binding_roots:
-            if _module_binds_name(
-                [statement], root, skip_static_false=True
-            ):
-                other_module_binders.add(root)
-    reachable_nodes = _reachable_nodes_with_scopes(tree.body, ())
-    calls = [
-        (node, scopes)
-        for node, scopes in reachable_nodes
-        if isinstance(node, ast.Call)
-    ]
-    mutated_bindings: set[tuple[str, str]] = set()
-    for node, scopes in reachable_nodes:
-        for root, expected in bindings:
-            if root in other_module_binders or any(root in scope for scope in scopes):
-                continue
-            expected_parts = expected.split(".")
-            protected_attributes = {
-                ".".join(expected_parts[:length])
-                for length in range(2, len(expected_parts) + 1)
-            }
-            if (
-                isinstance(node, ast.Attribute)
-                and isinstance(node.ctx, (ast.Store, ast.Del))
-                and _dotted_name(node) in protected_attributes
-            ):
-                mutated_bindings.add((root, expected))
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id in {"setattr", "delattr"}
-                and len(node.args) >= 2
-                and isinstance(node.args[1], ast.Constant)
-                and isinstance(node.args[1].value, str)
-                and (
-                    f"{_dotted_name(node.args[0])}.{node.args[1].value}"
-                    in protected_attributes
-                )
-            ):
-                mutated_bindings.add((root, expected))
-    called = False
-    for call, scopes in calls:
-        dotted = _dotted_name(call.func)
-        for root, expected in bindings:
-            if (
-                root in other_module_binders
-                or any(root in scope for scope in scopes)
-                or (root, expected) in mutated_bindings
-            ):
-                continue
-            if dotted == expected:
-                called = True
-                break
-        if called:
-            break
-    if not called:
-        return set(raw_targets), [
-            f"implementation_call_missing:{module}:{implementation_symbol}"
-        ]
-    return set(raw_targets), []
+# 文件快照读取函数签名：与 ProjectContext.snapshot 一致。单次校验运行内
+# 可按 (路径, include_data) 缓存，避免按 binding 重复读盘/重哈希。
+SnapshotReader = Callable[..., SafeFileSnapshot]
 
 
 def load_object(
@@ -1021,6 +143,39 @@ def load_object(
         return None, [
             Issue(f"INVALID_{label.upper()}_JSON", "INVALID", label, str(error))
         ]
+
+
+def load_object_via_ctx(
+    ctx: ProjectContext,
+    relative_path: str,
+    label: str,
+    *,
+    required: bool = True,
+) -> tuple[dict[str, Any] | None, list[Issue]]:
+    """load_object 的 ctx 版本：JSON 读取走 ProjectContext 的缓存。
+
+    错误码与文本和 load_object 逐条对齐，仅读取通道不同。
+    """
+
+    try:
+        payload = ctx.load_json(relative_path, label)
+    except FileNotFoundError:
+        if not required:
+            return None, []
+        return None, [
+            Issue(f"{label.upper()}_REQUIRED", "INVALID", label, relative_path)
+        ]
+    except UnsafePathError as error:
+        return None, [Issue("VALIDATOR_ERROR", "INVALID", label, str(error))]
+    except OSError as error:
+        return None, [
+            Issue("VALIDATOR_ERROR", "INVALID", label, type(error).__name__)
+        ]
+    except (StrictJSONError, TypeError) as error:
+        return None, [
+            Issue(f"INVALID_{label.upper()}_JSON", "INVALID", label, str(error))
+        ]
+    return payload, []
 
 
 def is_algorithm_claim_type(value: Any) -> bool:
@@ -1120,33 +275,6 @@ def collect_algorithm_claims(
                 )
             )
     return claims, issues
-
-
-def claim_triggers_budget(claim: dict[str, Any]) -> bool:
-    risk_terms = claim.get("risk_terms")
-    if isinstance(risk_terms, list):
-        risk_text = "\n".join(term for term in risk_terms if isinstance(term, str))
-        normalized_risks = {
-            re.sub(r"[-_]+", " ", term.strip().casefold())
-            for term in risk_terms
-            if isinstance(term, str)
-        }
-        if (
-            normalized_risks & CANONICAL_BUDGET_RISK_TERMS
-            or any(pattern.search(risk_text) for pattern in ENGLISH_BUDGET_TERMS)
-            or CONTEXTUAL_STRONGER_PATTERN.search(risk_text) is not None
-            or any(term in risk_text for term in CHINESE_BUDGET_TERMS)
-            or CHINESE_FAIR_COMPARISON_PATTERN.search(risk_text) is not None
-        ):
-            return True
-    statement = claim.get("statement")
-    text = statement if isinstance(statement, str) else ""
-    return (
-        any(pattern.search(text) for pattern in ENGLISH_BUDGET_TERMS)
-        or CONTEXTUAL_STRONGER_PATTERN.search(text) is not None
-        or any(term in text for term in CHINESE_BUDGET_TERMS)
-        or CHINESE_FAIR_COMPARISON_PATTERN.search(text) is not None
-    )
 
 
 def validate_protocol_fields(protocol: dict[str, Any], state_epoch: Any) -> list[Issue]:
@@ -1373,7 +501,7 @@ def chronology_issue(detail: str, item_id: str = "chronology_test") -> Issue:
 
 
 def validate_chronology(
-    root_fd: int,
+    snapshot_fn: SnapshotReader,
     protocol: dict[str, Any],
     algorithm_claims: dict[str, dict[str, Any]],
     trace: dict[str, Any] | None,
@@ -1460,8 +588,8 @@ def validate_chronology(
     implementation_snapshot = None
     if canonical_relative_path(implementation_path):
         try:
-            implementation_snapshot = read_regular_file_at(
-                root_fd, implementation_path, include_data=True
+            implementation_snapshot = snapshot_fn(
+                implementation_path, include_data=True
             )
         except (FileNotFoundError, UnsafePathError, OSError) as error:
             issues.append(
@@ -1498,7 +626,7 @@ def validate_chronology(
     manifest: dict[str, Any] | None = None
     if canonical_relative_path(output_path):
         try:
-            output_snapshot = read_regular_file_at(root_fd, output_path, include_data=True)
+            output_snapshot = snapshot_fn(output_path, include_data=True)
         except (FileNotFoundError, UnsafePathError, OSError) as error:
             issues.append(chronology_issue(f"output_unavailable:{type(error).__name__}:{error}"))
         else:
@@ -1568,8 +696,8 @@ def validate_chronology(
                     issues.append(chronology_issue("executable_test_sha256:invalid"))
                 else:
                     try:
-                        test_snapshot = read_regular_file_at(
-                            root_fd, test_path, include_data=True
+                        test_snapshot = snapshot_fn(
+                            test_path, include_data=True
                         )
                     except (FileNotFoundError, UnsafePathError, OSError) as error:
                         issues.append(
@@ -1650,155 +778,62 @@ def validate_chronology(
     return issues
 
 
-def comparator_field_valid(field: str, value: Any) -> bool:
-    if field == "seeds":
-        return (
-            isinstance(value, list)
-            and bool(value)
-            and all(not isinstance(seed, bool) and isinstance(seed, int) for seed in value)
-            and len(set(value)) == len(value)
-        )
-    if field == "regularization_search_space":
-        return (
-            isinstance(value, list)
-            and bool(value)
-            and all(
-                not isinstance(item, (dict, list, bool))
-                and (isinstance(item, (int, float, str)))
-                and (not isinstance(item, str) or bool(item.strip()))
-                for item in value
-            )
-        )
-    return nonempty_string(value)
-
-
-def validate_baselines(
-    baseline: dict[str, Any] | None,
-    trigger_claims: set[str],
-    state_epoch: Any,
+def validate_chronology_self_attestation(
+    snapshot_fn: SnapshotReader,
+    protocol: dict[str, Any],
+    strict_new_checks: bool = False,
 ) -> list[Issue]:
-    if baseline is None:
-        return (
-            [
-                Issue(
-                    "BASELINE_BUDGET_INCOMPLETE",
-                    "INVALID",
-                    claim_id,
-                    "baseline_budget.json:missing",
-                )
-                for claim_id in sorted(trigger_claims)
-            ]
-            if trigger_claims
-            else []
+    """protocol chronology_test 登记测试的反自证检查。
+
+    严格 AST 契约只在 prediction_unit=SAMPLE 时执行（validate_chronology）；
+    本检查对任意 prediction_unit 登记的 chronology_test 生效，经 output
+    manifest 找到可执行测试文件后做静态 TARGET_CLAIM_IDS/import 绑定检查。
+    """
+
+    chronology = protocol.get("chronology_test")
+    if not isinstance(chronology, dict):
+        return []
+    output_path = chronology.get("output_file")
+    if not canonical_relative_path(output_path):
+        return []
+    try:
+        output_snapshot = snapshot_fn(output_path, include_data=True)
+    except (FileNotFoundError, UnsafePathError, OSError):
+        return []
+    assert output_snapshot.data is not None
+    try:
+        manifest = strict_object_from_snapshot(
+            output_snapshot.data, "chronology_test_output"
         )
-    issues: list[Issue] = []
-    if baseline.get("schema_version") != "2.0":
-        issues.append(
-            Issue(
-                "BASELINE_BUDGET_INCOMPLETE",
-                "INVALID",
-                "baseline_budget",
-                f"schema_version:{baseline.get('schema_version')}",
-            )
-        )
-    epoch = baseline.get("validation_epoch")
-    if not positive_integer(epoch) or (
-        positive_integer(state_epoch) and epoch != state_epoch
-    ):
-        issues.append(
-            Issue(
-                "BASELINE_BUDGET_INCOMPLETE",
-                "INVALID",
-                "baseline_budget",
-                f"validation_epoch:{epoch};state:{state_epoch}",
-            )
-        )
-    comparators = baseline.get("comparators")
-    if not isinstance(comparators, list):
-        return issues + [
-            Issue(
-                "BASELINE_BUDGET_INCOMPLETE",
-                "INVALID",
-                "baseline_budget",
-                "comparators:expected_list",
-            )
-        ]
-    covered: set[str] = set()
-    comparator_ids: list[str] = []
-    for index, comparator in enumerate(comparators):
-        item_id = f"comparator[{index}]"
-        if not isinstance(comparator, dict):
-            issues.append(
-                Issue(
-                    "BASELINE_BUDGET_INCOMPLETE",
-                    "INVALID",
-                    item_id,
-                    "expected_object",
-                )
-            )
-            continue
-        comparator_id = comparator.get("comparator_id")
-        if not nonempty_string(comparator_id) or comparator_id.strip() != comparator_id:
-            issues.append(
-                Issue(
-                    "BASELINE_BUDGET_INCOMPLETE",
-                    "INVALID",
-                    item_id,
-                    "comparator_id:expected_canonical_nonempty_string",
-                )
-            )
-        else:
-            item_id = comparator_id
-            comparator_ids.append(comparator_id)
-        claim_ids = comparator.get("claim_ids")
-        if not string_list(claim_ids) or len(set(claim_ids)) != len(claim_ids):
-            issues.append(
-                Issue(
-                    "BASELINE_BUDGET_INCOMPLETE",
-                    "INVALID",
-                    item_id,
-                    "claim_ids:expected_nonempty_unique_string_list",
-                )
-            )
-        else:
-            covered.update(claim_ids)
-        if trigger_claims:
-            for field in REQUIRED_COMPARATOR_FIELDS:
-                if field not in comparator or not comparator_field_valid(
-                    field, comparator.get(field)
-                ):
-                    issues.append(
-                        Issue(
-                            "BASELINE_BUDGET_INCOMPLETE",
-                            "INVALID",
-                            item_id,
-                            f"{field}:missing_or_invalid",
-                        )
-                    )
-    for comparator_id, count in Counter(comparator_ids).items():
-        if count > 1:
-            issues.append(
-                Issue(
-                    "BASELINE_BUDGET_INCOMPLETE",
-                    "INVALID",
-                    comparator_id,
-                    f"duplicate_comparator_id:count:{count}",
-                )
-            )
-    for claim_id in sorted(trigger_claims - covered):
-        issues.append(
-            Issue(
-                "BASELINE_BUDGET_INCOMPLETE",
-                "INVALID",
-                claim_id,
-                "no_comparator_covers_trigger_claim",
-            )
-        )
-    return issues
+    except (StrictJSONError, TypeError):
+        return []
+    test_path = manifest.get("executable_test_relative_path")
+    if not canonical_relative_path(test_path):
+        return []
+    try:
+        test_snapshot = snapshot_fn(test_path, include_data=True)
+    except (FileNotFoundError, UnsafePathError, OSError):
+        return []
+    assert test_snapshot.data is not None
+    raw_targets = chronology.get("target_claim_ids")
+    registered = set(raw_targets) if string_list(raw_targets) else set()
+    implementation_path = chronology.get("implementation_relative_path")
+    implementation_paths = (
+        {implementation_path}
+        if canonical_relative_path(implementation_path)
+        else set()
+    )
+    return self_attesting_test_issues(
+        test_snapshot.data,
+        test_path,
+        registered,
+        implementation_paths,
+        strict_new_checks=strict_new_checks,
+    )
 
 
 def validate_loaded(
-    root_fd: int,
+    snapshot_fn: SnapshotReader,
     state: dict[str, Any],
     inventory: dict[str, Any],
     protocol: dict[str, Any],
@@ -1809,13 +844,109 @@ def validate_loaded(
     issues = validate_protocol_fields(protocol, state_epoch)
     algorithm_claims, claim_issues = collect_algorithm_claims(inventory, state_epoch)
     issues.extend(claim_issues)
-    issues.extend(validate_chronology(root_fd, protocol, algorithm_claims, trace))
-    trigger_claims = {
-        claim_id
-        for claim_id, claim in algorithm_claims.items()
-        if claim_triggers_budget(claim)
-    }
-    issues.extend(validate_baselines(baseline, trigger_claims, state_epoch))
+    issues.extend(validate_chronology(snapshot_fn, protocol, algorithm_claims, trace))
+    issues.extend(_baseline_budget_issues(baseline, algorithm_claims, state_epoch))
+    return issues
+
+
+def _baseline_budget_issues(
+    baseline: dict[str, Any] | None,
+    algorithm_claims: dict[str, dict[str, Any]],
+    state_epoch: Any,
+) -> list[Issue]:
+    # 延迟导入打破循环：validate_baseline_budget 依赖本模块的
+    # collect_algorithm_claims / load_object_via_ctx。baseline 硬校验已
+    # 迁出（去 trigger 门控），这里委托给新模块以保持完整运行口径一致。
+    from validate_baseline_budget import validate_baselines
+
+    return validate_baselines(baseline, algorithm_claims, state_epoch)
+
+
+def validate_with_context(
+    ctx: ProjectContext,
+    *,
+    baseline_only: bool = False,
+    inventory: str | None = None,
+    protocol: str | None = None,
+    baseline_budget: str | None = None,
+    claim_code_trace: str | None = None,
+    strict_new_checks: bool = False,
+) -> list[Issue]:
+    """库函数入口：复用 ProjectContext 完成全部校验，供 CLI 与批量调用共用。
+
+    state 直接取 ctx.state（构建 ctx 时已 strict 解析）；各 JSON 走
+    ctx.load_json；实现/测试/输出文件走 ctx.snapshot（按路径缓存）。
+    各可选参数为 CLI 显式覆盖的相对路径；缺省按 state["artifacts"] 解析。
+    strict_new_checks 将 NEW_CHECK_CODES 中的新检查码从 WARNING 升为
+    INVALID。baseline_only 为兼容入口，转发 validate_baseline_budget。
+    """
+
+    state = ctx.state
+    if baseline_only:
+        # 兼容入口（deprecated）：baseline 硬校验已迁到
+        # validate_baseline_budget.py；该模块自带相同的 profile 门控，
+        # 这里只做 thin 转发以保持 CLI 行为一致。
+        from validate_baseline_budget import (
+            validate_with_context as validate_baseline_budget,
+        )
+
+        return validate_baseline_budget(
+            ctx, inventory_path=inventory, baseline_budget=baseline_budget
+        )
+    issues: list[Issue] = []
+    profile = state.get("claim_profile")
+    if not isinstance(profile, str) or profile not in {
+        "THEORY",
+        "ALGORITHM",
+        "MIXED",
+    }:
+        issues.append(
+            Issue(
+                "INVALID_CLAIM_PROFILE",
+                "INVALID",
+                "workflow_state",
+                f"claim_profile:{profile}",
+            )
+        )
+        return issues
+    if profile not in ALGORITHM_PROFILES:
+        return issues
+    inventory_data, inventory_issues = load_object_via_ctx(
+        ctx,
+        inventory or ctx.artifact_relative_path("claim_inventory"),
+        "claim_inventory",
+    )
+    baseline, baseline_issues = load_object_via_ctx(
+        ctx,
+        baseline_budget or ctx.artifact_relative_path("baseline_budget"),
+        "baseline_budget",
+        required=False,
+    )
+    issues.extend(inventory_issues + baseline_issues)
+    protocol_data, protocol_issues = load_object_via_ctx(
+        ctx,
+        protocol or ctx.artifact_relative_path("protocol_contract"),
+        "protocol_contract",
+    )
+    trace, trace_issues = load_object_via_ctx(
+        ctx,
+        claim_code_trace or ctx.artifact_relative_path("claim_code_trace"),
+        "claim_code_trace",
+        required=False,
+    )
+    issues.extend(protocol_issues + trace_issues)
+    if inventory_data is not None and protocol_data is not None:
+        issues.extend(
+            validate_loaded(
+                ctx.snapshot, state, inventory_data, protocol_data, baseline, trace
+            )
+        )
+    if protocol_data is not None:
+        issues.extend(
+            validate_chronology_self_attestation(
+                ctx.snapshot, protocol_data, strict_new_checks
+            )
+        )
     return issues
 
 
@@ -1828,99 +959,43 @@ def main() -> int:
     parser.add_argument("--baseline-budget", type=Path)
     parser.add_argument("--claim-code-trace", type=Path)
     parser.add_argument("--baseline-only", action="store_true")
+    parser.add_argument("--strict-new-checks", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
     root_fd: int | None = None
     try:
         root_fd = open_root_fd(args.root)
-        paths = {
-            "workflow_state": lexical_relative_cli_path(args.root, args.state, "state"),
-            "claim_inventory": lexical_relative_cli_path(
-                args.root,
-                args.inventory or (args.root / "claim_inventory.json"),
-                "inventory",
-            ),
-            "protocol_contract": lexical_relative_cli_path(
-                args.root,
-                args.protocol or (args.root / "protocol_contract.json"),
-                "protocol",
-            ),
-            "baseline_budget": lexical_relative_cli_path(
-                args.root,
-                args.baseline_budget or (args.root / "baseline_budget.json"),
-                "baseline_budget",
-            ),
-            "claim_code_trace": lexical_relative_cli_path(
-                args.root,
-                args.claim_code_trace or (args.root / "claim_code_trace.json"),
-                "claim_code_trace",
-            ),
+        state_path = lexical_relative_cli_path(args.root, args.state, "state")
+        # 显式 CLI 覆盖：先做与旧版一致的词法校验，缺省则交由
+        # validate_with_context 按 state["artifacts"] 解析。
+        overrides = {
+            "inventory": ("inventory", args.inventory),
+            "protocol": ("protocol", args.protocol),
+            "baseline_budget": ("baseline_budget", args.baseline_budget),
+            "claim_code_trace": ("claim_code_trace", args.claim_code_trace),
         }
-        state, issues = load_object(
-            root_fd, paths["workflow_state"], "workflow_state"
-        )
+        resolved = {
+            key: (
+                lexical_relative_cli_path(args.root, raw, label)
+                if raw is not None
+                else None
+            )
+            for key, (label, raw) in overrides.items()
+        }
+        # state 预读沿用旧的 root_fd 通道，确保 state 缺失/损坏时的
+        # 错误码与文本与旧版完全一致；ctx 随后会再解析一次同一文件。
+        state, issues = load_object(root_fd, state_path, "workflow_state")
         if state is not None:
-            profile = state.get("claim_profile")
-            if not isinstance(profile, str) or profile not in {
-                "THEORY",
-                "ALGORITHM",
-                "MIXED",
-            }:
-                issues.append(
-                    Issue(
-                        "INVALID_CLAIM_PROFILE",
-                        "INVALID",
-                        "workflow_state",
-                        f"claim_profile:{profile}",
+            with ProjectContext(args.root, args.state) as ctx:
+                issues.extend(
+                    validate_with_context(
+                        ctx,
+                        baseline_only=args.baseline_only,
+                        strict_new_checks=args.strict_new_checks,
+                        **resolved,
                     )
                 )
-            elif profile in ALGORITHM_PROFILES:
-                inventory, inventory_issues = load_object(
-                    root_fd, paths["claim_inventory"], "claim_inventory"
-                )
-                baseline, baseline_issues = load_object(
-                    root_fd,
-                    paths["baseline_budget"],
-                    "baseline_budget",
-                    required=args.baseline_only,
-                )
-                issues.extend(inventory_issues + baseline_issues)
-                if args.baseline_only:
-                    if inventory is not None and baseline is not None:
-                        algorithm_claims, claim_issues = collect_algorithm_claims(
-                            inventory, state.get("validation_epoch")
-                        )
-                        issues.extend(claim_issues)
-                        trigger_claims = {
-                            claim_id
-                            for claim_id, claim in algorithm_claims.items()
-                            if claim_triggers_budget(claim)
-                        }
-                        issues.extend(
-                            validate_baselines(
-                                baseline,
-                                trigger_claims,
-                                state.get("validation_epoch"),
-                            )
-                        )
-                else:
-                    protocol, protocol_issues = load_object(
-                        root_fd, paths["protocol_contract"], "protocol_contract"
-                    )
-                    trace, trace_issues = load_object(
-                        root_fd,
-                        paths["claim_code_trace"],
-                        "claim_code_trace",
-                        required=False,
-                    )
-                    issues.extend(protocol_issues + trace_issues)
-                    if inventory is not None and protocol is not None:
-                        issues.extend(
-                            validate_loaded(
-                                root_fd, state, inventory, protocol, baseline, trace
-                            )
-                        )
     except Exception as error:
         issues = [
             Issue(

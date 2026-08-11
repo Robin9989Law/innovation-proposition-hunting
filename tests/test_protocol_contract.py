@@ -4,12 +4,14 @@ import hashlib
 import json
 import os
 import shlex
+from shutil import copytree
 import subprocess
 import unittest
 from pathlib import Path
 from typing import Any
 
 from tests.helpers import (
+    REPOSITORY_ROOT,
     load_json,
     make_valid_project,
     run_all_validator,
@@ -21,6 +23,7 @@ from tests.helpers import (
 PROTOCOL = "protocol_contract.json"
 BASELINES = "baseline_budget.json"
 TRACE = "claim_code_trace.json"
+INCIDENT_FIXTURE = REPOSITORY_ROOT / "tests" / "fixtures" / "incident-2026-08"
 
 
 def sha256(path: Path) -> str:
@@ -177,7 +180,9 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertEqual(1, completed.returncode)
         self.assertIn("BASELINE_BUDGET_INCOMPLETE", completed.stdout)
 
-    def test_strongly_wording_does_not_trigger_budget_contract(self) -> None:
+    def test_strongly_wording_still_requires_budget_contract(self) -> None:
+        # 去 trigger 门控：baseline 预算契约对全部 algorithm claims 强制，
+        # 与 claim 文本措辞无关（事故教训：回避触发词即可绕过基线预算）。
         variants = (
             ("Algorithm 1 is strongly regularized.", ["protocol"]),
             ("Algorithm 1 follows the frozen protocol.", ["strongly comparative"]),
@@ -194,9 +199,8 @@ class ProtocolContractTests(unittest.TestCase):
 
                 completed = self.run_protocol(project)
 
-                self.assertEqual(
-                    0, completed.returncode, completed.stdout + completed.stderr
-                )
+                self.assertEqual(1, completed.returncode)
+                self.assertIn("BASELINE_BUDGET_INCOMPLETE", completed.stdout)
 
     def test_stronger_and_strongest_comparison_context_triggers_budget(self) -> None:
         variants = (
@@ -219,7 +223,8 @@ class ProtocolContractTests(unittest.TestCase):
                 self.assertEqual(1, completed.returncode)
                 self.assertIn("BASELINE_BUDGET_INCOMPLETE", completed.stdout)
 
-    def test_stronger_without_comparison_context_does_not_trigger_budget(self) -> None:
+    def test_stronger_without_comparison_context_still_requires_budget(self) -> None:
+        # 去 trigger 门控：无比较强措辞同样强制 baseline 预算契约。
         project = self.make_project()
         inventory = load_json(project / "claim_inventory.json")
         algorithm_claim = inventory["claims"][1]
@@ -230,9 +235,11 @@ class ProtocolContractTests(unittest.TestCase):
 
         completed = self.run_protocol(project)
 
-        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("BASELINE_BUDGET_INCOMPLETE", completed.stdout)
 
-    def test_no_budget_language_does_not_require_baseline_contract(self) -> None:
+    def test_no_budget_language_still_requires_baseline_contract(self) -> None:
+        # 去 trigger 门控：完全没有预算措辞也不能免除 baseline_budget.json。
         project = self.make_project()
         inventory = load_json(project / "claim_inventory.json")
         algorithm_claim = inventory["claims"][1]
@@ -243,7 +250,8 @@ class ProtocolContractTests(unittest.TestCase):
 
         completed = self.run_protocol(project)
 
-        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("BASELINE_BUDGET_INCOMPLETE", completed.stdout)
 
     def test_canonical_chinese_fair_risk_term_triggers_budget_contract(self) -> None:
         project = self.make_project()
@@ -279,7 +287,8 @@ class ProtocolContractTests(unittest.TestCase):
                 self.assertEqual(1, completed.returncode)
                 self.assertIn("BASELINE_BUDGET_INCOMPLETE", completed.stdout)
 
-    def test_fairness_prose_without_comparison_does_not_trigger_budget(self) -> None:
+    def test_fairness_prose_without_comparison_still_requires_budget(self) -> None:
+        # 去 trigger 门控：讨论"公平性"但不构成比较措辞，仍强制预算契约。
         project = self.make_project()
         inventory = load_json(project / "claim_inventory.json")
         inventory["claims"][1]["statement"] = "本文讨论公平性约束及其社会含义。"
@@ -289,7 +298,8 @@ class ProtocolContractTests(unittest.TestCase):
 
         completed = self.run_protocol(project)
 
-        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("BASELINE_BUDGET_INCOMPLETE", completed.stdout)
 
     def test_each_required_protocol_field_is_strictly_required(self) -> None:
         fields = (
@@ -2440,6 +2450,353 @@ class ProtocolContractTests(unittest.TestCase):
         )
         self.assertEqual(recorded_manifest, generated_manifest)
         self.assertEqual(command, generated_manifest["command"])
+
+
+BATCH_TEST = "checks/check_batch_protocol.py"
+BATCH_OUTPUT = "test_outputs/batch_chronology_pass.json"
+BATCH_IMPLEMENTATION = "implementation/scheduling_lp.py"
+
+BATCH_TEST_CLEAN = (
+    '"""Batch chronology check bound to claims and implementation."""\n'
+    "import sys\n"
+    "from pathlib import Path\n"
+    'sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "implementation"))\n'
+    "import scheduling_lp\n"
+    'TARGET_CLAIM_IDS = ["C-ALGORITHM-1"]\n'
+    "def run():\n"
+    "    return scheduling_lp.solve([1])\n"
+)
+BATCH_TEST_NO_TARGETS = (
+    '"""Self-attesting check: no machine-readable claim binding."""\n'
+    "import scheduling_lp\n"
+    "def run():\n"
+    "    return scheduling_lp.solve([1])\n"
+)
+BATCH_TEST_EMPTY_TARGETS = (
+    "import scheduling_lp\n"
+    "TARGET_CLAIM_IDS = []\n"
+)
+BATCH_TEST_DISJOINT_TARGETS = (
+    "import scheduling_lp\n"
+    'TARGET_CLAIM_IDS = ("C-ELSEWHERE-1",)\n'
+)
+BATCH_TEST_NO_IMPORT = (
+    'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+    "EXPECTED_TOTAL = 42\n"
+    "def run():\n"
+    "    return EXPECTED_TOTAL\n"
+)
+BATCH_TEST_QUALIFIED_IMPORT = (
+    "from implementation.scheduling_lp import solve\n"
+    'TARGET_CLAIM_IDS = ("C-ALGORITHM-1",)\n'
+    "def run():\n"
+    "    return solve([1])\n"
+)
+TRACE_TEST_NO_TARGETS = (
+    '"""Chronology check without machine-readable claim binding."""\n'
+    "from implementation.online_algorithm import evaluate_online\n"
+    "def run():\n"
+    "    class Model:\n"
+    "        def predict_one(self, features):\n"
+    "            return features\n"
+    "        def update_one(self, features, label):\n"
+    "            return None\n"
+    "    evaluate_online(Model(), [1], [2])\n"
+)
+
+
+class SelfAttestingTestContractTests(unittest.TestCase):
+    """SELF_ATTESTING_TEST：登记/绑定的测试必须机器可读地绑定 claim 与实现。
+
+    新检查码默认 WARNING（不计退出码），--strict-new-checks 升 INVALID。
+    用 BATCH protocol 登记 chronology_test（严格 AST 契约只覆盖 SAMPLE），
+    验证反自证静态检查覆盖严格契约之外的登记测试。
+    """
+
+    def make_project(self) -> Path:
+        temporary_directory, project = make_valid_project(claim_profile="ALGORITHM")
+        self.addCleanup(temporary_directory.cleanup)
+        return project
+
+    def run_protocol(
+        self, project: Path, extra_args: tuple[str, ...] = ()
+    ) -> subprocess.CompletedProcess[str]:
+        return run_script("validate_protocol_contract.py", project, extra_args)
+
+    def run_trace(
+        self, project: Path, extra_args: tuple[str, ...] = ()
+    ) -> subprocess.CompletedProcess[str]:
+        return run_script("validate_claim_code_trace.py", project, extra_args)
+
+    def write_batch_protocol(
+        self,
+        project: Path,
+        test_source: str,
+        *,
+        target_ids: tuple[str, ...] = ("C-ALGORITHM-1",),
+        test_path: str = BATCH_TEST,
+    ) -> None:
+        implementation = project / BATCH_IMPLEMENTATION
+        if not implementation.exists():
+            implementation.write_text(
+                "def solve(tasks):\n    return tasks\n", encoding="utf-8"
+            )
+        test_file = project / test_path
+        test_file.write_text(test_source, encoding="utf-8")
+        manifest = {
+            "schema_version": "2.0",
+            "status": "PASS",
+            "exit_code": 0,
+            "command": f"python3 {test_path}",
+            "target_claim_ids": sorted(target_ids),
+            "implementation_relative_path": BATCH_IMPLEMENTATION,
+            "implementation_sha256": sha256(implementation),
+            "executable_test_relative_path": test_path,
+            "executable_test_sha256": sha256(test_file),
+        }
+        write_json(project / BATCH_OUTPUT, manifest)
+        protocol = {
+            "schema_version": "2.0",
+            "validation_epoch": 1,
+            "prediction_unit": "BATCH",
+            "update_unit": "BATCH",
+            "predict_update_order": "BATCH_PREDICT_THEN_UPDATE",
+            "label_availability": "AFTER_BATCH",
+            "chronological_ordering": "STRICT_EVENT_TIME",
+            "split_strategy": "CHRONOLOGICAL_HOLDOUT",
+            "hyperparameter_selection_data": "TRAIN_ONLY",
+            "development_data": "DEVELOPMENT_ONLY",
+            "sealed_confirmation_data": "SEALED_CONFIRMATION_ONLY",
+            "test_access_count": 1,
+            "update_semantics": {
+                "uses_test_labels": False,
+                "supervised_online_adaptation": False,
+                "pre_update_scoring": True,
+                "operational_label_availability": True,
+                "evaluation_role": "CONFIRMATORY",
+            },
+            "chronology_test": {
+                "command": manifest["command"],
+                "status": "PASS",
+                "exit_code": 0,
+                "output_file": BATCH_OUTPUT,
+                "output_sha256": sha256(project / BATCH_OUTPUT),
+                "target_claim_ids": sorted(target_ids),
+                "implementation_relative_path": BATCH_IMPLEMENTATION,
+                "implementation_symbol": "solve",
+                "implementation_sha256": manifest["implementation_sha256"],
+            },
+        }
+        write_json(project / PROTOCOL, protocol)
+
+    def test_missing_target_claim_ids_is_self_attesting_warning(self) -> None:
+        project = self.make_project()
+        self.write_batch_protocol(project, BATCH_TEST_NO_TARGETS)
+
+        completed = self.run_protocol(project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("protocol_contract_status=READY", completed.stdout)
+        self.assertIn("WARNING\tSELF_ATTESTING_TEST", completed.stdout)
+        self.assertIn("TARGET_CLAIM_IDS:missing_or_empty_module_literal", completed.stdout)
+
+    def test_empty_target_claim_ids_literal_is_self_attesting(self) -> None:
+        project = self.make_project()
+        self.write_batch_protocol(project, BATCH_TEST_EMPTY_TARGETS)
+
+        completed = self.run_protocol(project)
+
+        self.assertIn("WARNING\tSELF_ATTESTING_TEST", completed.stdout)
+        self.assertIn("TARGET_CLAIM_IDS:missing_or_empty_module_literal", completed.stdout)
+
+    def test_target_claim_ids_disjoint_from_registered_is_self_attesting(self) -> None:
+        project = self.make_project()
+        self.write_batch_protocol(project, BATCH_TEST_DISJOINT_TARGETS)
+
+        completed = self.run_protocol(project)
+
+        self.assertIn("WARNING\tSELF_ATTESTING_TEST", completed.stdout)
+        self.assertIn(
+            "TARGET_CLAIM_IDS:no_intersection_with_registered_claims",
+            completed.stdout,
+        )
+
+    def test_missing_implementation_import_is_self_attesting(self) -> None:
+        project = self.make_project()
+        self.write_batch_protocol(project, BATCH_TEST_NO_IMPORT)
+
+        completed = self.run_protocol(project)
+
+        self.assertIn("WARNING\tSELF_ATTESTING_TEST", completed.stdout)
+        self.assertIn("implementation_import:missing", completed.stdout)
+
+    def test_sys_path_stem_import_satisfies_binding(self) -> None:
+        project = self.make_project()
+        self.write_batch_protocol(project, BATCH_TEST_CLEAN)
+
+        completed = self.run_protocol(project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertNotIn("SELF_ATTESTING_TEST", completed.stdout)
+
+    def test_qualified_from_import_satisfies_binding(self) -> None:
+        project = self.make_project()
+        self.write_batch_protocol(project, BATCH_TEST_QUALIFIED_IMPORT)
+
+        completed = self.run_protocol(project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertNotIn("SELF_ATTESTING_TEST", completed.stdout)
+
+    def test_strict_new_checks_upgrades_self_attesting_to_invalid(self) -> None:
+        project = self.make_project()
+        self.write_batch_protocol(project, BATCH_TEST_NO_TARGETS)
+
+        completed = self.run_protocol(project, ["--strict-new-checks"])
+
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("INVALID\tSELF_ATTESTING_TEST", completed.stdout)
+
+    def test_trace_bound_test_without_target_claim_ids_is_self_attesting(self) -> None:
+        project = self.make_project()
+        test_path = project / "checks/check_online_chronology.py"
+        test_path.write_text(TRACE_TEST_NO_TARGETS, encoding="utf-8")
+        test_hash = sha256(test_path)
+        output_path = project / "test_outputs/online_chronology_pass.json"
+        manifest = load_json(output_path)
+        manifest["executable_test_sha256"] = test_hash
+        write_json(output_path, manifest)
+        output_hash = sha256(output_path)
+        protocol = load_json(project / PROTOCOL)
+        protocol["chronology_test"]["output_sha256"] = output_hash
+        write_json(project / PROTOCOL, protocol)
+        trace = load_json(project / TRACE)
+        for binding in trace["traces"]:
+            binding["executable_test_sha256"] = test_hash
+            binding["pass_output_sha256"] = output_hash
+        write_json(project / TRACE, trace)
+
+        completed = self.run_trace(project)
+
+        # 严格契约（INVALID）之外，反自证检查给出 WARNING 级信号。
+        self.assertIn("WARNING\tSELF_ATTESTING_TEST", completed.stdout)
+        self.assertIn("TARGET_CLAIM_IDS:missing_or_empty_module_literal", completed.stdout)
+
+    def test_trace_strict_new_checks_upgrades_self_attesting(self) -> None:
+        project = self.make_project()
+        test_path = project / "checks/check_online_chronology.py"
+        test_path.write_text(TRACE_TEST_NO_TARGETS, encoding="utf-8")
+        test_hash = sha256(test_path)
+        output_path = project / "test_outputs/online_chronology_pass.json"
+        manifest = load_json(output_path)
+        manifest["executable_test_sha256"] = test_hash
+        write_json(output_path, manifest)
+        output_hash = sha256(output_path)
+        protocol = load_json(project / PROTOCOL)
+        protocol["chronology_test"]["output_sha256"] = output_hash
+        write_json(project / PROTOCOL, protocol)
+        trace = load_json(project / TRACE)
+        for binding in trace["traces"]:
+            binding["executable_test_sha256"] = test_hash
+            binding["pass_output_sha256"] = output_hash
+        write_json(project / TRACE, trace)
+
+        completed = self.run_trace(project, ["--strict-new-checks"])
+
+        self.assertEqual(1, completed.returncode)
+        self.assertIn("INVALID\tSELF_ATTESTING_TEST", completed.stdout)
+
+    def test_incident_fixture_checks_trigger_self_attesting(self) -> None:
+        """事故负例集成：checks/*.py 有 sys.path.insert+import 绑定但无
+        TARGET_CLAIM_IDS，登记为 chronology_test 后必须报 SELF_ATTESTING_TEST。"""
+        temporary_directory, project_root = make_valid_project(claim_profile="MIXED")
+        self.addCleanup(temporary_directory.cleanup)
+        project = project_root / "incident"
+        copytree(INCIDENT_FIXTURE, project)
+        implementation = project / BATCH_IMPLEMENTATION
+        implementation.parent.mkdir(exist_ok=True)
+        implementation.write_text(
+            "def solve(tasks):\n    return tasks\n", encoding="utf-8"
+        )
+        (project / "test_outputs").mkdir(exist_ok=True)
+        test_path = "checks/check_model_trace.py"
+        manifest = {
+            "schema_version": "2.0",
+            "status": "PASS",
+            "exit_code": 0,
+            "command": f"python3 {test_path}",
+            "target_claim_ids": ["C-COMPLEX-1", "C-MODEL-1"],
+            "implementation_relative_path": BATCH_IMPLEMENTATION,
+            "implementation_sha256": sha256(implementation),
+            "executable_test_relative_path": test_path,
+            "executable_test_sha256": sha256(project / test_path),
+        }
+        write_json(project / BATCH_OUTPUT, manifest)
+        protocol = {
+            "schema_version": "2.0",
+            "validation_epoch": 1,
+            "prediction_unit": "BATCH",
+            "update_unit": "BATCH",
+            "predict_update_order": "BATCH_PREDICT_THEN_UPDATE",
+            "label_availability": "AFTER_BATCH",
+            "chronological_ordering": "STRICT_EVENT_TIME",
+            "split_strategy": "CHRONOLOGICAL_HOLDOUT",
+            "hyperparameter_selection_data": "TRAIN_ONLY",
+            "development_data": "DEVELOPMENT_ONLY",
+            "sealed_confirmation_data": "SEALED_CONFIRMATION_ONLY",
+            "test_access_count": 1,
+            "update_semantics": {
+                "uses_test_labels": False,
+                "supervised_online_adaptation": False,
+                "pre_update_scoring": True,
+                "operational_label_availability": True,
+                "evaluation_role": "CONFIRMATORY",
+            },
+            "chronology_test": {
+                "command": manifest["command"],
+                "status": "PASS",
+                "exit_code": 0,
+                "output_file": BATCH_OUTPUT,
+                "output_sha256": sha256(project / BATCH_OUTPUT),
+                "target_claim_ids": ["C-COMPLEX-1", "C-MODEL-1"],
+                "implementation_relative_path": BATCH_IMPLEMENTATION,
+                "implementation_symbol": "solve",
+                "implementation_sha256": manifest["implementation_sha256"],
+            },
+        }
+        write_json(project / PROTOCOL, protocol)
+        baseline = {
+            "schema_version": "2.0",
+            "validation_epoch": 1,
+            "comparators": [
+                {
+                    "comparator_id": "B-COMPARATOR-A",
+                    "claim_ids": ["C-MODEL-1", "C-COMPLEX-1"],
+                    "width_or_parameter_budget": "same parameter budget",
+                    "seeds": [11, 23, 37],
+                    "regularization_search_space": [0.0, 0.01, 0.1],
+                    "tuning_data": "identical TRAIN_ONLY split",
+                    "label_access": "identical labels",
+                    "update_frequency": "one update per batch",
+                    "compute_budget": "identical compute cap",
+                    "stopping_rules": "identical stopping rule",
+                }
+            ],
+        }
+        write_json(project / BASELINES, baseline)
+
+        completed = self.run_protocol(project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("WARNING\tSELF_ATTESTING_TEST", completed.stdout)
+        self.assertIn("TARGET_CLAIM_IDS:missing_or_empty_module_literal", completed.stdout)
+        # sys.path.insert + import scheduling_lp 的 import 绑定成立，不误报。
+        self.assertNotIn("implementation_import:missing", completed.stdout)
+
+        strict = self.run_protocol(project, ["--strict-new-checks"])
+
+        self.assertEqual(1, strict.returncode)
+        self.assertIn("INVALID\tSELF_ATTESTING_TEST", strict.stdout)
 
 
 if __name__ == "__main__":

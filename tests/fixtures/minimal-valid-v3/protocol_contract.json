@@ -1,0 +1,34 @@
+{
+  "schema_version": "2.0",
+  "validation_epoch": 1,
+  "prediction_unit": "SAMPLE",
+  "update_unit": "SAMPLE",
+  "predict_update_order": "PREDICT_THEN_UPDATE",
+  "label_availability": "AFTER_EACH_PREDICTION",
+  "chronological_ordering": "STRICT_EVENT_TIME",
+  "split_strategy": "CHRONOLOGICAL_HOLDOUT",
+  "hyperparameter_selection_data": "TRAIN_ONLY",
+  "development_data": "DEVELOPMENT_ONLY",
+  "sealed_confirmation_data": "SEALED_CONFIRMATION_ONLY",
+  "test_access_count": 1,
+  "update_semantics": {
+    "uses_test_labels": false,
+    "supervised_online_adaptation": false,
+    "pre_update_scoring": true,
+    "operational_label_availability": true,
+    "evaluation_role": "CONFIRMATORY"
+  },
+  "chronology_test": {
+    "command": "python3 -m checks.check_online_chronology",
+    "status": "PASS",
+    "exit_code": 0,
+    "output_file": "test_outputs/online_chronology_pass.json",
+    "output_sha256": "abfc2d7fa7928129ea4f187f584bfccf6d09a8282f04500460857845babccfdb",
+    "target_claim_ids": [
+      "C-ALGORITHM-1"
+    ],
+    "implementation_relative_path": "implementation/online_algorithm.py",
+    "implementation_symbol": "evaluate_online",
+    "implementation_sha256": "5e13fed44b7fe3373fe672e471e5f41c5de0109a72874ad4c24bea33c40603b5"
+  }
+}

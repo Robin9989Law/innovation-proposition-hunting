@@ -5,16 +5,27 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter, defaultdict
-import errno
 import hashlib
-import json
 import os
 from pathlib import Path, PurePosixPath
 import re
-import stat
-from typing import Any, Iterable, NamedTuple
+from typing import Any, Callable, Iterable, NamedTuple
 
-from validation_common import CLAIM_TYPES, Issue, choose_exit, render
+from validation_common import (
+    CLAIM_TYPES,
+    Issue,
+    ProjectContext,
+    StrictJSONError,
+    UnsafePathError,
+    canonical_relative_path,
+    choose_exit,
+    nonempty_string,
+    open_root_fd,
+    positive_integer,
+    read_regular_file_at,
+    render,
+    string_list,
+)
 
 
 AUDITED_VALIDITY_LEVELS = {"V3", "V4"}
@@ -185,29 +196,6 @@ def occurrence_id(relative_path: str, line: str, term: str, ordinal: int) -> str
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def nonempty_string(value: Any) -> bool:
-    return isinstance(value, str) and bool(value.strip())
-
-
-def string_list(value: Any, *, allow_empty: bool = False) -> bool:
-    return (
-        isinstance(value, list)
-        and (allow_empty or bool(value))
-        and all(nonempty_string(item) for item in value)
-    )
-
-
-def valid_epoch(value: Any) -> bool:
-    return not isinstance(value, bool) and isinstance(value, int) and value >= 1
-
-
-def load_object(path: Path, label: str) -> dict[str, Any]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise TypeError(f"{label}:top_level_not_object")
-    return payload
-
-
 def require_within_root(root: Path, path: Path, label: str) -> None:
     try:
         path.relative_to(root)
@@ -215,79 +203,12 @@ def require_within_root(root: Path, path: Path, label: str) -> None:
         raise ValueError(f"{label}:outside_root:{path}") from error
 
 
-def source_path_is_canonical(raw_path: str) -> bool:
-    posix_path = PurePosixPath(raw_path)
-    return (
-        bool(raw_path)
-        and "\\" not in raw_path
-        and not posix_path.is_absolute()
-        and posix_path.parts
-        and all(part not in {"", ".", ".."} for part in posix_path.parts)
-        and posix_path.as_posix() == raw_path
-    )
-
-
-def secure_directory_flags() -> int:
-    if not hasattr(os, "O_DIRECTORY") or not hasattr(os, "O_NOFOLLOW"):
-        raise RuntimeError("secure_source_open_flags_unavailable")
-    return (
-        os.O_RDONLY
-        | os.O_DIRECTORY
-        | os.O_NOFOLLOW
-        | getattr(os, "O_CLOEXEC", 0)
-    )
-
-
-def secure_file_flags() -> int:
-    if not hasattr(os, "O_NOFOLLOW"):
-        raise RuntimeError("secure_source_open_flags_unavailable")
-    return (
-        os.O_RDONLY
-        | os.O_NOFOLLOW
-        | getattr(os, "O_CLOEXEC", 0)
-        | getattr(os, "O_NONBLOCK", 0)
-    )
-
-
-def read_source_from_root_fd(
-    root_fd: int, raw_path: str
-) -> tuple[str, tuple[int, int]]:
-    parts = PurePosixPath(raw_path).parts
-    parent_fd = root_fd
-    parent_fd_owned = False
-    source_fd: int | None = None
-    try:
-        for component in parts[:-1]:
-            next_fd = os.open(
-                component,
-                secure_directory_flags(),
-                dir_fd=parent_fd,
-            )
-            if parent_fd_owned:
-                os.close(parent_fd)
-            parent_fd = next_fd
-            parent_fd_owned = True
-        source_fd = os.open(parts[-1], secure_file_flags(), dir_fd=parent_fd)
-        metadata = os.fstat(source_fd)
-        if not stat.S_ISREG(metadata.st_mode):
-            raise IsADirectoryError("not_a_regular_file")
-        chunks: list[bytes] = []
-        while True:
-            chunk = os.read(source_fd, 1024 * 1024)
-            if not chunk:
-                break
-            chunks.append(chunk)
-        return b"".join(chunks).decode("utf-8"), (metadata.st_dev, metadata.st_ino)
-    finally:
-        if source_fd is not None:
-            os.close(source_fd)
-        if parent_fd_owned:
-            os.close(parent_fd)
-
-
-def resolve_sources(
-    root: Path, raw_sources: Any
+def _resolve_sources_with_reader(
+    raw_sources: Any,
+    read_source: Callable[[str], tuple[bytes, tuple[int, int]]],
 ) -> tuple[list[SourceSnapshot], list[Issue]]:
+    """稿件源清单校验循环；读取通道由调用方注入（独立 fd 或 ctx 缓存）。"""
+
     if not string_list(raw_sources):
         return [], [
             Issue(
@@ -302,44 +223,66 @@ def resolve_sources(
     issues: list[Issue] = []
     seen_declared: set[str] = set()
     seen_file_identities: set[tuple[int, int]] = set()
-    root_fd = os.open(root, secure_directory_flags())
-    try:
-        for raw_path in raw_sources:
-            if raw_path in seen_declared:
-                issues.append(
-                    Issue(
-                        "DUPLICATE_MANUSCRIPT_SOURCE",
-                        "INVALID",
-                        raw_path,
-                        "duplicate_declared_path",
-                    )
+    for raw_path in raw_sources:
+        if raw_path in seen_declared:
+            issues.append(
+                Issue(
+                    "DUPLICATE_MANUSCRIPT_SOURCE",
+                    "INVALID",
+                    raw_path,
+                    "duplicate_declared_path",
                 )
-                continue
-            seen_declared.add(raw_path)
-            if not source_path_is_canonical(raw_path):
+            )
+            continue
+        seen_declared.add(raw_path)
+        if not canonical_relative_path(raw_path):
+            issues.append(
+                Issue(
+                    "UNSAFE_MANUSCRIPT_SOURCE",
+                    "INVALID",
+                    raw_path,
+                    "path_must_be_canonical_and_relative",
+                )
+            )
+            continue
+        suffix = PurePosixPath(raw_path).suffix.casefold()
+        if suffix not in SUPPORTED_SOURCE_SUFFIXES:
+            issues.append(
+                Issue(
+                    "UNSUPPORTED_MANUSCRIPT_SOURCE",
+                    "INVALID",
+                    raw_path,
+                    "expected_markdown_or_tex",
+                )
+            )
+            continue
+        try:
+            data, file_identity = read_source(raw_path)
+            text = data.decode("utf-8")
+        except FileNotFoundError:
+            issues.append(
+                Issue(
+                    "MISSING_MANUSCRIPT_SOURCE",
+                    "INVALID",
+                    raw_path,
+                    "not_a_regular_file",
+                )
+            )
+            continue
+        except UnsafePathError as error:
+            # read_regular_file_at 把 ELOOP/非普通文件统一成 UnsafePathError，
+            # 这里映射回与旧实现一致的 issue 类别。
+            reason = str(error)
+            if reason.startswith("symlink_or_unsafe"):
                 issues.append(
                     Issue(
                         "UNSAFE_MANUSCRIPT_SOURCE",
                         "INVALID",
                         raw_path,
-                        "path_must_be_canonical_and_relative",
+                        "symlink_or_unsafe_component",
                     )
                 )
-                continue
-            suffix = PurePosixPath(raw_path).suffix.casefold()
-            if suffix not in SUPPORTED_SOURCE_SUFFIXES:
-                issues.append(
-                    Issue(
-                        "UNSUPPORTED_MANUSCRIPT_SOURCE",
-                        "INVALID",
-                        raw_path,
-                        "expected_markdown_or_tex",
-                    )
-                )
-                continue
-            try:
-                text, file_identity = read_source_from_root_fd(root_fd, raw_path)
-            except FileNotFoundError:
+            elif reason == "not_a_regular_file":
                 issues.append(
                     Issue(
                         "MISSING_MANUSCRIPT_SOURCE",
@@ -348,61 +291,80 @@ def resolve_sources(
                         "not_a_regular_file",
                     )
                 )
-                continue
-            except OSError as error:
-                if error.errno in {errno.ELOOP, errno.ENOTDIR}:
-                    issues.append(
-                        Issue(
-                            "UNSAFE_MANUSCRIPT_SOURCE",
-                            "INVALID",
-                            raw_path,
-                            "symlink_or_unsafe_component",
-                        )
-                    )
-                elif isinstance(error, IsADirectoryError):
-                    issues.append(
-                        Issue(
-                            "MISSING_MANUSCRIPT_SOURCE",
-                            "INVALID",
-                            raw_path,
-                            "not_a_regular_file",
-                        )
-                    )
-                else:
-                    issues.append(
-                        Issue(
-                            "UNREADABLE_MANUSCRIPT_SOURCE",
-                            "INVALID",
-                            raw_path,
-                            type(error).__name__,
-                        )
-                    )
-                continue
-            except UnicodeError as error:
+            else:
                 issues.append(
                     Issue(
                         "UNREADABLE_MANUSCRIPT_SOURCE",
                         "INVALID",
                         raw_path,
-                        type(error).__name__,
+                        reason,
                     )
                 )
-                continue
-            if file_identity in seen_file_identities:
-                issues.append(
-                    Issue(
-                        "DUPLICATE_MANUSCRIPT_SOURCE",
-                        "INVALID",
-                        raw_path,
-                        "duplicate_file_identity",
-                    )
+            continue
+        except OSError as error:
+            issues.append(
+                Issue(
+                    "UNREADABLE_MANUSCRIPT_SOURCE",
+                    "INVALID",
+                    raw_path,
+                    type(error).__name__,
                 )
-                continue
-            seen_file_identities.add(file_identity)
-            sources.append(SourceSnapshot(raw_path, suffix, text))
+            )
+            continue
+        except UnicodeError as error:
+            issues.append(
+                Issue(
+                    "UNREADABLE_MANUSCRIPT_SOURCE",
+                    "INVALID",
+                    raw_path,
+                    type(error).__name__,
+                )
+            )
+            continue
+        if file_identity in seen_file_identities:
+            issues.append(
+                Issue(
+                    "DUPLICATE_MANUSCRIPT_SOURCE",
+                    "INVALID",
+                    raw_path,
+                    "duplicate_file_identity",
+                )
+            )
+            continue
+        seen_file_identities.add(file_identity)
+        sources.append(SourceSnapshot(raw_path, suffix, text))
+    return sources, issues
+
+
+def resolve_sources(
+    root: Path, raw_sources: Any
+) -> tuple[list[SourceSnapshot], list[Issue]]:
+    """独立读取入口：自开 root fd（open_root_fd 拒绝 root symlink），不经 ctx。"""
+
+    root_fd = open_root_fd(root)
+    try:
+
+        def read_source(raw_path: str) -> tuple[bytes, tuple[int, int]]:
+            snapshot = read_regular_file_at(root_fd, raw_path, include_data=True)
+            assert snapshot.data is not None
+            return snapshot.data, snapshot.identity
+
+        return _resolve_sources_with_reader(raw_sources, read_source)
     finally:
         os.close(root_fd)
-    return sources, issues
+
+
+def _resolve_sources_via_context(
+    ctx: ProjectContext, raw_sources: Any
+) -> tuple[list[SourceSnapshot], list[Issue]]:
+    """ctx 读取通道：snapshot(include_data=True) 带缓存，多校验器共享手稿字节。"""
+
+    def read_source(raw_path: str) -> tuple[bytes, tuple[int, int]]:
+        snapshot = ctx.snapshot(raw_path, include_data=True)
+        assert snapshot.data is not None
+        return snapshot.data, snapshot.identity
+
+    return _resolve_sources_with_reader(raw_sources, read_source)
 
 
 def matches_for_line(line: str) -> list[tuple[int, str]]:
@@ -763,7 +725,7 @@ def validate_claim_fields(
             )
         )
     claim_epoch = claim.get("validation_epoch")
-    if "validation_epoch" in claim and not valid_epoch(claim_epoch):
+    if "validation_epoch" in claim and not positive_integer(claim_epoch):
         issues.append(
             Issue(
                 "INVALID_CLAIM_FIELD",
@@ -772,7 +734,7 @@ def validate_claim_fields(
                 "validation_epoch:expected_positive_integer",
             )
         )
-    elif valid_epoch(state_epoch) and claim_epoch != state_epoch:
+    elif positive_integer(state_epoch) and claim_epoch != state_epoch:
         issues.append(
             Issue(
                 "VALIDATION_EPOCH_MISMATCH",
@@ -801,7 +763,11 @@ def validate_claim_fields(
     return issues, str(claim_id) if nonempty_string(claim_id) else None, occurrence_ids
 
 
-def validate(root: Path, state: dict[str, Any], inventory: dict[str, Any]) -> list[Issue]:
+def _validate_inventory(
+    state: dict[str, Any],
+    inventory: dict[str, Any],
+    resolve: Callable[[Any], tuple[list[SourceSnapshot], list[Issue]]],
+) -> list[Issue]:
     issues: list[Issue] = []
     if inventory.get("schema_version") != "2.0":
         issues.append(
@@ -814,7 +780,7 @@ def validate(root: Path, state: dict[str, Any], inventory: dict[str, Any]) -> li
         )
 
     state_epoch = state.get("validation_epoch")
-    if not valid_epoch(state_epoch):
+    if not positive_integer(state_epoch):
         issues.append(
             Issue(
                 "INVALID_STATE_VALIDATION_EPOCH",
@@ -825,7 +791,7 @@ def validate(root: Path, state: dict[str, Any], inventory: dict[str, Any]) -> li
         )
     if "validation_epoch" in inventory:
         inventory_epoch = inventory.get("validation_epoch")
-        if not valid_epoch(inventory_epoch):
+        if not positive_integer(inventory_epoch):
             issues.append(
                 Issue(
                     "INVALID_INVENTORY_FIELD",
@@ -834,7 +800,7 @@ def validate(root: Path, state: dict[str, Any], inventory: dict[str, Any]) -> li
                     "validation_epoch:expected_positive_integer",
                 )
             )
-        elif valid_epoch(state_epoch) and inventory_epoch != state_epoch:
+        elif positive_integer(state_epoch) and inventory_epoch != state_epoch:
             issues.append(
                 Issue(
                     "VALIDATION_EPOCH_MISMATCH",
@@ -844,7 +810,7 @@ def validate(root: Path, state: dict[str, Any], inventory: dict[str, Any]) -> li
                 )
             )
 
-    sources, source_issues = resolve_sources(root, inventory.get("manuscript_sources"))
+    sources, source_issues = resolve(inventory.get("manuscript_sources"))
     issues.extend(source_issues)
     occurrences, scan_issues = scan_sources(sources)
     issues.extend(scan_issues)
@@ -927,6 +893,35 @@ def validate(root: Path, state: dict[str, Any], inventory: dict[str, Any]) -> li
     return issues
 
 
+def validate(root: Path, state: dict[str, Any], inventory: dict[str, Any]) -> list[Issue]:
+    """兼容入口：独立打开 root 读取稿件源（不共享 ProjectContext 缓存）。"""
+
+    return _validate_inventory(
+        state,
+        inventory,
+        lambda raw_sources: resolve_sources(root, raw_sources),
+    )
+
+
+def validate_with_context(
+    ctx: ProjectContext, inventory_path: str | None = None
+) -> list[Issue]:
+    """库函数入口：state / inventory / 稿件源全部走 ProjectContext 缓存通道。
+
+    inventory_path 为 None 时按 state artifacts 解析 claim_inventory 路径
+    （缺省回退默认文件名）；显式传入（CLI --inventory 覆盖）时直接读该
+    相对路径，不走 ctx 默认解析。
+    """
+
+    relative = inventory_path or ctx.artifact_relative_path("claim_inventory")
+    inventory = ctx.load_json(relative, "claim_inventory")
+    return _validate_inventory(
+        ctx.state,
+        inventory,
+        lambda raw_sources: _resolve_sources_via_context(ctx, raw_sources),
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
@@ -937,30 +932,34 @@ def main() -> int:
 
     root = args.root.resolve()
     state_path = args.state.resolve()
-    inventory_path = (
-        args.inventory.resolve()
-        if args.inventory is not None
-        else (root / "claim_inventory.json").resolve()
-    )
     try:
         if not root.is_dir():
             raise ValueError(f"root:not_directory:{root}")
         require_within_root(root, state_path, "state")
-        require_within_root(root, inventory_path, "inventory")
-        state = load_object(state_path, "workflow_state")
-        try:
-            inventory_payload = json.loads(inventory_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, UnicodeError) as error:
-            issues = [
-                Issue(
-                    "INVALID_CLAIM_INVENTORY_JSON",
-                    "INVALID",
-                    "claim_inventory",
-                    type(error).__name__,
-                )
-            ]
-        else:
-            if not isinstance(inventory_payload, dict):
+        # 显式 --inventory 覆盖：直接读显式路径，不走 state artifacts 默认解析。
+        inventory_override: str | None = None
+        if args.inventory is not None:
+            inventory_path = args.inventory.resolve()
+            require_within_root(root, inventory_path, "inventory")
+            inventory_override = inventory_path.relative_to(root).as_posix()
+        with ProjectContext(root, state_path) as ctx:
+            # 与 validate_with_context 相同的路径解析顺序；先单独加载一次，
+            # 把 JSON 解析失败映射成稳定的 INVALID_* 类别（缓存使第二次免费）。
+            relative = inventory_override or ctx.artifact_relative_path(
+                "claim_inventory"
+            )
+            try:
+                ctx.load_json(relative, "claim_inventory")
+            except StrictJSONError as error:
+                issues = [
+                    Issue(
+                        "INVALID_CLAIM_INVENTORY_JSON",
+                        "INVALID",
+                        "claim_inventory",
+                        str(error),
+                    )
+                ]
+            except TypeError:
                 issues = [
                     Issue(
                         "INVALID_CLAIM_INVENTORY",
@@ -970,7 +969,7 @@ def main() -> int:
                     )
                 ]
             else:
-                issues = validate(root, state, inventory_payload)
+                issues = validate_with_context(ctx, relative)
     except Exception as error:
         issues = [
             Issue(

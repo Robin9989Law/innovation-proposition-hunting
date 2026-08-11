@@ -1,0 +1,67 @@
+{
+  "schema_version": "2.0",
+  "validation_epoch": 1,
+  "obligations": [
+    {
+      "claim_id": "C-THEOREM-1",
+      "exact_statement": "For every real x, if x >= 0, then x + 1 > 0.",
+      "exact_statement_sha256": "0175549d8901e562651c28bbcb282b54285de8726718fb44ca79d3817db1923e",
+      "premises": [
+        "x is real",
+        "x >= 0"
+      ],
+      "quantifiers": [
+        "for every real x"
+      ],
+      "proof_locator": "manuscript.md:3",
+      "validation_epoch": 1,
+      "witnesses": [
+        {
+          "kind": "MINIMAL_POSITIVE",
+          "expected": "PASS",
+          "observed": "PASS",
+          "command": "python3 checks/theory_witness.py minimal-positive",
+          "exit_code": 0,
+          "output_file": "theory_witnesses/minimal_positive.txt",
+          "output_sha256": "877ed1f197b8618d9e0f841c88538b39ba5a97850c81b51ffdf0ebaba669861b"
+        },
+        {
+          "kind": "NONZERO_NUISANCE",
+          "expected": "PASS",
+          "observed": "PASS",
+          "command": "python3 checks/theory_witness.py nonzero-nuisance",
+          "exit_code": 0,
+          "output_file": "theory_witnesses/nonzero_nuisance.txt",
+          "output_sha256": "872ac478941d06d5f4f4e532ffd2cfdad8584e38583a24731b2fb1167c969289"
+        },
+        {
+          "kind": "BOUNDARY_OR_LIMIT",
+          "expected": "PASS",
+          "observed": "PASS",
+          "command": "python3 checks/theory_witness.py boundary-or-limit",
+          "exit_code": 0,
+          "output_file": "theory_witnesses/boundary_or_limit.txt",
+          "output_sha256": "42db25bb161351e726641cf035a9cf7fea539b4fe59cee6b516ddd5c7bef5b60"
+        },
+        {
+          "kind": "PREMISE_REMOVAL",
+          "expected": "FAIL",
+          "observed": "FAIL",
+          "command": "python3 checks/theory_witness.py premise-removal",
+          "exit_code": 1,
+          "output_file": "theory_witnesses/premise_removal.txt",
+          "output_sha256": "d3f9c1d5857e0301a621dd43ac58b9017ee0c42e1032eee87e285a21e53770a7"
+        },
+        {
+          "kind": "RANDOM_PROPERTY",
+          "expected": "PASS",
+          "observed": "PASS",
+          "command": "python3 checks/theory_witness.py random-property",
+          "exit_code": 0,
+          "output_file": "theory_witnesses/random_property.txt",
+          "output_sha256": "94c283c9e65a2a76a8ae4c0af49541719dce5e5097f047a4c3961a846ce962be"
+        }
+      ]
+    }
+  ]
+}

@@ -9,17 +9,17 @@ import json
 import os
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Callable
 
 from validation_common import (
     Issue,
+    ProjectContext,
+    SafeFileSnapshot,
     UnsafePathError,
     canonical_relative_path,
     choose_exit,
     lexical_relative_cli_path,
     nonempty_string,
-    open_root_fd,
-    read_json_object_at,
     read_regular_file_at,
     render,
 )
@@ -27,6 +27,34 @@ from validation_common import (
 
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z", re.ASCII)
 ROLE_PATTERN = re.compile(r"[A-Z][A-Z0-9_]*\Z", re.ASCII)
+
+# 新增检查码：默认 WARNING（不计入退出码），--strict-new-checks 升为 INVALID。
+NEW_CHECK_CODES = frozenset({"AUDIT_MANIFEST_ROLE_MISSING"})
+
+# profile 决定的必需 entry role 集合（templates.md §8）；baseline 已去门控，
+# ALGORITHM/MIXED 一律要求 BASELINE_CONTRACT。
+_REQUIRED_THEORY_ROLES = {"CLAIM_INVENTORY", "MANUSCRIPT", "THEORY_OBLIGATIONS"}
+_REQUIRED_ALGORITHM_ROLES = {
+    "CLAIM_INVENTORY",
+    "MANUSCRIPT",
+    "PROTOCOL_CONTRACT",
+    "CLAIM_CODE_TRACE",
+    "IMPLEMENTATION",
+    "EXECUTABLE_TEST",
+    "TEST_OUTPUT",
+    "BASELINE_CONTRACT",
+}
+REQUIRED_ROLES = {
+    "THEORY": _REQUIRED_THEORY_ROLES,
+    "ALGORITHM": _REQUIRED_ALGORITHM_ROLES,
+    "MIXED": _REQUIRED_THEORY_ROLES | _REQUIRED_ALGORITHM_ROLES,
+}
+
+
+def issue_severity(code: str, strict_new_checks: bool) -> str:
+    if code in NEW_CHECK_CODES and not strict_new_checks:
+        return "WARNING"
+    return "INVALID"
 
 
 def valid_sha256(value: Any) -> bool:
@@ -47,11 +75,14 @@ def bundle_sha256(entries: list[dict[str, str]]) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def validate(
-    root_fd: int,
+def _validate_bundle(
+    read: Callable[[str], SafeFileSnapshot],
     state: dict[str, Any],
     manifest: dict[str, Any],
+    strict_new_checks: bool = False,
 ) -> list[Issue]:
+    # read：按 manifest 相对路径取当前文件快照（哈希）；库入口传
+    # ctx.snapshot 以复用缓存，CLI 包装传 read_regular_file_at。
     issues: list[Issue] = []
     if manifest.get("schema_version") != "2.0":
         issues.append(
@@ -94,6 +125,24 @@ def validate(
             )
         )
         entries = []
+
+    # profile 必需 role 集合（templates.md §8）：缺失逐 role 上报。
+    profile = state.get("claim_profile")
+    required_roles = REQUIRED_ROLES.get(profile if isinstance(profile, str) else "")
+    if required_roles:
+        present_roles = {
+            entry.get("role") for entry in entries if isinstance(entry, dict)
+        }
+        severity = issue_severity("AUDIT_MANIFEST_ROLE_MISSING", strict_new_checks)
+        for role in sorted(required_roles - present_roles):
+            issues.append(
+                Issue(
+                    "AUDIT_MANIFEST_ROLE_MISSING",
+                    severity,
+                    "audit_manifest",
+                    f"profile:{profile};missing_role:{role}",
+                )
+            )
 
     current_entries: list[dict[str, str]] = []
     seen_paths: set[str] = set()
@@ -160,7 +209,7 @@ def validate(
             continue
 
         try:
-            snapshot = read_regular_file_at(root_fd, raw_path)
+            snapshot = read(raw_path)
         except FileNotFoundError:
             issues.append(
                 Issue(
@@ -252,29 +301,64 @@ def validate(
     return issues
 
 
+def validate(
+    root_fd: int,
+    state: dict[str, Any],
+    manifest: dict[str, Any],
+    strict_new_checks: bool = False,
+) -> list[Issue]:
+    """兼容包装：逐条目现场哈希（无缓存），保持原模块 API。"""
+
+    return _validate_bundle(
+        lambda raw_path: read_regular_file_at(root_fd, raw_path),
+        state,
+        manifest,
+        strict_new_checks,
+    )
+
+
+def validate_with_context(
+    ctx: ProjectContext,
+    *,
+    manifest_path: str | None = None,
+    strict_new_checks: bool = False,
+) -> list[Issue]:
+    """库入口：state 复用 ctx.state，manifest 经 ctx.load_json 缓存解析，
+    条目哈希核验走 ctx.snapshot 缓存。manifest_path 为相对路径覆盖
+    （CLI 覆盖参数由此传入）；缺省按 state["artifacts"] 解析。"""
+
+    relative = manifest_path or ctx.artifact_relative_path("audit_manifest")
+    manifest = ctx.load_json(relative, "audit_manifest")
+    return _validate_bundle(ctx.snapshot, ctx.state, manifest, strict_new_checks)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--state", type=Path, required=True)
     parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--strict-new-checks", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
     root = Path(os.path.abspath(args.root))
-    root_fd: int | None = None
     try:
-        state_relative = lexical_relative_cli_path(root, args.state, "state")
-        manifest_path = args.manifest or root / "audit_manifest.json"
-        manifest_relative = lexical_relative_cli_path(root, manifest_path, "manifest")
-        root_fd = open_root_fd(root)
-        state = read_json_object_at(root_fd, state_relative, "workflow_state")
-        manifest = read_json_object_at(root_fd, manifest_relative, "audit_manifest")
-        issues = validate(root_fd, state, manifest)
+        with ProjectContext(root, args.state) as ctx:
+            manifest_relative = lexical_relative_cli_path(
+                root, args.manifest or root / "audit_manifest.json", "manifest"
+            )
+            issues = validate_with_context(
+                ctx,
+                manifest_path=manifest_relative,
+                strict_new_checks=args.strict_new_checks,
+            )
     except Exception as error:
-        issues = [Issue("VALIDATOR_ERROR", "INVALID", "artifact_hashes", str(error))]
-    finally:
-        if root_fd is not None:
-            os.close(root_fd)
+        # ctx.load_json 的 os.stat 用绝对路径，OSError 文本需剥掉 root 前缀；
+        # ctx 内部以 label "state" 抛 TypeError，历史输出用 "workflow_state"。
+        detail = str(error).replace(f"{root}/", "")
+        if detail.startswith("state:top_level_not_object"):
+            detail = "workflow_state:" + detail[len("state:"):]
+        issues = [Issue("VALIDATOR_ERROR", "INVALID", "artifact_hashes", detail)]
 
     print(render("artifact_hashes", issues, args.json))
     return int(choose_exit(issues))

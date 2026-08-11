@@ -1,3 +1,5 @@
+> **状态：已归档（2026-08-11）**。本文件是 Schema 2.0 实施前的设计/计划档案，内容可能已过时；现行规范以 SKILL.md、templates.md 与 scripts/ 校验器为准。
+
 # Innovation Proposition Hunting Schema v2: Claim Integrity Design
 
 Date: 2026-08-10

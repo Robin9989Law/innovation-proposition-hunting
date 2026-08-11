@@ -110,7 +110,6 @@ class SchemaV2ValidationTests(unittest.TestCase):
 
     def test_schema_v2_enums_and_epoch_are_validated(self) -> None:
         cases = (
-            ("active_track", "OTHER", "INVALID_ACTIVE_TRACK"),
             ("novelty_level", "N0-4", "INVALID_NOVELTY_LEVEL"),
             ("validity_level", "V5", "INVALID_VALIDITY_LEVEL"),
             ("claim_profile", "EMPIRICAL", "INVALID_CLAIM_PROFILE"),
@@ -131,8 +130,26 @@ class SchemaV2ValidationTests(unittest.TestCase):
                 )
                 self.assertIn(code, completed.stdout)
 
+    def test_legacy_derived_fields_are_rejected(self) -> None:
+        """schema 3.0 删除的派生字段残留在 state 中即迁移未完成。"""
+        for field in ("active_track", "active_layer", "last_completed_state"):
+            with self.subTest(field=field):
+                temporary_directory, project = make_valid_project()
+                self.addCleanup(temporary_directory.cleanup)
+                state = load_json(project / "workflow_state.json")
+                state[field] = "L1" if field == "active_layer" else "NOVELTY"
+                write_json(project / "workflow_state.json", state)
+
+                completed = run_schema_validator(project)
+
+                self.assertEqual(
+                    1, completed.returncode, completed.stdout + completed.stderr
+                )
+                self.assertIn("LEGACY_FIELD_REMOVED", completed.stdout)
+                self.assertIn(field, completed.stdout)
+
     def test_schema_v2_enum_types_are_stably_invalid(self) -> None:
-        for field in ("active_track", "novelty_level", "validity_level", "claim_profile"):
+        for field in ("novelty_level", "validity_level", "claim_profile"):
             for malformed in ([], {}):
                 with self.subTest(field=field, malformed=malformed):
                     temporary_directory, project = make_valid_project()

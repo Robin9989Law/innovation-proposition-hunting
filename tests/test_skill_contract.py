@@ -17,7 +17,7 @@ class SkillContractTests(unittest.TestCase):
     def test_main_skill_exposes_schema_v2_hard_gates(self):
         text = self.read("SKILL.md")
         for required in (
-            "schema_version = 2.0",
+            "schema_version = 3.0",
             "N0-4C",
             "V0",
             "V1",
@@ -168,8 +168,8 @@ class SkillContractTests(unittest.TestCase):
         self.assertNotIn(forbidden, readme)
         self.assertNotIn(forbidden, tutorial)
 
-    def test_standalone_schema_v2_fixture_is_ready_and_read_only(self):
-        source = ROOT / "tests" / "fixtures" / "minimal-valid-v2"
+    def test_standalone_schema_v3_fixture_is_ready_and_read_only(self):
+        source = ROOT / "tests" / "fixtures" / "minimal-valid-v3"
 
         def snapshot(directory: Path) -> dict[str, str]:
             return {
@@ -181,8 +181,8 @@ class SkillContractTests(unittest.TestCase):
             }
 
         source_before = snapshot(source)
-        with TemporaryDirectory(prefix="standalone-schema-v2-") as temporary:
-            project = Path(temporary) / "minimal-valid-v2"
+        with TemporaryDirectory(prefix="standalone-schema-v3-") as temporary:
+            project = Path(temporary) / "minimal-valid-v3"
             copytree(source, project, ignore=lambda _path, names: {
                 name for name in names if name == "__pycache__"
             })

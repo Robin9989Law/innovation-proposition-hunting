@@ -1,0 +1,18 @@
+{
+  "schema_version": "2.0",
+  "validation_epoch": 1,
+  "traces": [
+    {
+      "claim_id": "C-ALGORITHM-1",
+      "manuscript_location": "manuscript.md:9",
+      "pseudocode_symbol": "Algorithm 1",
+      "implementation_relative_path": "implementation/online_algorithm.py",
+      "implementation_symbol": "evaluate_online",
+      "implementation_sha256": "5e13fed44b7fe3373fe672e471e5f41c5de0109a72874ad4c24bea33c40603b5",
+      "executable_test_relative_path": "checks/check_online_chronology.py",
+      "executable_test_sha256": "7b3edae007f104a1f6064954f1dce5c38ac562241a8c9f1386678d438861a654",
+      "pass_output_relative_path": "test_outputs/online_chronology_pass.json",
+      "pass_output_sha256": "abfc2d7fa7928129ea4f187f584bfccf6d09a8282f04500460857845babccfdb"
+    }
+  ]
+}

@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Validate the mandatory Schema 2.0 readiness fields."""
+"""Validate the mandatory Schema 3.0 readiness fields.
+
+单一可执行合同：只有 schema_version = "3.0" 可以进入裁决/审计/计算。
+2.0 项目先运行 migrate_v2_to_v3.py；1.0 项目先 migrate_v1_to_v2.py 再升 3.0。
+3.0 删除三个派生字段（active_track / active_layer / last_completed_state），
+state 中仍携带它们视为迁移未完成（LEGACY_FIELD_REMOVED）。
+"""
 
 from __future__ import annotations
 
@@ -11,7 +17,7 @@ from typing import Any
 from validation_common import Issue, choose_exit, render
 
 
-ACTIVE_TRACKS = {"NOVELTY", "VALIDITY", "COMPUTE"}
+ACTIVE_TRACKS = {"NOVELTY", "VALIDITY", "COMPUTE"}  # 仅供外部迁移/报表派生使用
 NOVELTY_LEVELS = {"N0-1", "N0-2", "N0-3", "N0-4C"}
 VALIDITY_LEVELS = {"V0", "V1", "V2", "V3", "V4"}
 CLAIM_PROFILES = {"THEORY", "ALGORITHM", "MIXED"}
@@ -140,21 +146,41 @@ def validate_audit(audit: Any, *, present: bool, required: bool) -> list[Issue]:
     return issues
 
 
+CURRENT_SCHEMA_VERSION = "3.0"
+# 3.0 删除的派生字段（design-schema-3.0 §4）；state 中残留即迁移未完成。
+REMOVED_DERIVED_FIELDS = ("active_track", "active_layer", "last_completed_state")
+MIGRATION_HINTS = {
+    "2.0": "migrate_v2_to_v3.py",
+    "1.0": "migrate_v1_to_v2.py && migrate_v2_to_v3.py",
+}
+
+
 def validate(root: Path, state: dict[str, Any]) -> list[Issue]:
-    del root  # Reserved for artifact-aware Schema 2.0 checks.
-    if state.get("schema_version") != "2.0":
+    del root  # Reserved for artifact-aware schema checks.
+    if state.get("schema_version") != CURRENT_SCHEMA_VERSION:
+        found = state.get("schema_version")
+        hint = MIGRATION_HINTS.get(str(found), "migrate_v2_to_v3.py")
         return [
             Issue(
                 "MIGRATION_REQUIRED",
                 "MIGRATION",
                 "workflow_state",
-                f"found:{state.get('schema_version')}",
+                f"found:{found};run:{hint}",
             )
         ]
 
     issues: list[Issue] = []
+    for field in REMOVED_DERIVED_FIELDS:
+        if field in state:
+            issues.append(
+                Issue(
+                    "LEGACY_FIELD_REMOVED",
+                    "INVALID",
+                    "workflow_state",
+                    f"{field}:derived_in_3.0",
+                )
+            )
     enum_fields = (
-        ("active_track", ACTIVE_TRACKS, "INVALID_ACTIVE_TRACK"),
         ("novelty_level", NOVELTY_LEVELS, "INVALID_NOVELTY_LEVEL"),
         ("validity_level", VALIDITY_LEVELS, "INVALID_VALIDITY_LEVEL"),
         ("claim_profile", CLAIM_PROFILES, "INVALID_CLAIM_PROFILE"),

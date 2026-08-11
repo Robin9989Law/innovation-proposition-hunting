@@ -63,14 +63,19 @@ L1、L2 或贡献架构通过并不代表创新成立。N0 新颖性评级只用
 发现另一条路径更有吸引力，不等于获得换轨授权。智能体应把它登记为支持性线索或
 候选重启理由，而不是同时推进两条主创新。
 
-### Schema 2.0 双轴状态机
+### Schema 3.0 双轴状态机
 
 ```text
-新颖性：BOOT → SCOPE_LOCK → ... → N0_AUDIT → N0-4C
+新颖性：BOOT → SCOPE_LOCK → ... → L1_FREEZE → L2_TRIAGE
+      → LAYER_DECISION → K_FULLTEXT → K_CLAIM_REGISTER
+      → ... → N0_AUDIT → N0-4C
 有效性：CLAIM_FREEZE → VALIDITY_AUDIT → INDEPENDENT_REVIEW
        → DIRECTION_LOCK → COMPUTE → POSTCOMPUTE_CLAIM_FREEZE
        → FINAL_VALIDITY_AUDIT → FINAL_LOCK
 ```
+
+新颖性轴按三段排布证据深度：L1_SCOUT 段只动元数据，L2_TRIAGE 段试读并选拔
+K 集合，L3_EVIDENCE 段只对 K 集合跑全文归档与原子观点提取。
 
 每个研究主题都必须维护工作流状态文件（`workflow_state.json`）。智能体一次只能
 执行一个 `active_state`，并同时报告新颖性 N0-1 至 N0-4C 与有效性 V0 至 V4。
@@ -78,7 +83,10 @@ L1、L2 或贡献架构通过并不代表创新成立。N0 新颖性评级只用
 
 ## 文献与观点证据链
 
-每轮新碰撞按固定顺序执行：
+证据管线是辅线：主线是 L1→L2→L3 的逐层构建，证据深度按层供给（L1 零全文、
+L2 摘要级、全重机器只对 L3 候选 K 集合运行，见 `SKILL.md` §3.1 与
+`EVIDENCE_DEPTH_EXCEEDS_LAYER` 预算检查）。达到 L3 候选阶段后，每轮新碰撞
+按固定顺序执行：
 
 ```text
 耗尽旧观点
@@ -170,7 +178,14 @@ git clone \
 
 ## 验证
 
-在研究目录中执行：
+在研究目录中执行（标准入口是 `iph` CLI；它会自动完成校验、状态推进与交接）：
+
+```bash
+python3 /path/to/innovation-proposition-hunting/scripts/iph.py \
+  validate --root /path/to/research --state /path/to/research/workflow_state.json
+```
+
+底层总校验器仍可直接调用：
 
 ```bash
 python3 /path/to/innovation-proposition-hunting/scripts/validate_all.py \
@@ -182,12 +197,14 @@ python3 /path/to/innovation-proposition-hunting/scripts/validate_all.py \
 
 | 脚本 | 检查内容 |
 |---|---|
-| `validate_schema_v2.py` / `validate_workflow_state.py` | Schema 2.0、双轴状态、阶段门和计算授权 |
+| `validate_schema_v2.py` / `validate_workflow_state.py` | Schema 3.0（旧版本转 MIGRATION）、双轴状态、阶段门、计算授权与未登记计算产物 |
 | `validate_claim_inventory.py` | 高风险声明出现、类型和 inventory 绑定 |
-| `validate_theory_obligations.py` | 理论命题、证明责任和可反驳见证 |
-| `validate_protocol_contract.py` / `validate_claim_code_trace.py` | 算法协议、基线预算、实现、测试和输出追溯 |
+| `validate_theory_obligations.py` | 理论命题、证明责任、见证咬合力与豁免闭合 |
+| `validate_protocol_contract.py` / `validate_claim_code_trace.py` | 算法协议、实现、测试绑定和输出追溯、自证测试检测 |
+| `validate_baseline_budget.py` | 基线预算（无触发词门控，comparator 与 algorithm claims 求交） |
+| `validate_exploration_firewall.py` | 探索产物登记、哈希新鲜度与数字泄漏防火墙 |
 | `validate_literature_registry.py` / `validate_evidence_chain.py` | 文献身份、全文、原子观点和输出支持 |
-| `validate_frontier_integrity.py` | 近期前沿覆盖、重要性历史和证据降级 |
+| `validate_frontier_integrity.py` | 近期前沿覆盖、作者续作实名、重要性历史和证据降级 |
 | `validate_artifact_hashes.py` / `validate_audit_provenance.py` | 当前 bundle、epoch 和独立 reviewer 来源 |
 
 退出码为 `READY=0`、`INVALID=1`、`BLOCKED=2`、`MIGRATION_REQUIRED=3`。出现非零
@@ -218,9 +235,11 @@ hierarchy_status.md
 | [`evidence-pipeline.md`](evidence-pipeline.md) | 文献—观点—输出 JSON 数据合同 |
 | [`templates.md`](templates.md) | 状态文件、冻结卡、碰撞卡和审计模板 |
 | [`reference.md`](reference.md) | E0–E4、出版资格、Gate、上钻和综合锁细节 |
-| [`compute-funnel.md`](compute-funnel.md) | N0-4C、V3 且获授权后使用的 S0–S4 计算漏斗 |
-| [`case-lessons.md`](case-lessons.md) | 成功上钻与失败纠偏案例 |
+| [`compute-funnel.md`](compute-funnel.md) | N0-4C、V3 且获授权后使用的 S0-SCREEN–S4 计算漏斗 |
+| [`case-lessons.md`](case-lessons.md) | 成功上钻与失败纠偏案例（含 2026-08 事故复盘） |
 | [`scripts/`](scripts) | Schema、声明、证据、审计和计算门的确定性校验脚本 |
+| [`docs/optimization-plan-2026-08.md`](docs/optimization-plan-2026-08.md) | 2026-08 技能整体优化方案（已实施，含事故根因分析） |
+| [`docs/archive/`](docs/archive) | 历史设计档案（仅存档，非现行规范） |
 
 ## 适用边界
 

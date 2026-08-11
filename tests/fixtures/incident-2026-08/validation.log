@@ -1,0 +1,16 @@
+2026-08-10T15:24:50Z BOOT validate_all exit=0 READY (schema_v2=0 workflow_state=0)
+2026-08-10T15:26:00Z SCOPE_LOCK contract confirmed by user (JOURNAL_ARTICLE/ONE_MAIN_M, L1, R3+F3, B1-B4)
+2026-08-10T15:28:00Z PRIOR_CLAIM_DRAIN round1 UNUSED=0 drained
+2026-08-10T16:05:00Z RECENT_FRONTIER complete: 20 works, 9 archived, 14 claims, 3 routes; BLOCKED on 10 fulltexts
+2026-08-10T16:20:00Z L1 选题冻结：l1-card.md (管理决策定位，依《科研管理》偏好)
+2026-08-10T16:40:00Z CNKI 检索：19 篇中文近邻登记（4C/14I/1Cx），注册表 39 篇
+2026-08-10T17:05:00Z W-CN-18 archived (OA journal site); 28 blocked remain; download_manifest.csv written
+2026-08-10T17:30:00Z E1 摘要×8 捕获; synthesis-preliminary.md 落盘（预分析，非冻结）
+2026-08-10T18:05:00Z S0 Δ2 falsifiability test done: R1 substitution, R2 saturation@24h, R3 cost-carbon misalignment; results NOT claims
+2026-08-10T18:40:00Z UNBLOCKED: 28 fulltexts archived+verified; -> SOURCE_CLAIM_REGISTER
+2026-08-10T19:20:00Z SOURCE_CLAIM_REGISTER done: 128 E2 claims, 36 works covered; suite READY; -> SYNTHESIZE_COLLISION
+2026-08-10T19:50:00Z SYNTHESIZE_COLLISION round1: collision-round1.md (K1-6, U1-4, delta1-3, alignment, drill-up)
+2026-08-10T20:10:00Z OUTPUT_CLAIM_BIND: 9 OC bound to E2 claims; -> EVIDENCE_VALIDATE
+2026-08-10T20:30:00Z LAYER_DECISION: l2-card + contribution-architecture frozen; -> N0_AUDIT @ L3/M
+2026-08-10T20:40:00Z N0_AUDIT: N0-4C locked (5 gates PASS); -> CLAIM_FREEZE (VALIDITY axis)
+2026-08-10T21:00:00Z CLAIM_FREEZE: inventory 6 claims/8 occurrences; profile MIXED; V1; -> VALIDITY_AUDIT
