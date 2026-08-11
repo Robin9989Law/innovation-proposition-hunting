@@ -16,7 +16,8 @@
 9. [验证命令](#9-验证命令)
 
 本文件中的三个 JSON 注册表均使用 `schema_version: "2.0"`。旧 1.x 注册表不能
-通过 Schema 2.0 readiness；必须先迁移状态并重建当前 epoch 的证据合同。
+通过 Schema 3.0 的 workflow_state readiness；必须先迁移状态并重建当前 epoch
+的证据合同。
 
 ## 1. 固定执行顺序
 

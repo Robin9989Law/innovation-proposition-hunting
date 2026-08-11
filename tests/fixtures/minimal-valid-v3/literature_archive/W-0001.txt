@@ -1,0 +1,4 @@
+Archived official article text for the standalone Schema 2.0 fixture.
+
+The registered conclusion states that a frozen predict-before-update protocol
+is necessary to interpret a sample-wise online comparison.

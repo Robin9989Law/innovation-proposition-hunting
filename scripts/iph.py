@@ -3,9 +3,10 @@
 
 状态推进的标准入口：先校验，再由工具记账（真实 UTC 时间戳 + 本状态产物
 SHA-256 登记 + validation.log），最后原子写回 workflow_state.json。
-agent 不得再手工编辑 gates / decision_log / validation.log / active_track ——
-手改会触发 validate_workflow_state 的 STALE_DECISION_ARTIFACT /
-时间完整性 / TRACK_STATE_MISMATCH 检查。
+agent 不得再手工编辑 gates / decision_log / validation.log —— 手改会触发
+validate_workflow_state 的 STALE_DECISION_ARTIFACT / 时间完整性检查。
+schema 3.0 起 active_track / active_layer / last_completed_state 不再持久化，
+由校验器与工具按状态派生（docs/design-schema-3.0.md §4）。
 
 子命令：
   validate                运行完整校验套件（当前转发 validate_all.py）
@@ -40,12 +41,13 @@ from validate_workflow_state import (  # noqa: E402
     GATE_KEYS,
     STATES,
     TRACK_STATES,
+    evidence_tier,
 )
 
 GATE_BOOL = {"true": True, "false": False}
 
-# 目标状态 -> 所属轴。TRACK_STATES 是分区；BLOCKED/COMPLETE 不属于任何轴，
-# 推进到它们时保持 active_track 不变（BLOCKED 需记住原轴以便 resume）。
+# 状态 -> 所属轴（TRACK_STATES 是分区；BLOCKED/COMPLETE 不属于任何轴）。
+# 仅用于 handover 报表派生展示，不再写回 state（schema 3.0 派生字段）。
 STATE_TO_TRACK = {
     state: track for track, states in TRACK_STATES.items() for state in states
 }
@@ -158,14 +160,7 @@ def cmd_advance(args: argparse.Namespace) -> int:
     else:
         state["resume_state"] = target
         state["blocked_reasons"] = []
-    if previous_state != target and previous_state in STATES:
-        state["last_completed_state"] = previous_state
     state["active_state"] = target
-    # active_track 与目标状态同轴（TRACK_STATE_MISMATCH 的预防侧）：
-    # 目标状态唯一属于某一轴时工具直接记账，agent 不再手工维护该字段。
-    track = STATE_TO_TRACK.get(target)
-    if track is not None:
-        state["active_track"] = track
     state["updated_at"] = now
     gates = state.setdefault("gates", {})
     for key, value in gate_updates.items():
@@ -317,9 +312,16 @@ def cmd_handover(args: argparse.Namespace) -> int:
             pass
 
     audit = state.get("independent_audit") or {}
+    # active_track / 证据层级为派生值（schema 3.0）；BLOCKED 从 resume_state 派生。
+    active_state = state.get("active_state")
+    effective_state = (
+        state.get("resume_state") if active_state == "BLOCKED" else active_state
+    )
+    derived_track = STATE_TO_TRACK.get(str(effective_state), "(none)")
+    derived_tier = evidence_tier(str(effective_state))
     print("# 交接报告（iph handover）")
     print(f"成果合同: {state.get('output_type')} / {state.get('contribution_contract')}")
-    print(f"active track/state: {state.get('active_track')} / {state.get('active_state')}")
+    print(f"active state: {active_state} (track: {derived_track}, evidence tier: {derived_tier})")
     print(f"N level: {state.get('novelty_level')}  V level: {state.get('validity_level')}")
     print(f"claim profile: {state.get('claim_profile')}  epoch: {state.get('validation_epoch')}")
     print(f"bundle hash: {state.get('claim_bundle_sha256') or '(none)'}")

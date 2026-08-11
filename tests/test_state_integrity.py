@@ -10,7 +10,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from tests.helpers import (
-    MINIMAL_VALID_V2,
+    MINIMAL_VALID_V3,
     REPOSITORY_ROOT,
     load_json,
     make_valid_project,
@@ -46,9 +46,12 @@ class IncidentFixtureTests(unittest.TestCase):
         completed = run_script(
             "validate_workflow_state.py", self.project, ["--current-year", "2026"]
         )
-        self.assertEqual(0, completed.returncode, completed.stdout)
+        # 时间线与完成记录问题维持 WARNING（默认不阻断）
         self.assertIn("WARNING\tDECISION_LOG_AFTER_STATE_WRITE", completed.stdout)
         self.assertIn("WARNING\tGATE_COMPLETION_RECORD_MISSING", completed.stdout)
+        # 证据深度在 schema 3.0 起是常驻 INVALID（状态机已不再逼合规项目违规）
+        self.assertIn("INVALID\tEVIDENCE_DEPTH_EXCEEDS_LAYER", completed.stdout)
+        self.assertEqual(1, completed.returncode, completed.stdout)
 
     def test_strict_mode_flags_fabricated_timeline(self) -> None:
         completed = run_script(
@@ -92,18 +95,22 @@ class NewCheckSemanticsTests(unittest.TestCase):
             self.assertEqual(1, strict.returncode, strict.stdout)
             self.assertIn("INVALID\tSELF_DECLARED_LEVEL", strict.stdout)
 
-    def test_track_state_mismatch(self) -> None:
+    def test_derived_tier_drives_contribution_check(self) -> None:
+        """active_layer 已删除：证据层级由 active_state 派生并驱动 CONTRIBUTION 检查。"""
         temporary_directory, project = make_valid_project()
         with temporary_directory:
             state = load_json(project / "workflow_state.json")
-            state["active_track"] = "NOVELTY"
+            # CLAIM_FREEZE（tier L3）下 contribution=M 合法；退到 tier L1 状态即非法
+            state["active_state"] = "RECENT_FRONTIER"
+            state["resume_state"] = "RECENT_FRONTIER"
             write_json(project / "workflow_state.json", state)
             completed = run_script(
                 "validate_workflow_state.py",
                 project,
-                ["--current-year", "2026", "--strict-new-checks"],
+                ["--current-year", "2026"],
             )
-            self.assertIn("TRACK_STATE_MISMATCH", completed.stdout)
+            self.assertIn("CONTRIBUTION", completed.stdout)
+            self.assertIn("tier:L1;expected:NONE", completed.stdout)
 
     def test_complete_requires_final_lock_conditions(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V3")
@@ -195,7 +202,7 @@ class EvidenceDispatchTests(unittest.TestCase):
         with temporary_directory:
             # make_valid_project 不复制三个证据文件；只补一个制造"部分存在"。
             copy2(
-                MINIMAL_VALID_V2 / "near_neighbor_registry.json",
+                MINIMAL_VALID_V3 / "near_neighbor_registry.json",
                 project / "near_neighbor_registry.json",
             )
             completed = run_all_validator(project)
@@ -204,7 +211,18 @@ class EvidenceDispatchTests(unittest.TestCase):
             self.assertEqual(0, completed.returncode, completed.stdout)
 
 class EvidenceDepthBudgetTests(unittest.TestCase):
-    """R-LAYER-13：证据深度按层供给，超层超量报 EVIDENCE_DEPTH_EXCEEDS_LAYER。"""
+    """R-LAYER-13：证据深度按段供给，超段超量报 EVIDENCE_DEPTH_EXCEEDS_LAYER。
+
+    schema 3.0 起证据层级由 active_state 派生（不再持久化 active_layer），
+    且本检查为常驻 INVALID（状态机三段式排布后，合规流程不会超预算）。
+    """
+
+    # 各证据层级的代表状态与合法 contribution
+    TIER_STATES = {
+        "L1": ("RECENT_FRONTIER", "NONE"),
+        "L2": ("L2_TRIAGE", "NONE"),
+        "L3": ("CLAIM_FREEZE", "M"),
+    }
 
     def setUp(self) -> None:
         self.tmp, self.project = make_valid_project()
@@ -215,9 +233,12 @@ class EvidenceDepthBudgetTests(unittest.TestCase):
     def run_state(self, *extra: str):
         return run_script("validate_workflow_state.py", self.project, extra)
 
-    def set_layer(self, layer: str) -> None:
+    def set_tier(self, tier: str) -> None:
+        active_state, contribution = self.TIER_STATES[tier]
         state = load_json(self.project / "workflow_state.json")
-        state["active_layer"] = layer
+        state["active_state"] = active_state
+        state["resume_state"] = active_state
+        state["active_contribution"] = contribution
         write_json(self.project / "workflow_state.json", state)
 
     def write_registries(self, fulltext: int, claims: int) -> None:
@@ -239,34 +260,33 @@ class EvidenceDepthBudgetTests(unittest.TestCase):
         )
 
     def test_l1_allows_zero_deep_evidence(self) -> None:
-        self.set_layer("L1")
+        self.set_tier("L1")
         result = self.run_state("--current-year", "2026")
         self.assertNotIn("EVIDENCE_DEPTH_EXCEEDS_LAYER", result.stdout)
 
     def test_l1_fulltext_is_over_depth(self) -> None:
-        self.set_layer("L1")
+        self.set_tier("L1")
         self.write_registries(fulltext=1, claims=0)
         result = self.run_state("--current-year", "2026")
-        self.assertIn("WARNING\tEVIDENCE_DEPTH_EXCEEDS_LAYER", result.stdout)
-        self.assertIn("layer:L1;fulltext:1>budget:0", result.stdout)
-        strict = self.run_state("--current-year", "2026", "--strict-new-checks")
-        self.assertEqual(1, strict.returncode, strict.stdout + strict.stderr)
+        self.assertIn("INVALID\tEVIDENCE_DEPTH_EXCEEDS_LAYER", result.stdout)
+        self.assertIn("tier:L1;fulltext:1>budget:0", result.stdout)
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
 
     def test_l2_atomic_claims_are_over_depth(self) -> None:
-        self.set_layer("L2")
+        self.set_tier("L2")
         self.write_registries(fulltext=3, claims=5)
         result = self.run_state("--current-year", "2026")
-        self.assertIn("atomic_claims:5>budget:0", result.stdout)
+        self.assertIn("tier:L2;atomic_claims:5>budget:0", result.stdout)
         self.assertNotIn("fulltext:3>budget", result.stdout)
 
     def test_l3_within_budget_is_clean(self) -> None:
-        self.set_layer("L3")
+        self.set_tier("L3")
         self.write_registries(fulltext=8, claims=40)
         result = self.run_state("--current-year", "2026")
         self.assertNotIn("EVIDENCE_DEPTH_EXCEEDS_LAYER", result.stdout)
 
     def test_missing_registries_do_not_crash(self) -> None:
-        self.set_layer("L1")
+        self.set_tier("L3")
         result = self.run_state("--current-year", "2026")
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
@@ -277,8 +297,8 @@ class EvidenceDepthBudgetTests(unittest.TestCase):
         result = run_script(
             "validate_workflow_state.py", project, ("--current-year", "2026")
         )
-        self.assertIn("layer:L3;fulltext:38>budget:20", result.stdout)
-        self.assertIn("layer:L3;atomic_claims:128>budget:60", result.stdout)
+        self.assertIn("tier:L3;fulltext:38>budget:20", result.stdout)
+        self.assertIn("tier:L3;atomic_claims:128>budget:60", result.stdout)
 
 
 if __name__ == "__main__":

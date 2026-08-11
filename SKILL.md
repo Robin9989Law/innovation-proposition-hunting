@@ -8,7 +8,7 @@ description: >-
   claim readiness must be adjudicated.
 ---
 
-# 创新命题狩猎：Schema 2.0 强制协议
+# 创新命题狩猎：Schema 3.0 强制协议
 
 本技能用于把文献约束下的研究方向收敛成可证伪、可追溯、可审计的命题。它同时
 审计两个正交问题：命题是否新（N 轴），以及准备声称的精确内容是否成立（V 轴）。
@@ -26,7 +26,7 @@ description: >-
 
 | 工作 | 必须完整读取 |
 |---|---|
-| 创建/迁移状态或任何 Schema 2.0 产物 | [templates.md](templates.md) 对应节 |
+| 创建/迁移状态或任何模板产物 | [templates.md](templates.md) 对应节 |
 | 判 V0–V4、G9、理论或算法责任 | [reference.md](reference.md) |
 | 检索、全文、观点、证据级或重要性变化 | [evidence-pipeline.md](evidence-pipeline.md) |
 | 获准计算、升级或停止 | [compute-funnel.md](compute-funnel.md) |
@@ -50,42 +50,51 @@ description: >-
 - **探索级证据**：`exploration_registry.json` 登记的永久探索产物；其数字不得
   进入任何冻结工件（`EXPLORATION_LEAK`），只能定性转述。
 
-## 2. Schema 2.0 是唯一可执行合同
+## 2. Schema 3.0 是唯一可执行合同
 
 每个研究目录必须有 `workflow_state.json`，并满足：
 
 ```text
-schema_version = 2.0
-active_track ∈ {NOVELTY, VALIDITY, COMPUTE}
+schema_version = 3.0
 novelty_level ∈ {N0-1, N0-2, N0-3, N0-4C}
 validity_level ∈ {V0, V1, V2, V3, V4}
 claim_profile ∈ {THEORY, ALGORITHM, MIXED}
 validation_epoch ∈ positive integers
 ```
 
-缺少状态文件时，只能盘点和创建状态。`schema_version != 2.0` 时立即停止全部裁决、
+原持久化的活动轨道、活动层级与最后完成状态三个字段不再持久化，由校验器从
+状态与 decision_log 派生；state 里出现这些遗留字段即 `LEGACY_FIELD_REMOVED`。
+
+缺少状态文件时，只能盘点和创建状态。`schema_version != 3.0` 时立即停止全部裁决、
 审计和计算；先运行可恢复迁移：
 
 ```bash
+# 2.0 项目
+python3 <skill>/scripts/migrate_v2_to_v3.py \
+  --root <研究目录> --state <研究目录>/workflow_state.json
+# 1.0 项目先 migrate_v1_to_v2.py，再 migrate_v2_to_v3.py
 python3 <skill>/scripts/migrate_v1_to_v2.py \
   --root <研究目录> --state <研究目录>/workflow_state.json
 ```
 
-默认写出 `workflow_state.v2.json`；确认后才可用 `--in-place`，该模式先保存带 UTC
-时间戳的字节级 v1 备份。迁移必须把 validity 重置为 V0、清空 bundle/audit、关闭
-`compute_authorized`。迁移输出存在不代表验证完成；迁移后仍从 `CLAIM_FREEZE` 重建。
+默认分别写出 `workflow_state.v2.json` / `workflow_state.v3.json`；确认后才可用
+`--in-place`，该模式先保存带 UTC 时间戳的字节级旧版备份。v1 迁移必须把 validity
+重置为 V0、清空 bundle/audit、关闭 `compute_authorized`，迁移后从 `CLAIM_FREEZE`
+重建；v2→v3 迁移是机械映射（状态/门改名、删派生字段），原位保留进度与历史。
+迁移输出存在不代表验证完成。
 
 ## 3. 双轴状态机
 
 ### 3.1 新颖性轴
 
-先冻结成果合同和 scope，再按下列顺序执行：
+先冻结成果合同和 scope，再按下列顺序执行（三段式：L1_SCOUT 段只动元数据，
+L2_TRIAGE 段试读并选拔 K 集合，L3_EVIDENCE 段只对 K 集合跑全重机器）：
 
 ```text
 BOOT → SCOPE_LOCK → PRIOR_CLAIM_DRAIN → RECENT_FRONTIER
-→ LITERATURE_REGISTER → IMPORTANT_FULLTEXT → SOURCE_CLAIM_REGISTER
-→ SYNTHESIZE_COLLISION → OUTPUT_CLAIM_BIND → EVIDENCE_VALIDATE
-→ LAYER_DECISION → N0_AUDIT
+→ LITERATURE_REGISTER → L1_FREEZE → L2_TRIAGE → LAYER_DECISION
+→ K_FULLTEXT → K_CLAIM_REGISTER → SYNTHESIZE_COLLISION
+→ OUTPUT_CLAIM_BIND → EVIDENCE_VALIDATE → N0_AUDIT
 ```
 
 博士合同为 `THREE_ORGANIC_A_B_C`；期刊合同为 `ONE_MAIN_M`。L3 必须来自同一
@@ -94,9 +103,9 @@ BOOT → SCOPE_LOCK → PRIOR_CLAIM_DRAIN → RECENT_FRONTIER
 
 **主线是 L1→L2→L3 的逐层构建；文献管线是辅线，证据深度按层供给。**
 每个层级决策只取该层所需的证据深度，禁止提前做更深的取证
-（`EVIDENCE_DEPTH_EXCEEDS_LAYER`，默认 WARNING，strict 升 INVALID）：
+（`EVIDENCE_DEPTH_EXCEEDS_LAYER`，常驻 INVALID）：
 
-| 当前层 | 本层裁决 | 需要的证据深度 | 默认预算（超出报 WARNING） |
+| 当前层 | 本层裁决 | 需要的证据深度 | 默认预算（超出即 INVALID） |
 |---|---|---|---|
 | L1（研究工作） | 领域边界、连续簇、谁在做 | 文献元数据 + 摘要浏览；**零全文、零原子观点** | 全文 0、原子观点 0 |
 | L2（可行创新域） | 近邻直接性、可创新域划分 | 重要性分级 + 摘要级观点（E1）；少量全文确认直接性 | 全文 ≤12、原子观点 0 |

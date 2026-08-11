@@ -1,5 +1,5 @@
 {
-  "schema_version": "2.0",
+  "schema_version": "3.0",
   "workflow_id": "suandian-xietong-multiobjective-scheduling",
   "updated_at": "2026-08-10T21:00:00Z",
   "current_year": 2026,
@@ -12,12 +12,9 @@
   },
   "output_type": "JOURNAL_ARTICLE",
   "contribution_contract": "ONE_MAIN_M",
-  "active_layer": "L3",
   "active_contribution": "M",
-  "active_track": "VALIDITY",
   "active_state": "VALIDITY_AUDIT",
   "resume_state": "VALIDITY_AUDIT",
-  "last_completed_state": "CLAIM_FREEZE",
   "next_required_action": "Run G9 form audit: theory obligations for C-PROP-1 (4 falsification witnesses), protocol contract + claim-code trace + baseline budget for algorithm/empirical claims",
   "search_mode": "SEARCH_OPEN",
   "compute_stage": "NOT_STARTED",
@@ -34,15 +31,16 @@
     "prior_claims_drained": true,
     "recent_frontier_complete": true,
     "literature_registry_valid": true,
-    "important_fulltext_complete": true,
-    "source_claims_complete": true,
     "output_claims_traced": true,
     "evidence_validated": true,
     "l1_frozen": true,
     "l2_frozen": true,
     "architecture_frozen": true,
     "n0_4_locked": true,
-    "compute_authorized": false
+    "compute_authorized": false,
+    "k_fulltext_complete": true,
+    "k_claims_complete": true,
+    "k_set_selected": true
   },
   "artifacts": {
     "scope_lock": "scope_lock.md",
@@ -55,7 +53,8 @@
     "l2_card": "l2-card.md",
     "contribution_architecture": "contribution-architecture.md",
     "hierarchy_novelty_audit": "novelty-audit.md",
-    "validation_log": "validation.log"
+    "validation_log": "validation.log",
+    "k_triage": "l2-triage.md"
   },
   "decision_log": [
     {
@@ -85,37 +84,37 @@
     },
     {
       "at": "2026-08-10T16:20:00Z",
-      "state": "BLOCKED@IMPORTANT_FULLTEXT",
+      "state": "BLOCKED@K_FULLTEXT",
       "action": "L1 选题完成（用户委托依《科研管理》期刊定位）：算电协同情境下数据中心绿色化调度的多目标决策优化与管理研究。冻结 l1-card.md（对象/核心矛盾/总体知识目标/贯穿轴/基线/管理定位/主-支持划分/退出边界），l1_frozen=true。L1 层级此前已在 scope_lock 确认，本次冻结其内容。scope_lock.md 主题行同步更新。"
     },
     {
       "at": "2026-08-10T16:40:00Z",
-      "state": "BLOCKED@IMPORTANT_FULLTEXT",
+      "state": "BLOCKED@K_FULLTEXT",
       "action": "中文文献补充：经 cnki-search (github.com/ExquisiteCore/cnki-search v2.1.0) 检索知网 kns8s 接口，10 条主题查询（2024-2026，期刊），登记 19 篇中文近邻（4 CRITICAL 调度建模族 + 11 IMPORTANT 建模族 + 3 IMPORTANT 政策实证族 + 1 CONTEXT）。身份核验基于知网官方检索元数据与 kns.cnki.net 文章页。全文 PDF 需机构订阅 → DOWNLOAD_BLOCKED（detail 端点反爬确认）。注册表总数 39 篇。"
     },
     {
       "at": "2026-08-10T17:05:00Z",
-      "state": "BLOCKED@IMPORTANT_FULLTEXT",
+      "state": "BLOCKED@K_FULLTEXT",
       "action": "全文下载尝试：期刊官网 OA 路线（中国工程科学 engineering.org.cn 免费 PDF，W-CN-18 陈晓红归档成功，d08dce80...，提取 2 条 E2 观点 LC-0015/16）；知网 detail 端点与无头浏览器均被反爬（安全验证），百度学术/万方/NCPSSD 对网络首发或 CSSCI 收录覆盖不足或不免费；不绕过访问控制。生成 download_manifest.csv（28 篇阻断文献清单，含官方 URL 与原因）。"
     },
     {
       "at": "2026-08-10T17:30:00Z",
-      "state": "BLOCKED@IMPORTANT_FULLTEXT",
+      "state": "BLOCKED@K_FULLTEXT",
       "action": "研究流程继续（用户选择暂不付费下载）：经 OMP Browser Relay 驱动用户 Edge 捕获 8 篇知网官方摘要（E1，cnki_abstracts_e1.json，含 3 条 CRITICAL 核心结论：可行域投影空间弹性表征/三维灵活性/延迟调度替代储能 15.6-54.6%）；撰写 SYNTHESIZE 预分析（synthesis-preliminary.md）：三链 K/U/Δ、七项对齐、非机械性攻击预检；识别 U2（延迟调度-储能替代互补边界）为最可能 L3 候选。机器状态保持 BLOCKED（28 全文阻断），预分析不升格任何 E1 结论。"
     },
     {
       "at": "2026-08-10T18:05:00Z",
-      "state": "BLOCKED@IMPORTANT_FULLTEXT",
+      "state": "BLOCKED@K_FULLTEXT",
       "action": "S0 探索（用户指定，机器状态不变）：Δ2 可证伪性检验完成（s0_delta2_falsifiability.py + s0_delta2_report.md + s0_outputs/delta2_scan.json）。三项结构确认：R1 延迟-储能替代（MV_E 随 S 单调降 469k→126k，组合节省<可加和，重叠 15%）；R2 饱和边界（E≈24h 耗尽，E24→E48 增量 0.9%）；R3 成本-碳错位（RegionA 电价-碳强度 r=-0.398，延迟降本升碳）。Δ2 通过可证伪性检验，升格为最优先 L3 候选。探索结果不进入 claim bundle。"
     },
     {
       "at": "2026-08-10T18:40:00Z",
-      "state": "IMPORTANT_FULLTEXT",
+      "state": "K_FULLTEXT",
       "action": "全文阻塞解除：用户下载 28 篇（18 知网 + 10 国际）全部归档 literature_archive/，SHA-256 核验一致，逐份首版身份核验通过（题名/作者/期刊匹配），作者全列表更新，W-CN-19 升 IMPORTANT（多期 DID 政策实证）。gates.important_fulltext_complete=true，blocked_reasons 清空，进入 SOURCE_CLAIM_REGISTER。"
     },
     {
       "at": "2026-08-10T19:20:00Z",
-      "state": "SOURCE_CLAIM_REGISTER",
+      "state": "K_CLAIM_REGISTER",
       "action": "观点提取完成：6 并行代理读取 28 篇全文，产出 112 条 E2 观点（合并后注册表共 128 条，覆盖全部 36 个 CRITICAL/IMPORTANT 文献，locator 核验）；claim_extraction_status 全部 COMPLETE。validate_all 全绿 READY（schema/workflow/frontier/literature_registry/evidence_chain 0 错误）。进入 SYNTHESIZE_COLLISION。"
     },
     {

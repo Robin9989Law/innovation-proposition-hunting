@@ -361,3 +361,188 @@ class MigrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+V2_FIXTURE_DIR = REPOSITORY_ROOT / "tests" / "fixtures" / "minimal-valid-v2"
+MIGRATE_V3 = REPOSITORY_ROOT / "scripts" / "migrate_v2_to_v3.py"
+
+
+class MigrateV2ToV3Tests(unittest.TestCase):
+    """schema 2.0 -> 3.0：三段式状态机迁移（design-schema-3.0 §5）。"""
+
+    def run_v3_migration(
+        self, project: Path, *extra_args: str
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(MIGRATE_V3),
+                "--root",
+                str(project),
+                "--state",
+                str(project / "workflow_state.json"),
+                *extra_args,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    def make_v2_project(self, directory: str) -> Path:
+        project = Path(directory)
+        state = {
+            "schema_version": "2.0",
+            "workflow_id": "v2-to-v3-test",
+            "updated_at": "2026-08-10T00:00:00Z",
+            "current_year": 2026,
+            "output_type": "JOURNAL_ARTICLE",
+            "contribution_contract": "ONE_MAIN_M",
+            "active_layer": "L3",
+            "active_contribution": "M",
+            "active_track": "VALIDITY",
+            "active_state": "CLAIM_FREEZE",
+            "resume_state": "CLAIM_FREEZE",
+            "last_completed_state": "N0_AUDIT",
+            "novelty_level": "N0-4C",
+            "validity_level": "V1",
+            "claim_profile": "THEORY",
+            "validation_epoch": 1,
+            "search_mode": "SEARCH_OPEN",
+            "compute_stage": "NOT_STARTED",
+            "collision_round": 1,
+            "blocked_reasons": [],
+            "next_required_action": "x",
+            "gates": {
+                "scope_locked": True,
+                "prior_claims_drained": True,
+                "recent_frontier_complete": True,
+                "literature_registry_valid": True,
+                "important_fulltext_complete": True,
+                "source_claims_complete": False,
+                "output_claims_traced": False,
+                "evidence_validated": False,
+                "l1_frozen": True,
+                "l2_frozen": False,
+                "architecture_frozen": False,
+                "n0_4_locked": False,
+                "compute_authorized": False,
+            },
+            "artifacts": {},
+            "decision_log": [
+                {"at": "2026-08-10T01:00:00Z", "state": "BOOT", "action": "boot"},
+                {
+                    "at": "2026-08-10T02:00:00Z",
+                    "state": "BLOCKED@IMPORTANT_FULLTEXT",
+                    "action": "blocked on fulltexts",
+                },
+                {
+                    "at": "2026-08-10T03:00:00Z",
+                    "state": "IMPORTANT_FULLTEXT",
+                    "action": "fulltexts archived",
+                },
+                {
+                    "at": "2026-08-10T04:00:00Z",
+                    "state": "SOURCE_CLAIM_REGISTER",
+                    "action": "claims extracted",
+                },
+            ],
+        }
+        write_json(project / "workflow_state.json", state)
+        return project
+
+    def test_state_and_gate_renames_with_derived_fields_dropped(self) -> None:
+        with TemporaryDirectory(prefix="v2-to-v3-") as directory:
+            project = self.make_v2_project(directory)
+            completed = self.run_v3_migration(project)
+            self.assertEqual(0, completed.returncode, completed.stdout)
+            migrated = load_json(project / "workflow_state.v3.json")
+            self.assertEqual("3.0", migrated["schema_version"])
+            # 派生字段删除
+            for field in ("active_track", "active_layer", "last_completed_state"):
+                self.assertNotIn(field, migrated)
+            # 门改名 + k_set_selected = 旧 l2_frozen(False)
+            self.assertNotIn("important_fulltext_complete", migrated["gates"])
+            self.assertNotIn("source_claims_complete", migrated["gates"])
+            self.assertTrue(migrated["gates"]["k_fulltext_complete"])
+            self.assertFalse(migrated["gates"]["k_claims_complete"])
+            self.assertFalse(migrated["gates"]["k_set_selected"])
+            # decision_log 状态改名（含 BLOCKED@ 形式），时间戳原样保留
+            log_states = [entry["state"] for entry in migrated["decision_log"]]
+            self.assertEqual(
+                ["BOOT", "BLOCKED@K_FULLTEXT", "K_FULLTEXT", "K_CLAIM_REGISTER"],
+                log_states,
+            )
+            log_times = [entry["at"] for entry in migrated["decision_log"]]
+            self.assertEqual(
+                ["2026-08-10T01:00:00Z", "2026-08-10T02:00:00Z",
+                 "2026-08-10T03:00:00Z", "2026-08-10T04:00:00Z"],
+                log_times,
+            )
+            # 原文件不被触碰
+            self.assertEqual("2.0", load_json(project / "workflow_state.json")["schema_version"])
+
+    def test_k_set_selected_true_warns_about_missing_k_triage(self) -> None:
+        with TemporaryDirectory(prefix="v2-to-v3-") as directory:
+            project = self.make_v2_project(directory)
+            state = load_json(project / "workflow_state.json")
+            state["gates"]["l2_frozen"] = True
+            write_json(project / "workflow_state.json", state)
+            completed = self.run_v3_migration(project)
+            self.assertEqual(0, completed.returncode, completed.stdout)
+            migrated = load_json(project / "workflow_state.v3.json")
+            self.assertTrue(migrated["gates"]["k_set_selected"])
+            self.assertIn("migration_warning=k_set_selected", completed.stdout)
+
+    def test_rejects_non_v2_input(self) -> None:
+        with TemporaryDirectory(prefix="v2-to-v3-") as directory:
+            project = Path(directory)
+            for version in ("1.0", "3.0", None):
+                with self.subTest(version=version):
+                    write_json(
+                        project / "workflow_state.json",
+                        {"schema_version": version},
+                    )
+                    completed = self.run_v3_migration(project)
+                    self.assertEqual(1, completed.returncode)
+                    self.assertIn("migration_status=INVALID", completed.stdout)
+
+    def test_in_place_migration_creates_byte_identical_backup(self) -> None:
+        with TemporaryDirectory(prefix="v2-to-v3-") as directory:
+            project = self.make_v2_project(directory)
+            state_path = project / "workflow_state.json"
+            original = state_path.read_bytes()
+            completed = self.run_v3_migration(project, "--in-place")
+            backups = list(project.glob("workflow_state.json.v2-backup-*"))
+            self.assertEqual(0, completed.returncode, completed.stdout)
+            self.assertEqual(1, len(backups))
+            self.assertEqual(original, backups[0].read_bytes())
+            self.assertEqual("3.0", load_json(state_path)["schema_version"])
+
+    def test_migrated_v2_fixture_passes_schema_gate(self) -> None:
+        """真实 2.0 fixture 迁移后只剩 k_triage 产物缺失类问题，schema 门通过。"""
+        with TemporaryDirectory(prefix="v2-to-v3-fixture-") as directory:
+            project = Path(directory)
+            copy2(
+                V2_FIXTURE_DIR / "workflow_state.json",
+                project / "workflow_state.json",
+            )
+            completed = self.run_v3_migration(project)
+            self.assertEqual(0, completed.returncode, completed.stdout)
+            migrated = load_json(project / "workflow_state.v3.json")
+            self.assertEqual("3.0", migrated["schema_version"])
+            self.assertEqual("DIRECTION_LOCK", migrated["active_state"])
+            schema_check = subprocess.run(
+                [
+                    sys.executable,
+                    str(REPOSITORY_ROOT / "scripts" / "validate_schema_v2.py"),
+                    "--root",
+                    str(project),
+                    "--state",
+                    str(project / "workflow_state.v3.json"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotIn("MIGRATION_REQUIRED", schema_check.stdout)
+            self.assertNotIn("LEGACY_FIELD_REMOVED", schema_check.stdout)

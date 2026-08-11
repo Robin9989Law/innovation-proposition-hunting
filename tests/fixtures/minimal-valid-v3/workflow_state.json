@@ -1,0 +1,69 @@
+{
+  "schema_version": "3.0",
+  "workflow_id": "minimal-valid-v2",
+  "updated_at": "2026-08-10T00:00:00Z",
+  "current_year": 2026,
+  "recent_window": {
+    "start_year": 2024,
+    "end_year": 2026,
+    "status": "COMPLETE",
+    "snapshot_mode": "NEW_SEARCH"
+  },
+  "output_type": "JOURNAL_ARTICLE",
+  "contribution_contract": "ONE_MAIN_M",
+  "active_contribution": "M",
+  "active_state": "DIRECTION_LOCK",
+  "resume_state": "DIRECTION_LOCK",
+  "next_required_action": "Preserve the verified standalone fixture.",
+  "search_mode": "SEARCH_OPEN",
+  "compute_stage": "NOT_STARTED",
+  "collision_round": 1,
+  "blocked_reasons": [],
+  "novelty_level": "N0-4C",
+  "validity_level": "V3",
+  "claim_profile": "MIXED",
+  "validation_epoch": 1,
+  "claim_bundle_sha256": "84dc23ac301194dd34dbdebafe8a67ba82fcdc885b81bec5da8d9eb6218dc052",
+  "independent_audit": {
+    "capability_available": true,
+    "validation_epoch": 1,
+    "author_agent_ids": [
+      "agent-a"
+    ],
+    "reviewer_agent_id": "agent-b",
+    "reviewer_thread_id": "thread-b",
+    "audited_bundle_sha256": "84dc23ac301194dd34dbdebafe8a67ba82fcdc885b81bec5da8d9eb6218dc052",
+    "verdict": "PASS"
+  },
+  "gates": {
+    "scope_locked": true,
+    "prior_claims_drained": true,
+    "recent_frontier_complete": true,
+    "literature_registry_valid": true,
+    "output_claims_traced": true,
+    "evidence_validated": true,
+    "l1_frozen": true,
+    "l2_frozen": true,
+    "architecture_frozen": true,
+    "n0_4_locked": true,
+    "compute_authorized": false,
+    "k_fulltext_complete": true,
+    "k_claims_complete": true,
+    "k_set_selected": true
+  },
+  "artifacts": {
+    "scope_lock": "scope_lock.md",
+    "literature_registry": "near_neighbor_registry.json",
+    "claim_registry": "literature_claim_registry.json",
+    "output_support": "output_claim_support.json",
+    "literature_archive": "literature_archive",
+    "hierarchy_status": "hierarchy_status.md",
+    "l1_card": "l1-card.md",
+    "l2_card": "l2-card.md",
+    "contribution_architecture": "contribution-architecture.md",
+    "hierarchy_novelty_audit": "novelty-audit.md",
+    "validation_log": "validation.log",
+    "k_triage": "l2-triage.md"
+  },
+  "decision_log": []
+}

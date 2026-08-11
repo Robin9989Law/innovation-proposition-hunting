@@ -25,26 +25,33 @@ from validate_schema_v2 import validate as validate_schema_v2
 
 
 STATES = {
+    # L1_SCOUT 段（证据层级 L1：仅元数据，零全文零原子观点）
     "BOOT",
     "SCOPE_LOCK",
     "PRIOR_CLAIM_DRAIN",
     "RECENT_FRONTIER",
     "LITERATURE_REGISTER",
-    "IMPORTANT_FULLTEXT",
-    "SOURCE_CLAIM_REGISTER",
+    "L1_FREEZE",
+    # L2_TRIAGE 段（证据层级 L2：≤12 全文试读、K 集合选拔，不提取原子观点）
+    "L2_TRIAGE",
+    "LAYER_DECISION",
+    # L3_EVIDENCE 段（证据层级 L3：只对 K 集合跑全文归档与观点提取）
+    "K_FULLTEXT",
+    "K_CLAIM_REGISTER",
     "SYNTHESIZE_COLLISION",
     "OUTPUT_CLAIM_BIND",
     "EVIDENCE_VALIDATE",
-    "LAYER_DECISION",
     "N0_AUDIT",
+    # VALIDITY 轴
     "CLAIM_FREEZE",
     "VALIDITY_AUDIT",
     "INDEPENDENT_REVIEW",
     "DIRECTION_LOCK",
-    "COMPUTE",
     "POSTCOMPUTE_CLAIM_FREEZE",
     "FINAL_VALIDITY_AUDIT",
     "FINAL_LOCK",
+    # COMPUTE 轴与终态
+    "COMPUTE",
     "BLOCKED",
     "COMPLETE",
 }
@@ -59,7 +66,6 @@ CONTRACTS = {
     "THREE_ORGANIC_A_B_C",
     "ONE_MAIN_M",
 }
-LAYERS = {"UNRESOLVED", "L1", "L2", "ARCHITECTURE", "L3"}
 CONTRIBUTIONS = {"NONE", "M", "A", "B", "C"}
 SEARCH_MODES = {"SEARCH_OPEN", "SYNTHESIS_LOCK", "EXCEPTION_REOPEN"}
 COMPUTE_STAGES = {"NOT_STARTED", "S0", "S1", "S2", "S3", "S4", "STOPPED"}
@@ -69,13 +75,14 @@ GATE_KEYS = {
     "prior_claims_drained",
     "recent_frontier_complete",
     "literature_registry_valid",
-    "important_fulltext_complete",
-    "source_claims_complete",
-    "output_claims_traced",
-    "evidence_validated",
     "l1_frozen",
+    "k_set_selected",
     "l2_frozen",
     "architecture_frozen",
+    "k_fulltext_complete",
+    "k_claims_complete",
+    "output_claims_traced",
+    "evidence_validated",
     "n0_4_locked",
     "compute_authorized",
 }
@@ -90,45 +97,25 @@ STATE_PREREQUISITES = {
         "prior_claims_drained",
         "recent_frontier_complete",
     ),
-    "IMPORTANT_FULLTEXT": (
+    "L1_FREEZE": (
         "scope_locked",
         "prior_claims_drained",
         "recent_frontier_complete",
         "literature_registry_valid",
     ),
-    "SOURCE_CLAIM_REGISTER": (
+    "L2_TRIAGE": (
         "scope_locked",
         "prior_claims_drained",
         "recent_frontier_complete",
         "literature_registry_valid",
-        "important_fulltext_complete",
+        "l1_frozen",
     ),
-    "SYNTHESIZE_COLLISION": (
-        "scope_locked",
-        "prior_claims_drained",
-        "recent_frontier_complete",
-        "literature_registry_valid",
-        "important_fulltext_complete",
-        "source_claims_complete",
-    ),
-    "OUTPUT_CLAIM_BIND": (
-        "scope_locked",
-        "prior_claims_drained",
-        "recent_frontier_complete",
-        "literature_registry_valid",
-        "important_fulltext_complete",
-        "source_claims_complete",
-    ),
-    "EVIDENCE_VALIDATE": (
-        "scope_locked",
-        "prior_claims_drained",
-        "recent_frontier_complete",
-        "literature_registry_valid",
-        "important_fulltext_complete",
-        "source_claims_complete",
-        "output_claims_traced",
-    ),
-    "LAYER_DECISION": ("scope_locked", "evidence_validated"),
+    "LAYER_DECISION": ("scope_locked", "k_set_selected"),
+    "K_FULLTEXT": ("scope_locked", "l2_frozen", "architecture_frozen"),
+    "K_CLAIM_REGISTER": ("scope_locked", "k_fulltext_complete"),
+    "SYNTHESIZE_COLLISION": ("scope_locked", "k_claims_complete"),
+    "OUTPUT_CLAIM_BIND": ("scope_locked", "k_claims_complete"),
+    "EVIDENCE_VALIDATE": ("scope_locked", "output_claims_traced"),
     "N0_AUDIT": (
         "scope_locked",
         "evidence_validated",
@@ -143,8 +130,12 @@ STATE_PREREQUISITES = {
 GATE_ARTIFACTS = {
     "scope_locked": ("scope_lock", "hierarchy_status"),
     "literature_registry_valid": ("literature_registry",),
-    "important_fulltext_complete": ("literature_archive",),
-    "source_claims_complete": ("claim_registry",),
+    "l1_frozen": ("l1_card",),
+    "k_set_selected": ("k_triage",),
+    "l2_frozen": ("l2_card",),
+    "architecture_frozen": ("contribution_architecture",),
+    "k_fulltext_complete": ("literature_archive",),
+    "k_claims_complete": ("claim_registry",),
     "output_claims_traced": ("output_support",),
     "evidence_validated": (
         "literature_registry",
@@ -152,9 +143,6 @@ GATE_ARTIFACTS = {
         "output_support",
         "validation_log",
     ),
-    "l1_frozen": ("l1_card",),
-    "l2_frozen": ("l2_card",),
-    "architecture_frozen": ("contribution_architecture",),
     "n0_4_locked": ("hierarchy_novelty_audit",),
 }
 
@@ -165,13 +153,14 @@ GATE_COMPLETION_STATE = {
     "prior_claims_drained": "PRIOR_CLAIM_DRAIN",
     "recent_frontier_complete": "RECENT_FRONTIER",
     "literature_registry_valid": "LITERATURE_REGISTER",
-    "important_fulltext_complete": "IMPORTANT_FULLTEXT",
-    "source_claims_complete": "SOURCE_CLAIM_REGISTER",
-    "output_claims_traced": "OUTPUT_CLAIM_BIND",
-    "evidence_validated": "EVIDENCE_VALIDATE",
-    "l1_frozen": "LAYER_DECISION",
+    "l1_frozen": "L1_FREEZE",
+    "k_set_selected": "L2_TRIAGE",
     "l2_frozen": "LAYER_DECISION",
     "architecture_frozen": "LAYER_DECISION",
+    "k_fulltext_complete": "K_FULLTEXT",
+    "k_claims_complete": "K_CLAIM_REGISTER",
+    "output_claims_traced": "OUTPUT_CLAIM_BIND",
+    "evidence_validated": "EVIDENCE_VALIDATE",
     "n0_4_locked": "N0_AUDIT",
 }
 
@@ -182,12 +171,14 @@ TRACK_STATES = {
         "PRIOR_CLAIM_DRAIN",
         "RECENT_FRONTIER",
         "LITERATURE_REGISTER",
-        "IMPORTANT_FULLTEXT",
-        "SOURCE_CLAIM_REGISTER",
+        "L1_FREEZE",
+        "L2_TRIAGE",
+        "LAYER_DECISION",
+        "K_FULLTEXT",
+        "K_CLAIM_REGISTER",
         "SYNTHESIZE_COLLISION",
         "OUTPUT_CLAIM_BIND",
         "EVIDENCE_VALIDATE",
-        "LAYER_DECISION",
         "N0_AUDIT",
     },
     "VALIDITY": {
@@ -214,28 +205,42 @@ NEW_CHECK_CODES = frozenset(
         "UPDATED_AT_BEFORE_DECISION_LOG",
         "GATE_COMPLETION_RECORD_MISSING",
         "SELF_DECLARED_LEVEL",
-        "TRACK_STATE_MISMATCH",
-        "LAST_COMPLETED_NOT_LOGGED",
         "COMPLETE_REQUIRES_FINAL_LOCK_CONDITIONS",
         "UNREGISTERED_COMPUTE_ARTIFACT",
-        "EVIDENCE_DEPTH_EXCEEDS_LAYER",
     }
 )
 
 
-# 主线是 L1→L2→L3 逐层构建；证据深度按层供给（SKILL.md §3.1、R-LAYER-13）。
-# active_layer -> (全文预算, 原子观点预算)；超出即报 EVIDENCE_DEPTH_EXCEEDS_LAYER。
+# 主线是 L1→L2→L3 逐段构建；证据深度按段供给（SKILL.md §3.1、R-LAYER-13）。
+# 证据层级 -> (全文预算, 原子观点预算)；超出即报 EVIDENCE_DEPTH_EXCEEDS_LAYER。
+# schema 3.0 起状态机按段排布，合规流程不会超预算，故本检查为常驻 INVALID。
 EVIDENCE_DEPTH_BUDGETS = {
-    "UNRESOLVED": (0, 0),
     "L1": (0, 0),
     "L2": (12, 0),
-    "ARCHITECTURE": (12, 0),
     "L3": (20, 60),
 }
 
+# 证据层级不再持久化（design-schema-3.0 §4），由 effective_state 派生：
+# 未列出的状态（L3_EVIDENCE 段、VALIDITY/COMPUTE 轴、COMPLETE）均为 L3。
+STATE_EVIDENCE_TIER = {
+    "BOOT": "L1",
+    "SCOPE_LOCK": "L1",
+    "PRIOR_CLAIM_DRAIN": "L1",
+    "RECENT_FRONTIER": "L1",
+    "LITERATURE_REGISTER": "L1",
+    "L1_FREEZE": "L1",
+    "L2_TRIAGE": "L2",
+    "LAYER_DECISION": "L2",
+}
+
+
+def evidence_tier(effective_state: str) -> str:
+    """由有效状态派生证据层级；BLOCKED 请先解析为 resume_state 再传入。"""
+    return STATE_EVIDENCE_TIER.get(effective_state, "L3")
+
 
 def count_registered_evidence(root: Path, state: dict[str, Any]) -> tuple[int, int]:
-    """统计已注册的全文数与原子观点数；注册表缺失或损坏按 0 计（软检查）。"""
+    """统计已注册的全文数与原子观点数；注册表缺失或损坏按 0 计。"""
 
     def registry_path(key: str, default: str) -> Path:
         artifacts = state.get("artifacts")
@@ -626,7 +631,6 @@ def validate(
 
     output_type = state.get("output_type")
     contract = state.get("contribution_contract")
-    layer = state.get("active_layer")
     contribution = state.get("active_contribution")
     active_state = state.get("active_state")
     resume_state = state.get("resume_state")
@@ -635,20 +639,12 @@ def validate(
         add(errors, "OUTPUT_TYPE", f"invalid:{output_type}")
     if contract not in CONTRACTS:
         add(errors, "CONTRACT", f"invalid:{contract}")
-    if layer not in LAYERS:
-        add(errors, "LAYER", f"invalid:{layer}")
     if contribution not in CONTRIBUTIONS:
         add(errors, "CONTRIBUTION", f"invalid:{contribution}")
     if active_state not in STATES:
         add(errors, "STATE", f"invalid_active_state:{active_state}")
     if resume_state not in STATES:
         add(errors, "STATE", f"invalid_resume_state:{resume_state}")
-    if state.get("last_completed_state") not in STATES | {"NONE"}:
-        add(
-            errors,
-            "STATE",
-            f"invalid_last_completed:{state.get('last_completed_state')}",
-        )
     if state.get("search_mode") not in SEARCH_MODES:
         add(errors, "SEARCH_MODE", f"invalid:{state.get('search_mode')}")
     if state.get("compute_stage") not in COMPUTE_STAGES:
@@ -683,7 +679,6 @@ def validate(
     if not unresolved_allowed and (
         output_type == "UNRESOLVED"
         or contract == "UNRESOLVED"
-        or layer == "UNRESOLVED"
     ):
         add(errors, "SCOPE", "unresolved_after_scope_state")
 
@@ -698,10 +693,12 @@ def validate(
             f"output_type:{output_type};contract:{contract};expected:{expected_contract}",
         )
 
-    if layer in {"L1", "L2", "ARCHITECTURE", "UNRESOLVED"}:
+    # 证据层级由 effective_state 派生（schema 3.0 起 active_layer 不再持久化）。
+    tier = evidence_tier(str(effective_state))
+    if tier in {"L1", "L2"}:
         if contribution != "NONE":
-            add(errors, "CONTRIBUTION", f"layer:{layer};expected:NONE")
-    elif layer == "L3":
+            add(errors, "CONTRIBUTION", f"tier:{tier};expected:NONE")
+    else:
         allowed = (
             {"A", "B", "C"}
             if output_type == "DOCTORAL_DISSERTATION"
@@ -711,7 +708,7 @@ def validate(
             add(
                 errors,
                 "CONTRIBUTION",
-                f"layer:L3;output_type:{output_type};invalid:{contribution}",
+                f"tier:L3;output_type:{output_type};invalid:{contribution}",
             )
 
     gates = state.get("gates")
@@ -721,17 +718,22 @@ def validate(
     for gate in sorted(GATE_KEYS):
         if not isinstance(gates.get(gate), bool):
             add(errors, "GATE", f"{gate}:not_boolean")
+    for gate in sorted(gates):
+        if gate not in GATE_KEYS:
+            add(errors, "GATE", f"{gate}:unknown_key")
 
     implications = {
         "prior_claims_drained": ("scope_locked",),
         "recent_frontier_complete": ("scope_locked", "prior_claims_drained"),
         "literature_registry_valid": ("recent_frontier_complete",),
-        "important_fulltext_complete": ("literature_registry_valid",),
-        "source_claims_complete": ("important_fulltext_complete",),
-        "output_claims_traced": ("source_claims_complete",),
+        "l1_frozen": ("literature_registry_valid",),
+        "k_set_selected": ("l1_frozen",),
+        "l2_frozen": ("k_set_selected",),
+        "architecture_frozen": ("l2_frozen",),
+        "k_fulltext_complete": ("architecture_frozen",),
+        "k_claims_complete": ("k_fulltext_complete",),
+        "output_claims_traced": ("k_claims_complete",),
         "evidence_validated": ("output_claims_traced",),
-        "l2_frozen": ("l1_frozen",),
-        "architecture_frozen": ("l1_frozen", "l2_frozen"),
         "n0_4_locked": ("architecture_frozen", "evidence_validated"),
     }
     for gate, prerequisites in implications.items():
@@ -754,26 +756,22 @@ def validate(
         for artifact in find_unregistered_compute_artifacts(root, state):
             add(errors, "UNREGISTERED_COMPUTE_ARTIFACT", f"path:{artifact}")
 
-    # R-LAYER-13：证据深度按层供给；超层超量取证即主次颠倒（软检查）。
-    active_layer = state.get("active_layer")
-    budget = EVIDENCE_DEPTH_BUDGETS.get(
-        active_layer if isinstance(active_layer, str) else ""
-    )
-    if budget is not None:
-        fulltext_count, claim_count = count_registered_evidence(root, state)
-        fulltext_budget, claim_budget = budget
-        if fulltext_count > fulltext_budget:
-            add(
-                errors,
-                "EVIDENCE_DEPTH_EXCEEDS_LAYER",
-                f"layer:{active_layer};fulltext:{fulltext_count}>budget:{fulltext_budget}",
-            )
-        if claim_count > claim_budget:
-            add(
-                errors,
-                "EVIDENCE_DEPTH_EXCEEDS_LAYER",
-                f"layer:{active_layer};atomic_claims:{claim_count}>budget:{claim_budget}",
-            )
+    # R-LAYER-13：证据深度按段供给；超段超量取证即主次颠倒。
+    tier = evidence_tier(str(effective_state))
+    fulltext_budget, claim_budget = EVIDENCE_DEPTH_BUDGETS[tier]
+    fulltext_count, claim_count = count_registered_evidence(root, state)
+    if fulltext_count > fulltext_budget:
+        add(
+            errors,
+            "EVIDENCE_DEPTH_EXCEEDS_LAYER",
+            f"tier:{tier};fulltext:{fulltext_count}>budget:{fulltext_budget}",
+        )
+    if claim_count > claim_budget:
+        add(
+            errors,
+            "EVIDENCE_DEPTH_EXCEEDS_LAYER",
+            f"tier:{tier};atomic_claims:{claim_count}>budget:{claim_budget}",
+        )
 
     if effective_state == "CLAIM_FREEZE" and novelty_level != "N0-4C":
         add(
@@ -892,15 +890,6 @@ def validate(
         if not gates.get(gate):
             add(errors, "STATE_GATE", f"{effective_state}_requires:{gate}")
 
-    if layer == "L2" and not gates.get("l1_frozen"):
-        add(errors, "LAYER_GATE", "L2_requires:l1_frozen")
-    if layer == "ARCHITECTURE" and not gates.get("l2_frozen"):
-        add(errors, "LAYER_GATE", "ARCHITECTURE_requires:l2_frozen")
-    if layer == "L3" and not gates.get("architecture_frozen"):
-        add(errors, "LAYER_GATE", "L3_requires:architecture_frozen")
-    if effective_state == "N0_AUDIT" and layer != "L3":
-        add(errors, "STATE_LAYER", "N0_AUDIT_requires:L3")
-
     compute_stage = state.get("compute_stage")
     if compute_stage not in {"NOT_STARTED", "STOPPED"}:
         if gates.get("compute_authorized") is not True:
@@ -947,34 +936,6 @@ def validate(
             errors,
             "SELF_DECLARED_LEVEL",
             f"novelty_level:{novelty_level};n0_4_locked:{gates.get('n0_4_locked')}",
-        )
-
-    # active_track 与 active_state 必须同轴。
-    track = state.get("active_track")
-    if (
-        isinstance(track, str)
-        and track in TRACK_STATES
-        and effective_state != "COMPLETE"
-        and effective_state not in TRACK_STATES[track]
-    ):
-        add(
-            errors,
-            "TRACK_STATE_MISMATCH",
-            f"active_track:{track};effective_state:{effective_state}",
-        )
-
-    # last_completed_state 必须在 decision_log 中有对应完成记录。
-    last_completed = state.get("last_completed_state")
-    if (
-        seen_states
-        and isinstance(last_completed, str)
-        and last_completed != "NONE"
-        and last_completed not in seen_states
-    ):
-        add(
-            errors,
-            "LAST_COMPLETED_NOT_LOGGED",
-            f"last_completed_state:{last_completed}",
         )
 
     # COMPLETE 是终态，必须满足与 FINAL_LOCK 等价的条件。

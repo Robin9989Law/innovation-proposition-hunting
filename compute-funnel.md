@@ -17,7 +17,7 @@
 COMPUTE = N0-4C AND V3 AND compute_authorized
 ```
 
-因此 `workflow_state.json` 必须同时满足 `schema_version=2.0`、
+因此 `workflow_state.json` 必须同时满足 `schema_version=3.0`、
 `active_state=COMPUTE`、`novelty_level=N0-4C`、`validity_level=V3`、
 `gates.compute_authorized=true`，且当前 epoch/bundle 的 different-agent audit 为
 PASS。旧 `n0_4_locked` gate 只是兼容性镜像，不能代替 N0-4C、V3 或当前 audit。
@@ -67,8 +67,8 @@ S0-SCREEN 只读现有工件，**不产生任何数值输出**（无脚本、无
 冻结工件；未登记的数值产物视为未授权计算
 （`UNREGISTERED_COMPUTE_ARTIFACT`）。
 
-注：`workflow_state.json` 的 `compute_stage` 枚举保留 `S0` 值（schema 2.0
-兼容）；S0-SCREEN 是该阶段的语义名，强调"筛查、零数值产出"。
+注：`workflow_state.json` 的 `compute_stage` 枚举保留 `S0` 值（schema 3.0
+枚举保持该值）；S0-SCREEN 是该阶段的语义名，强调"筛查、零数值产出"。
 
 ### S1 门
 

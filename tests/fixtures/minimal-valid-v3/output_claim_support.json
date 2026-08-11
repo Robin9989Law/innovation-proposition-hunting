@@ -1,0 +1,23 @@
+{
+  "schema_version": "2.0",
+  "current_collision_round": 1,
+  "output_claims": [
+    {
+      "output_claim_id": "OC-0001",
+      "statement": "The fixture binds its online comparison to a frozen predict-before-update protocol.",
+      "output_location": "manuscript.md:9",
+      "claim_kind": "FACT",
+      "supporting_claim_ids": ["LC-0001"],
+      "counter_claim_ids": [],
+      "inference_type": "DIRECT",
+      "reasoning": "The registered full-text conclusion directly supports the protocol interpretation.",
+      "caveats": "Fixture-only evidence.",
+      "trace_status": "VERIFIED"
+    }
+  ],
+  "collision_gate": {
+    "prior_round_claims_drained": true,
+    "unused_prior_claim_ids": [],
+    "checked_at": "2026-08-10T00:00:00Z"
+  }
+}

@@ -13,6 +13,7 @@ from typing import Any, Sequence
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 MINIMAL_VALID_V2 = REPOSITORY_ROOT / "tests" / "fixtures" / "minimal-valid-v2"
+MINIMAL_VALID_V3 = REPOSITORY_ROOT / "tests" / "fixtures" / "minimal-valid-v3"
 STANDALONE_ONLY = {
     "contribution-architecture.md",
     "hierarchy_status.md",
@@ -54,11 +55,11 @@ def make_valid_project(
     novelty_level: str = "N0-4C",
     validity_level: str = "V3",
 ) -> tuple[TemporaryDirectory[str], Path]:
-    temporary_directory = TemporaryDirectory(prefix="schema-v2-project-")
+    temporary_directory = TemporaryDirectory(prefix="schema-v3-project-")
     project = Path(temporary_directory.name)
     state = {
-        "schema_version": "2.0",
-        "workflow_id": "schema-v2-test",
+        "schema_version": "3.0",
+        "workflow_id": "schema-v3-test",
         "updated_at": "2026-08-10T00:00:00Z",
         "current_year": 2026,
         "recent_window": {
@@ -69,12 +70,9 @@ def make_valid_project(
         },
         "output_type": "JOURNAL_ARTICLE",
         "contribution_contract": "ONE_MAIN_M",
-        "active_layer": "L1",
-        "active_contribution": "NONE",
-        "active_track": "VALIDITY",
+        "active_contribution": "M",
         "active_state": "CLAIM_FREEZE",
         "resume_state": "CLAIM_FREEZE",
-        "last_completed_state": "N0_AUDIT",
         "search_mode": "SEARCH_OPEN",
         "compute_stage": "NOT_STARTED",
         "collision_round": 1,
@@ -99,13 +97,14 @@ def make_valid_project(
             "prior_claims_drained": False,
             "recent_frontier_complete": False,
             "literature_registry_valid": False,
-            "important_fulltext_complete": False,
-            "source_claims_complete": False,
-            "output_claims_traced": False,
-            "evidence_validated": False,
             "l1_frozen": False,
+            "k_set_selected": False,
             "l2_frozen": False,
             "architecture_frozen": False,
+            "k_fulltext_complete": False,
+            "k_claims_complete": False,
+            "output_claims_traced": False,
+            "evidence_validated": False,
             "n0_4_locked": False,
             "compute_authorized": False,
         },
@@ -113,7 +112,7 @@ def make_valid_project(
         "decision_log": [],
     }
     write_json(project / "workflow_state.json", state)
-    for fixture_path in MINIMAL_VALID_V2.iterdir():
+    for fixture_path in MINIMAL_VALID_V3.iterdir():
         if fixture_path.name in STANDALONE_ONLY:
             continue
         if fixture_path.is_file():

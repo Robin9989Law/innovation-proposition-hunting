@@ -63,14 +63,19 @@ L1、L2 或贡献架构通过并不代表创新成立。N0 新颖性评级只用
 发现另一条路径更有吸引力，不等于获得换轨授权。智能体应把它登记为支持性线索或
 候选重启理由，而不是同时推进两条主创新。
 
-### Schema 2.0 双轴状态机
+### Schema 3.0 双轴状态机
 
 ```text
-新颖性：BOOT → SCOPE_LOCK → ... → N0_AUDIT → N0-4C
+新颖性：BOOT → SCOPE_LOCK → ... → L1_FREEZE → L2_TRIAGE
+      → LAYER_DECISION → K_FULLTEXT → K_CLAIM_REGISTER
+      → ... → N0_AUDIT → N0-4C
 有效性：CLAIM_FREEZE → VALIDITY_AUDIT → INDEPENDENT_REVIEW
        → DIRECTION_LOCK → COMPUTE → POSTCOMPUTE_CLAIM_FREEZE
        → FINAL_VALIDITY_AUDIT → FINAL_LOCK
 ```
+
+新颖性轴按三段排布证据深度：L1_SCOUT 段只动元数据，L2_TRIAGE 段试读并选拔
+K 集合，L3_EVIDENCE 段只对 K 集合跑全文归档与原子观点提取。
 
 每个研究主题都必须维护工作流状态文件（`workflow_state.json`）。智能体一次只能
 执行一个 `active_state`，并同时报告新颖性 N0-1 至 N0-4C 与有效性 V0 至 V4。
@@ -192,7 +197,7 @@ python3 /path/to/innovation-proposition-hunting/scripts/validate_all.py \
 
 | 脚本 | 检查内容 |
 |---|---|
-| `validate_schema_v2.py` / `validate_workflow_state.py` | Schema 2.0、双轴状态、阶段门、计算授权与未登记计算产物 |
+| `validate_schema_v2.py` / `validate_workflow_state.py` | Schema 3.0（旧版本转 MIGRATION）、双轴状态、阶段门、计算授权与未登记计算产物 |
 | `validate_claim_inventory.py` | 高风险声明出现、类型和 inventory 绑定 |
 | `validate_theory_obligations.py` | 理论命题、证明责任、见证咬合力与豁免闭合 |
 | `validate_protocol_contract.py` / `validate_claim_code_trace.py` | 算法协议、实现、测试绑定和输出追溯、自证测试检测 |

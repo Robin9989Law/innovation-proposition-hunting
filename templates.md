@@ -1,4 +1,4 @@
-# Schema 2.0 产物模板
+# 产物模板（`workflow_state.json` 为 Schema 3.0，其余产物仍为 Schema 2.0）
 
 这里集中定义 validator 消费的字段。所有路径均为研究根目录下的 canonical relative
 POSIX path；所有 SHA-256 均为 64 位小写十六进制；`validation_epoch` 必须与 state
@@ -9,7 +9,7 @@ POSIX path；所有 SHA-256 均为 64 位小写十六进制；`validation_epoch`
 
 ```json
 {
-  "schema_version": "2.0",
+  "schema_version": "3.0",
   "workflow_id": "<stable-topic-id>",
   "updated_at": "<ISO-8601>",
   "current_year": 2026,
@@ -21,12 +21,9 @@ POSIX path；所有 SHA-256 均为 64 位小写十六进制；`validation_epoch`
   },
   "output_type": "JOURNAL_ARTICLE",
   "contribution_contract": "ONE_MAIN_M",
-  "active_layer": "L3",
   "active_contribution": "M",
-  "active_track": "VALIDITY",
   "active_state": "CLAIM_FREEZE",
   "resume_state": "CLAIM_FREEZE",
-  "last_completed_state": "N0_AUDIT",
   "next_required_action": "Freeze every high-risk claim occurrence.",
   "search_mode": "SEARCH_OPEN",
   "compute_stage": "NOT_STARTED",
@@ -43,13 +40,14 @@ POSIX path；所有 SHA-256 均为 64 位小写十六进制；`validation_epoch`
     "prior_claims_drained": true,
     "recent_frontier_complete": true,
     "literature_registry_valid": true,
-    "important_fulltext_complete": true,
-    "source_claims_complete": true,
-    "output_claims_traced": true,
-    "evidence_validated": true,
     "l1_frozen": true,
+    "k_set_selected": true,
     "l2_frozen": true,
     "architecture_frozen": true,
+    "k_fulltext_complete": true,
+    "k_claims_complete": true,
+    "output_claims_traced": true,
+    "evidence_validated": true,
     "n0_4_locked": true,
     "compute_authorized": false
   },
@@ -61,6 +59,7 @@ POSIX path；所有 SHA-256 均为 64 位小写十六进制；`validation_epoch`
     "literature_archive": "literature_archive",
     "hierarchy_status": "hierarchy_status.md",
     "l1_card": "l1-card.md",
+    "k_triage": "l2-triage.md",
     "l2_card": "l2-card.md",
     "contribution_architecture": "contribution-architecture.md",
     "hierarchy_novelty_audit": "novelty-audit.md",
@@ -95,11 +94,11 @@ POSIX path；所有 SHA-256 均为 64 位小写十六进制；`validation_epoch`
 
 枚举必须与 validators 一致：
 
-- `active_track`: `NOVELTY | VALIDITY | COMPUTE`
-- `active_state` / `resume_state` / `last_completed_state`: `BOOT | SCOPE_LOCK |
-  PRIOR_CLAIM_DRAIN | RECENT_FRONTIER | LITERATURE_REGISTER | IMPORTANT_FULLTEXT |
-  SOURCE_CLAIM_REGISTER | SYNTHESIZE_COLLISION | OUTPUT_CLAIM_BIND |
-  EVIDENCE_VALIDATE | LAYER_DECISION | N0_AUDIT | CLAIM_FREEZE | VALIDITY_AUDIT |
+- `active_state` / `resume_state`：`BOOT | SCOPE_LOCK |
+  PRIOR_CLAIM_DRAIN | RECENT_FRONTIER | LITERATURE_REGISTER | L1_FREEZE |
+  L2_TRIAGE | LAYER_DECISION | K_FULLTEXT | K_CLAIM_REGISTER |
+  SYNTHESIZE_COLLISION | OUTPUT_CLAIM_BIND |
+  EVIDENCE_VALIDATE | N0_AUDIT | CLAIM_FREEZE | VALIDITY_AUDIT |
   INDEPENDENT_REVIEW | DIRECTION_LOCK | COMPUTE | POSTCOMPUTE_CLAIM_FREEZE |
   FINAL_VALIDITY_AUDIT | FINAL_LOCK | BLOCKED | COMPLETE`（`resume_state` 不得为
   `BLOCKED`/`COMPLETE`）
@@ -108,16 +107,23 @@ POSIX path；所有 SHA-256 均为 64 位小写十六进制；`validation_epoch`
 - `claim_profile`: `THEORY | ALGORITHM | MIXED`
 - `output_type`: `UNRESOLVED | DOCTORAL_DISSERTATION | JOURNAL_ARTICLE`
 - `contribution_contract`: `UNRESOLVED | THREE_ORGANIC_A_B_C | ONE_MAIN_M`
-- `active_layer`: `UNRESOLVED | L1 | L2 | ARCHITECTURE | L3`
 - `active_contribution`: `NONE | M | A | B | C`
 - `search_mode`: `SEARCH_OPEN | SYNTHESIS_LOCK | EXCEPTION_REOPEN`
 - `recent_window.status`: `COMPLETE | INCOMPLETE`；`snapshot_mode`:
   `NOT_SET | NEW_SEARCH | REUSED_VERIFIED_SNAPSHOT`（status=COMPLETE 时不得
   `NOT_SET`）
 - `compute_stage`: `NOT_STARTED | S0 | S1 | S2 | S3 | S4 | STOPPED`
-- Schema 2.0 新状态：`CLAIM_FREEZE | VALIDITY_AUDIT | INDEPENDENT_REVIEW |
-  DIRECTION_LOCK | COMPUTE | POSTCOMPUTE_CLAIM_FREEZE |
-  FINAL_VALIDITY_AUDIT | FINAL_LOCK`
+
+派生字段（不再持久化，state 中出现即 `LEGACY_FIELD_REMOVED`）：
+
+- 活动轨道（NOVELTY / VALIDITY / COMPUTE）由 `active_state` 经状态机逆映射派生；
+- 证据层级（L1 / L2 / L3）由 `active_state` 派生：L1_SCOUT 段为 L1、L2_TRIAGE 段
+  为 L2，其余（含 VALIDITY/COMPUTE 轴与 COMPLETE）为 L3；BLOCKED 时从
+  `resume_state` 派生；
+- 最后完成状态由 `decision_log` 末条非 BLOCKED 条目派生。
+
+Schema 3.0 变更：`L1_FREEZE` 与 `L2_TRIAGE` 为新增状态；`K_FULLTEXT` /
+`K_CLAIM_REGISTER` 由原全量全文/全量观点状态改名，并重新定义为只对 K 集合运行。
 
 当 `active_state=BLOCKED` 时，`resume_state` 指向解除后状态，`blocked_reasons` 是非空
 字符串数组。否则 `resume_state == active_state` 且 `blocked_reasons=[]`。

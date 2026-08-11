@@ -75,7 +75,9 @@ class AdvanceTests(unittest.TestCase):
             self.assertEqual(0, completed.returncode, completed.stdout)
             state = load_json(project / "workflow_state.json")
             self.assertEqual("VALIDITY_AUDIT", state["active_state"])
-            self.assertEqual("CLAIM_FREEZE", state["last_completed_state"])
+            # schema 3.0：派生字段不再由工具写回（由校验器派生）
+            self.assertNotIn("last_completed_state", state)
+            self.assertNotIn("active_track", state)
             entry = state["decision_log"][-1]
             self.assertEqual("VALIDITY_AUDIT", entry["state"])
             self.assertIn("T", entry["at"])
@@ -99,54 +101,6 @@ class AdvanceTests(unittest.TestCase):
             state = load_json(project / "workflow_state.json")
             self.assertEqual("CLAIM_FREEZE", state["active_state"])
             self.assertEqual([], state["decision_log"])
-
-    def test_advance_syncs_active_track(self) -> None:
-        temporary_directory, project = make_valid_project(validity_level="V3")
-        with temporary_directory:
-            state = load_json(project / "workflow_state.json")
-            state["active_track"] = "VALIDITY"
-            write_json(project / "workflow_state.json", state)
-            # 进入 COMPUTE：轴切换 VALIDITY -> COMPUTE
-            completed = run_iph(
-                project,
-                "advance",
-                "--to",
-                "COMPUTE",
-                "--note",
-                "enter compute",
-                "--no-validate",
-            )
-            self.assertEqual(0, completed.returncode, completed.stdout)
-            state = load_json(project / "workflow_state.json")
-            self.assertEqual("COMPUTE", state["active_track"])
-            # COMPUTE -> POSTCOMPUTE_CLAIM_FREEZE：轴切回 VALIDITY
-            completed = run_iph(
-                project,
-                "advance",
-                "--to",
-                "POSTCOMPUTE_CLAIM_FREEZE",
-                "--note",
-                "postcompute refreeze",
-                "--no-validate",
-            )
-            self.assertEqual(0, completed.returncode, completed.stdout)
-            state = load_json(project / "workflow_state.json")
-            self.assertEqual("VALIDITY", state["active_track"])
-            # BLOCKED 不属于任何轴：保持原轴以便 resume
-            completed = run_iph(
-                project,
-                "advance",
-                "--to",
-                "BLOCKED",
-                "--note",
-                "hold",
-                "--blocked-reason",
-                "WAITING_DATA",
-                "--no-validate",
-            )
-            self.assertEqual(0, completed.returncode, completed.stdout)
-            state = load_json(project / "workflow_state.json")
-            self.assertEqual("VALIDITY", state["active_track"])
 
     def test_advance_rejects_unknown_gate_and_state(self) -> None:
         temporary_directory, project = make_valid_project()

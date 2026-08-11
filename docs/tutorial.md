@@ -254,12 +254,13 @@ L3 是真正接受 N0 新颖性审计的单位。合格形式包括：
 ```text
 active_state = BOOT
 resume_state = BOOT
-last_completed_state = NONE
 output_type = UNRESOLVED 或已确认的成果类型
-active_layer = UNRESOLVED 或 L1
 active_contribution = NONE
 collision_round = 1
 ```
+
+活动轨道、证据层级和最后完成状态是派生字段，由校验器从当前状态与
+decision_log 推得，不在 state 中持久化，也不用手工维护。
 
 ### 6.1 三个最重要字段
 
@@ -280,8 +281,9 @@ python3 scripts/iph.py advance --root . --state workflow_state.json --to <STATE>
 ```
 
 `iph advance` 会先跑完整校验，READY 后才写 decision_log（真实 UTC 时间戳）并
-原子更新 state（含门禁、last_completed_state、active_state、resume_state 和
-next_required_action）；校验不过不推进。`validate_all.py` 仍是底层校验器
+原子更新 state（含门禁、active_state、resume_state 和
+next_required_action；证据层级与最后完成状态由校验器派生，不写回 state）；
+校验不过不推进。`validate_all.py` 仍是底层校验器
 （`iph validate` 即调用它），但常规推进一律走 iph CLI，不手动编辑
 `workflow_state.json` 或手动追加 decision_log。
 
@@ -302,7 +304,7 @@ next_required_action = 解除阻塞所需的唯一动作
 
 ```text
 active_state = BLOCKED
-resume_state = IMPORTANT_FULLTEXT
+resume_state = K_FULLTEXT
 blocked_reasons = ["W-0042 has no legally accessible full text"]
 next_required_action = "Provide a lawful author manuscript or institutional access for W-0042"
 ```
@@ -377,7 +379,7 @@ workflow_state_errors=0
 
 ```text
 scope_locked = true
-active_layer = L1
+证据层级 = L1（由当前状态派生）
 active_contribution = NONE
 ```
 
@@ -491,11 +493,61 @@ W-0001
 
 `CONTEXT` 不能直接支持最终输出结论。
 
-下一状态：`IMPORTANT_FULLTEXT`。
+下一状态：`L1_FREEZE`。
 
-### 7.6 重要全文归档（`IMPORTANT_FULLTEXT`）
+### 7.6 L1 冻结（`L1_FREEZE`）
 
-对全部 `CRITICAL/IMPORTANT` 文献：
+L1 段只依据元数据与摘要浏览（零全文、零原子观点）。把研究工作冻结成 L1 卡
+（产物登记为 `l1_card`，如 l1-card.md）：
+
+- 领域边界与连续簇；
+- 谁在做、最强研究链；
+- `l1_frozen=true`。
+
+L1 冻结只回答"这条研究程序值得继续"，不回答"创新点是什么"。
+
+下一状态：`L2_TRIAGE`。
+
+### 7.7 K 集合选拔（`L2_TRIAGE`）
+
+用浅证据（元数据 + E1 摘要 + ≤12 篇全文试读，仍不提取原子观点）从注册文献中
+选拔 K 集合——后续全重机器只对 K 集合运行。产出 `k_triage`（如 l2-triage.md）：
+
+- K 集合成员及选拔理由；
+- 落选重要文献的处理方式；
+- `k_set_selected=true`。
+
+碰撞综合中发现 K 集合漏了关键近邻时，允许回退到 `K_FULLTEXT` 补取，并在
+decision_log 记明。
+
+下一状态：`LAYER_DECISION`。
+
+### 7.8 层级裁决（`LAYER_DECISION`）
+
+一次只裁决当前证据层级（由当前状态派生）：
+
+| 层级 | 允许裁决 |
+|---|---|
+| L1 | `PASS AS RESEARCH PROGRAM`、`PARTIAL COLLISION`、`FAIL AS PROGRAM` |
+| L2 | `PASS AS FEASIBLE MICRODOMAIN`、`NEEDS REBOUNDARY`、`FAIL AS DOMAIN` |
+| ARCHITECTURE | 博士三贡献通过/重分，或期刊单主贡献通过/重聚焦 |
+| L3 | 进入 N0 审计，不用上层口号代替命题证据 |
+
+如果进入新层级或新候选：
+
+1. `collision_round += 1`；
+2. 设置新的 `active_contribution`（证据层级随状态推进自动派生）；
+3. `active_state = PRIOR_CLAIM_DRAIN`；
+4. 先耗尽旧观点。
+
+不要直接从 L1 PASS 跳到 L3。
+
+下一状态：`K_FULLTEXT`。
+
+### 7.9 K 集合全文归档（`K_FULLTEXT`）
+
+只对 K 集合中的文献（LAYER_DECISION 冻结 K 集合之后运行，不是全部
+CRITICAL/IMPORTANT）：
 
 1. 合法下载 PDF 或官方 HTML；
 2. 核对文件内题名、作者和版本；
@@ -513,11 +565,12 @@ shasum -a 256 /path/to/research/literature_archive/W-0001.pdf
 付费墙阻断时使用 `DOWNLOAD_BLOCKED`，不能绕过访问控制。该文献在取得合法全文前
 不能进入 E2/E4 或支持最终结论。
 
-下一状态：`SOURCE_CLAIM_REGISTER`。
+下一状态：`K_CLAIM_REGISTER`。
 
-### 7.7 来源观点注册（`SOURCE_CLAIM_REGISTER`）
+### 7.10 K 集合观点注册（`K_CLAIM_REGISTER`）
 
-在 `literature_claim_registry.json` 中，一条记录只保存一个可判断观点：
+只对 K 集合文献提取原子观点。在 `literature_claim_registry.json` 中，一条记录
+只保存一个可判断观点：
 
 ```text
 LC-0001
@@ -561,7 +614,7 @@ COUNTEREXAMPLE
 
 下一状态：`SYNTHESIZE_COLLISION`。
 
-### 7.8 碰撞综合（`SYNTHESIZE_COLLISION`）
+### 7.11 碰撞综合（`SYNTHESIZE_COLLISION`）
 
 先把文献组织成连续研究链，而不是逐篇写摘要：
 
@@ -629,7 +682,7 @@ U = K 内部尚未闭合的推理、边界、识别或性能责任
 
 下一状态：`OUTPUT_CLAIM_BIND`。
 
-### 7.9 输出结论绑定（`OUTPUT_CLAIM_BIND`）
+### 7.12 输出结论绑定（`OUTPUT_CLAIM_BIND`）
 
 把每条实质研究结论登记为：
 
@@ -663,7 +716,7 @@ OC-0001
 
 下一状态：`EVIDENCE_VALIDATE`。
 
-### 7.10 证据校验（`EVIDENCE_VALIDATE`）
+### 7.13 证据校验（`EVIDENCE_VALIDATE`）
 
 运行（`iph validate` 是对底层 `validate_all.py` 的封装，输出相同）：
 
@@ -680,31 +733,11 @@ evidence_chain_errors=0
 validation_suite_failures=0
 ```
 
-只有全部为 0 才能进入层级裁决。
+只有全部为 0 才能进入 N0 审计。
 
-下一状态：`LAYER_DECISION`。
+下一状态：`N0_AUDIT`。
 
-### 7.11 层级裁决（`LAYER_DECISION`）
-
-一次只裁决 `active_layer`：
-
-| 层级 | 允许裁决 |
-|---|---|
-| L1 | `PASS AS RESEARCH PROGRAM`、`PARTIAL COLLISION`、`FAIL AS PROGRAM` |
-| L2 | `PASS AS FEASIBLE MICRODOMAIN`、`NEEDS REBOUNDARY`、`FAIL AS DOMAIN` |
-| ARCHITECTURE | 博士三贡献通过/重分，或期刊单主贡献通过/重聚焦 |
-| L3 | 进入 N0 审计，不用上层口号代替命题证据 |
-
-如果进入新层级或新候选：
-
-1. `collision_round += 1`；
-2. 设置新的 `active_layer` 和 `active_contribution`；
-3. `active_state = PRIOR_CLAIM_DRAIN`；
-4. 先耗尽旧观点。
-
-不要直接从 L1 PASS 跳到 L3。
-
-### 7.12 新颖性预审（`N0_AUDIT`）
+### 7.14 新颖性预审（`N0_AUDIT`）
 
 N0 只用于单个 L3：
 
@@ -793,7 +826,7 @@ L3-C round
 使用 innovation-proposition-hunting 的博士模式。
 成果合同固定为 THREE_ORGANIC_A_B_C。
 
-当前 active_layer=ARCHITECTURE。
+当前在 LAYER_DECISION（架构划分阶段）。
 请从冻结 L2 划分 A/B/C：
 1. 分别定义研究单位、主要自变量、目标量、关键证据和退出边界；
 2. 至少证明三项差异；
@@ -1055,7 +1088,7 @@ OC-0001 → LC-0001 → W-0001 → page 7/table 2
 ```text
 继续当前 innovation-proposition-hunting 任务。
 先读取 workflow_state.json、scope_lock.md 和三个证据 JSON。
-报告 active_state、active_layer、active_contribution、collision_round、
+报告 active_state、由状态派生的证据层级、active_contribution、collision_round、
 三个关键门禁（gate）和 next_required_action。
 只执行 next_required_action；不得重新启动检索或改变冻结上层。
 ```
@@ -1106,7 +1139,7 @@ search_mode = SYNTHESIS_LOCK
 
 ## 14. 计算验证怎么启动
 
-（本节涉及的有效性轴 V0–V4 与 Schema 2.0 新状态 CLAIM_FREEZE → FINAL_LOCK，
+（本节涉及的有效性轴 V0–V4 与状态 CLAIM_FREEZE → FINAL_LOCK，
 定义见 [SKILL.md](../SKILL.md) §3.2 双轴状态机。）
 
 以下公式是硬门，不是建议：
@@ -1263,7 +1296,7 @@ python3 scripts/iph.py validate --root . --state workflow_state.json
 ### 16.2 深读一篇重要近邻
 
 ```text
-当前 active_state=SOURCE_CLAIM_REGISTER。
+当前 active_state=K_CLAIM_REGISTER。
 对 W-<id> 执行 E2/E4 深读：
 1. 核对正式定义；
 2. 核对信息边界、方法/定理、实验臂、强基线、分母和结果表；
