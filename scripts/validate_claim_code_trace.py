@@ -27,12 +27,14 @@ from validation_common import (
     strict_json_load_bytes,
     string_list,
 )
-from validate_protocol_contract import (
-    ALGORITHM_PROFILES,
-    collect_algorithm_claims,
+from python_test_contract import (
     parse_python_test_contract,
     python_top_level_symbol_status,
     self_attesting_test_issues,
+)
+from validate_protocol_contract import (
+    ALGORITHM_PROFILES,
+    collect_algorithm_claims,
 )
 
 

@@ -174,3 +174,13 @@ v1 的 P1–P8 与上述 A–F 高度同根，合并为六个工作流（W1–W6
 - 不动双轴状态机、N/V 等级语义、G9 不同-agent 硬门、E1–E4 分级本身——评审确认设计正确，失守在执行层。
 - 不解决单 agent 环境下"独立 reviewer 必须是不同 agent"的能力问题（BLOCKED_CAPABILITY 通道已覆盖）。
 - 第一期不动 schema_version、不删任何现有字段（仪式字段先加交叉检查，删除留到 schema 3.0 再议）。
+
+## 第五部分：第 6 期仪式字段评估结论（2026-08，只出结论不动 schema）
+
+`active_track` 与 `last_completed_state` 均为"一致性/镜像"字段而非门控字段：
+篡改其值无法解锁任何 gate（只能触发 `TRACK_STATE_MISMATCH` /
+`LAST_COMPLETED_NOT_LOGGED` 一致性报错），第 1 期交叉检查已堵住静默说谎。
+**建议留到 schema 3.0 删除**：`last_completed_state` 可完全从 decision_log 推导，
+`active_track` 可从 `active_state` 经 `TRACK_STATES` 逆映射推导；两者本质是派生
+数据，3.0 时改为校验器内派生、state 不再持久化。2.x 内删除会破坏 schema 必填
+枚举检查与 `iph handover` 输出，故保留。
