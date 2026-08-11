@@ -96,9 +96,24 @@ POSIX path；所有 SHA-256 均为 64 位小写十六进制；`validation_epoch`
 枚举必须与 validators 一致：
 
 - `active_track`: `NOVELTY | VALIDITY | COMPUTE`
+- `active_state` / `resume_state` / `last_completed_state`: `BOOT | SCOPE_LOCK |
+  PRIOR_CLAIM_DRAIN | RECENT_FRONTIER | LITERATURE_REGISTER | IMPORTANT_FULLTEXT |
+  SOURCE_CLAIM_REGISTER | SYNTHESIZE_COLLISION | OUTPUT_CLAIM_BIND |
+  EVIDENCE_VALIDATE | LAYER_DECISION | N0_AUDIT | CLAIM_FREEZE | VALIDITY_AUDIT |
+  INDEPENDENT_REVIEW | DIRECTION_LOCK | COMPUTE | POSTCOMPUTE_CLAIM_FREEZE |
+  FINAL_VALIDITY_AUDIT | FINAL_LOCK | BLOCKED | COMPLETE`（`resume_state` 不得为
+  `BLOCKED`/`COMPLETE`）
 - `novelty_level`: `N0-1 | N0-2 | N0-3 | N0-4C`
 - `validity_level`: `V0 | V1 | V2 | V3 | V4`
 - `claim_profile`: `THEORY | ALGORITHM | MIXED`
+- `output_type`: `UNRESOLVED | DOCTORAL_DISSERTATION | JOURNAL_ARTICLE`
+- `contribution_contract`: `UNRESOLVED | THREE_ORGANIC_A_B_C | ONE_MAIN_M`
+- `active_layer`: `UNRESOLVED | L1 | L2 | ARCHITECTURE | L3`
+- `active_contribution`: `NONE | M | A | B | C`
+- `search_mode`: `SEARCH_OPEN | SYNTHESIS_LOCK | EXCEPTION_REOPEN`
+- `recent_window.status`: `COMPLETE | INCOMPLETE`；`snapshot_mode`:
+  `NOT_SET | NEW_SEARCH | REUSED_VERIFIED_SNAPSHOT`（status=COMPLETE 时不得
+  `NOT_SET`）
 - `compute_stage`: `NOT_STARTED | S0 | S1 | S2 | S3 | S4 | STOPPED`
 - Schema 2.0 新状态：`CLAIM_FREEZE | VALIDITY_AUDIT | INDEPENDENT_REVIEW |
   DIRECTION_LOCK | COMPUTE | POSTCOMPUTE_CLAIM_FREEZE |
@@ -139,7 +154,9 @@ METHOD, ONLINE, PROTOCOL, EMPIRICAL, BASELINE, COMPLEXITY
 ```
 
 每个 high-risk occurrence 必须恰好属于一个 claim。ID 计算为：相对路径、命中 term、
-规范化所在行、同一行同 term 的 ordinal 以 NUL 拼接后做 SHA-256。稿件或 epoch
+规范化所在行、同一行同 term 的 ordinal 以 NUL 拼接后做 SHA-256。规范化规则：
+term 与行文本均先 `casefold()`；行文本再把连续空白折叠为单个空格
+（`" ".join(line.split())`）；ordinal 从 1 起按命中顺序编号。稿件或 epoch
 变化后重新扫描；V3/V4 出现未审 occurrence 视为 unaudited promotion。
 
 ## 3. `theory_obligation_registry.json`
@@ -444,7 +461,7 @@ BLOCKED；不得伪造 reviewer、thread、PASS 或 bundle。
 
 ## 10. `compute_evidence.json` 与 state pointer
 
-Task 8 的计算证据文件可采用：
+S4 完成后的计算证据文件可采用：
 
 ```json
 {
@@ -517,3 +534,23 @@ Markdown、claim 相关 JSON、manuscript）中，即使注明"探索"也不行�
 只允许定性转述。违反报 `EXPLORATION_LEAK`（`validate_exploration_firewall.py`）。
 有 E1/E2 出处的文献数字（出现在 `near_neighbor_registry.json` /
 `literature_claim_registry.json` 中的 token）豁免，因为其 provenance 独立。
+
+## 13. `scope_lock.md`
+
+每轮开始固定（防版本与主题串线）：
+
+```text
+研究版本/主题：
+成果类型（DOCTORAL_DISSERTATION/JOURNAL_ARTICLE）：
+贡献合同（THREE_ORGANIC_A_B_C/ONE_MAIN_M）：
+当前阶段（L1/L2/贡献架构/L3-贡献编号）：
+现行贡献编号（M/A/B/C；不要复用历史命题编号）：
+允许对象与结构：
+禁止混入的旧主题/旧稿：
+关键比较基线：
+当前只裁决 L1/L2/贡献架构/L3 中哪一层：
+改变 scope 的触发条件与授权人：
+```
+
+检索发现只能更新证据或触发显式重开，不能静默改变课题。不同主题必须使用不同
+连续簇、注册表和权威裁决文件。

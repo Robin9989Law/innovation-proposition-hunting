@@ -271,18 +271,19 @@ collision_round = 1
 
 ### 6.2 更新顺序
 
-每次推进都使用相同顺序：
+每次推进都使用相同顺序：先执行当前状态动作并保存产物，确认对应门禁（gate）
+条件真实满足，然后用 iph CLI 推进：
 
-```text
-执行当前状态动作
-  → 保存产物
-  → 运行当前状态需要的校验
-  → 更新门禁（gate）
-  → 更新 last_completed_state
-  → 更新 active_state 和 resume_state
-  → 写唯一 next_required_action
-  → 追加 decision_log
+```bash
+python3 scripts/iph.py validate --root . --state workflow_state.json
+python3 scripts/iph.py advance --root . --state workflow_state.json --to <STATE> --note "<一行决策说明>"
 ```
+
+`iph advance` 会先跑完整校验，READY 后才写 decision_log（真实 UTC 时间戳）并
+原子更新 state（含门禁、last_completed_state、active_state、resume_state 和
+next_required_action）；校验不过不推进。`validate_all.py` 仍是底层校验器
+（`iph validate` 即调用它），但常规推进一律走 iph CLI，不手动编辑
+`workflow_state.json` 或手动追加 decision_log。
 
 不要先把门禁（gate）改成 `true`，再补文件。
 
@@ -342,7 +343,7 @@ workflow_state_errors=0
 
 ### 7.2 范围锁定（`SCOPE_LOCK`）
 
-使用 [`templates.md`](../templates.md) 的 Scope Lock 模板，冻结：
+使用 [`templates.md`](../templates.md) 的 `scope_lock.md` 节模板，冻结：
 
 - 当前版本和主题；
 - 成果类型与贡献合同；
@@ -656,12 +657,10 @@ OC-0001
 
 ### 7.10 证据校验（`EVIDENCE_VALIDATE`）
 
-运行：
+运行（`iph validate` 是对底层 `validate_all.py` 的封装，输出相同）：
 
 ```bash
-python3 /path/to/skill/scripts/validate_all.py \
-  --root /path/to/research \
-  --state /path/to/research/workflow_state.json
+python3 scripts/iph.py validate --root . --state workflow_state.json
 ```
 
 预期：
@@ -706,9 +705,9 @@ N0 只用于单个 L3：
 | N0-1 | 被直接近邻占据 | 正式出版资格满足后关闭 |
 | N0-2 | 可机械推出 | 吸收或关闭 |
 | N0-3 | 似乎非机械但证据、见证或专属门未闭合 | HOLD，不计算 |
-| N0-4 | 非机械性、证据、路径和形式门全部通过 | 锁定方向 |
+| N0-4C | 非机械性、证据、路径和形式门全部通过 | 锁定方向 |
 
-N0-4 不自动授权实验。仍需用户明确授权并满足计算门。
+N0-4C 不自动授权实验。仍需用户明确授权并满足计算门。
 
 ---
 
@@ -778,7 +777,7 @@ L3-C round
   → N0 audit
 ```
 
-每个贡献至少需要一个主 L3 达到 N0-4。A 的命题不能在 B 或 C 中再次计数。
+每个贡献至少需要一个主 L3 达到 N0-4C。A 的命题不能在 B 或 C 中再次计数。
 
 ### 8.5 博士模式提示词
 
@@ -793,7 +792,7 @@ L3-C round
 3. 写出 A→B→C 的输入输出依赖；
 4. 识别重复计算和伪贡献；
 5. 不得把贡献标题写成已经成立的创新；
-6. 架构通过后，只进入一个贡献的 L3，不并行宣称三个 N0-4。
+6. 架构通过后，只进入一个贡献的 L3，不并行宣称三个 N0-4C。
 ```
 
 ---
@@ -1099,38 +1098,43 @@ search_mode = SYNTHESIS_LOCK
 
 ## 14. 计算验证怎么启动
 
-只有同时满足：
+（本节涉及的有效性轴 V0–V4 与 Schema 2.0 新状态 CLAIM_FREEZE → FINAL_LOCK，
+定义见 [SKILL.md](../SKILL.md) §3.2 双轴状态机。）
+
+以下公式是硬门，不是建议：
 
 ```text
-active_state = COMPUTE
-evidence_validated = true
-l1_frozen = true
-l2_frozen = true
-architecture_frozen = true
-n0_4_locked = true
-compute_authorized = true
+COMPUTE = N0-4C AND V3 AND compute_authorized
+FINAL_LOCK = N0-4C AND V4 AND current independent audit
 ```
 
-`compute_authorized=true` 必须来自用户或权威授权，智能体不能因为 N0-4 自行开启。
+`compute_authorized=true` 必须来自用户或权威授权，但用户授权只是它的必要条件，
+不构成硬门旁路：智能体不能因为 N0-4C 自行开启，"用户指定/导师要求"也不能替代
+N0-4C 与 V3 中的任何一项。COMPUTE 门之前禁止任何产生数值输出的实验，包括自称
+"探索""预实验"的计算；S0-SCREEN 阶段确需数值预实验时，产物必须当天登记
+`exploration_registry.json`（`iph register-exploration`），其数字不得进入任何
+冻结工件。
 
 计算按 [`compute-funnel.md`](../compute-funnel.md) 执行：
 
 | 阶段 | 作用 |
 |---|---|
-| S0 | 文献链和优化动作复核 |
+| S0-SCREEN | 文献链和优化动作复核 |
 | S1 | 使用已有工件筛查效应和识别性 |
 | S2 | 最小开发集微型效果试验 |
 | S3 | 中型验证效果、保护和强基线 |
 | S4 | 预注册后的封存确认 |
 
+S0-SCREEN 是该阶段的语义名；state 的 `compute_stage` 枚举值仍为 `S0`。
+
 计算授权提示词：
 
 ```text
-当前 L3 已达到 N0-4。先运行 validate_all.py。
-只有全部零错误且我明确授权后，才设置 compute_authorized=true。
-先填写 S0/S1 阶段卡、资源上限、最低效果、保护门、同预算匹配
-（matched-budget）基线和
-无效性停止条件。不得直接进入 S4。
+当前 L3 已达到 N0-4C。先运行：
+python3 scripts/iph.py validate --root . --state workflow_state.json
+只有全部零错误且我明确授权后，才设置 compute_authorized=true 并用 iph advance
+推进。先填写 S0-SCREEN/S1 阶段卡、资源上限、最低效果、保护门、同预算匹配
+（matched-budget）基线和无效性停止条件。不得直接进入 S4。
 ```
 
 ---
@@ -1301,27 +1305,14 @@ Q6 停止理由。
 只审计 active_contribution 的单个 L3。
 检查正式出版资格、E2/E4、研究链、K→U→Δ、最小见证、机械推出攻击、
 主路径门、主形式门和失败条件。
-输出 N0-1/2/3/4 及唯一动作。
+输出 N0-1/2/3/4C 及唯一动作。
 预印本只能形成 PREPRINT THREAT，不得终局关闭。
 ```
 
 ### 16.6 结束本轮并交接
 
-```text
-结束本轮前更新 workflow_state.json，并报告：
-成果类型与贡献合同；
-active_state / active_layer / active_contribution；
-collision_round；
-本轮产物；
-近三年窗口；
-文献、全文、观点和输出追溯计数；
-prior-round UNUSED；
-搜索模式；
-分层裁决与 N0；
-validate_all.py 结果；
-BLOCKED 原因；
-唯一 next_required_action。
-```
+交接清单的权威版本见 SKILL.md §10；状态推进的标准动作是 `iph advance`（自动完成
+validate → 写 decision_log → 原子更新 state）。
 
 ### 16.7 发现另一条更有吸引力的路径
 
@@ -1349,7 +1340,7 @@ INNOVATION_PATH_DRIFT，列出重启收益、损失和必须失效的审计或�
 10. 被覆盖后换场景逃跑，而不进入覆盖理论内部上钻。
 11. 当前轮次旧观点未处理就继续搜索。
 12. 用预印本做终局关闭。
-13. N0-4 后自动运行昂贵实验。
+13. N0-4C 后自动运行昂贵实验。
 14. 用户说“继续”时重新启动整个流程。
 15. 用更多参数、数据或算力包装算法创新。
 16. 选择算法优化后，因发现一个定理就中途改做理论创新。
@@ -1378,7 +1369,7 @@ INNOVATION_PATH_DRIFT，列出重启收益、损失和必须失效的审计或�
 - 或期刊唯一 M 自足；
 - 没有用标题、数据集或算法步骤伪造贡献。
 
-### L3 N0-4 完成
+### L3 N0-4C 完成
 
 - 当前前沿追至当年；
 - K/U/Δ 精确；
@@ -1409,7 +1400,7 @@ INNOVATION_PATH_DRIFT，列出重启收益、损失和必须失效的审计或�
 3. [`templates.md`](../templates.md) 的工作流状态（workflow state）和当前卡片；
 4. [`evidence-pipeline.md`](../evidence-pipeline.md)；
 5. 需要详细判据时查 [`reference.md`](../reference.md)；
-6. N0-4 且获授权后才读 [`compute-funnel.md`](../compute-funnel.md)；
+6. N0-4C 且获授权后才读 [`compute-funnel.md`](../compute-funnel.md)；
 7. 遇到反模式时读 [`case-lessons.md`](../case-lessons.md)。
 
 熟练后每次运行只需读取主协议、当前状态和当前状态需要的参考部分，不必把全部

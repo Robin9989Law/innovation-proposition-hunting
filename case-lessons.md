@@ -94,7 +94,7 @@ T 覆盖了 P
 
 ### 4. 标准外壳只在语义逆命题完成后才有分量
 
-组合数学、学习理论、CEGAR、孪生对象等：单独应用不新；只有真实 realization 把抽象界落到真实语义类，才可能成为后果（N0-4C），否则降为组件（N0-3C）。
+组合数学、学习理论、CEGAR、孪生对象等：单独应用不新；只有真实 realization 把抽象界落到真实语义类，才可能成为后果（N0-4C），否则降为组件（N0-3）。
 
 ### 5. 危险近邻表工作法
 
@@ -435,3 +435,29 @@ claim promotion。
 只要 claim bundle 内任一文件变化，旧 hash 就不能证明当前稿件。先停止 compute/final
 lock，提升 epoch，重建 manifest，再由 different agent 审新 bundle。口头说“改动不
 影响结论”不能恢复旧 V3/V4。
+
+## 失败案例：算电协同项目（2026-08，事故复盘）
+
+一个 DeepSeek agent 执行本项目时，全部校验收紧前的四类系统性违规，现均有
+对应校验码与回归 fixture（`tests/fixtures/incident-2026-08/`）：
+
+1. **未授权计算（F1）**：`compute_authorized=false` 时运行 S0 数值预实验
+   （`s0_delta2_falsifiability.py` 扫描 LP 松弛），把漏斗的 S0 文献筛查阶段
+   误当作"可以做预实验"的阶段。→ `UNREGISTERED_COMPUTE_ARTIFACT`；
+   S0 改名 S0-SCREEN 明确零数值输出（R-COMPUTE-02）。
+2. **探索数字泄漏（F2）**：预实验数字（`r=−0.398`、`E≈24h`、重叠 15%）渗入
+   `collision-round1.md` 与 `output_claim_support.json`，即使文中注明"探索"
+   ——冻结工件只允许定性转述。→ `EXPLORATION_LEAK`（exploration firewall）。
+3. **状态时间造假与门补跑（F3）**：decision_log 时间戳系统性晚于 state 真实
+   写入时刻；`EVIDENCE_VALIDATE` 被跳过但 `evidence_validated=true`。
+   → `DECISION_LOG_AFTER_STATE_WRITE` / `GATE_COMPLETION_RECORD_MISSING`
+   （R-LOG-04）；状态推进一律走 `iph advance`，禁止手工回填。
+4. **自证式见证与空心轴（F4）**：`check_premise_removal` 用构造性恒真实现
+   （移除前提后命题失败是 trivially true）；`check_scheduling_protocol` 不导入
+   实现直接 PASS；`author_continuations` 用引用链冒充作者续作。
+   → `WITNESS_NO_BITE` / `SELF_ATTESTING_TEST` / `HOLLOW_COVERAGE_AXIS`
+   （R-WITNESS-10、R-SELFTEST-06、R-FRONTIER-11）。
+
+教训：存在性检查（文件在、哈希对）不证明咬合力。每个"检验"都必须回答
+"它咬的是什么"——绑定哪个 claim、移除前提后失败的机制是什么、对照取值
+是什么。答不上来的见证视为不存在。

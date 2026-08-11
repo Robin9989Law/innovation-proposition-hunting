@@ -1,5 +1,14 @@
 # 技能优化方案 v2（整合版）：整体评审 + 事故修复
 
+> **状态：已实施（2026-08，分支 `refactor/2026-08-skill-overhaul`）。**
+> 第 0-5 期全部落地：状态完整性核心、iph CLI + ProjectContext（校验提速 83%）、
+> 探索防火墙（EXPLORATION_LEAK/UNREGISTERED_COMPUTE_ARTIFACT）、见证咬合力
+> （WITNESS_NO_BITE/SUBCLAIM_WITNESS_GAP/两阶段豁免）、自证检测
+> （SELF_ATTESTING_TEST）、基线去门控（validate_baseline_budget.py）、前沿轴
+> 实名（HOLLOW_COVERAGE_AXIS/method_lineage）、文档体系重构（RULE-ID 注册表、
+> 术语词汇表、templates 全枚举、scope_lock 迁入、死引用清零）。
+> 回归 fixture：`tests/fixtures/incident-2026-08/`。
+
 版本：v2（2026-08-11，取代 v1 草案）
 依据：
 - 事故审计：`/Users/robinlaw/Downloads/算电协同`（DeepSeek V4 Flash agent，停于 VALIDITY_AUDIT/V1/MIXED）

@@ -170,7 +170,14 @@ git clone \
 
 ## 验证
 
-在研究目录中执行：
+在研究目录中执行（标准入口是 `iph` CLI；它会自动完成校验、状态推进与交接）：
+
+```bash
+python3 /path/to/innovation-proposition-hunting/scripts/iph.py \
+  validate --root /path/to/research --state /path/to/research/workflow_state.json
+```
+
+底层总校验器仍可直接调用：
 
 ```bash
 python3 /path/to/innovation-proposition-hunting/scripts/validate_all.py \
@@ -182,12 +189,14 @@ python3 /path/to/innovation-proposition-hunting/scripts/validate_all.py \
 
 | 脚本 | 检查内容 |
 |---|---|
-| `validate_schema_v2.py` / `validate_workflow_state.py` | Schema 2.0、双轴状态、阶段门和计算授权 |
+| `validate_schema_v2.py` / `validate_workflow_state.py` | Schema 2.0、双轴状态、阶段门、计算授权与未登记计算产物 |
 | `validate_claim_inventory.py` | 高风险声明出现、类型和 inventory 绑定 |
-| `validate_theory_obligations.py` | 理论命题、证明责任和可反驳见证 |
-| `validate_protocol_contract.py` / `validate_claim_code_trace.py` | 算法协议、基线预算、实现、测试和输出追溯 |
+| `validate_theory_obligations.py` | 理论命题、证明责任、见证咬合力与豁免闭合 |
+| `validate_protocol_contract.py` / `validate_claim_code_trace.py` | 算法协议、实现、测试绑定和输出追溯、自证测试检测 |
+| `validate_baseline_budget.py` | 基线预算（无触发词门控，comparator 与 algorithm claims 求交） |
+| `validate_exploration_firewall.py` | 探索产物登记、哈希新鲜度与数字泄漏防火墙 |
 | `validate_literature_registry.py` / `validate_evidence_chain.py` | 文献身份、全文、原子观点和输出支持 |
-| `validate_frontier_integrity.py` | 近期前沿覆盖、重要性历史和证据降级 |
+| `validate_frontier_integrity.py` | 近期前沿覆盖、作者续作实名、重要性历史和证据降级 |
 | `validate_artifact_hashes.py` / `validate_audit_provenance.py` | 当前 bundle、epoch 和独立 reviewer 来源 |
 
 退出码为 `READY=0`、`INVALID=1`、`BLOCKED=2`、`MIGRATION_REQUIRED=3`。出现非零
@@ -218,9 +227,11 @@ hierarchy_status.md
 | [`evidence-pipeline.md`](evidence-pipeline.md) | 文献—观点—输出 JSON 数据合同 |
 | [`templates.md`](templates.md) | 状态文件、冻结卡、碰撞卡和审计模板 |
 | [`reference.md`](reference.md) | E0–E4、出版资格、Gate、上钻和综合锁细节 |
-| [`compute-funnel.md`](compute-funnel.md) | N0-4C、V3 且获授权后使用的 S0–S4 计算漏斗 |
-| [`case-lessons.md`](case-lessons.md) | 成功上钻与失败纠偏案例 |
+| [`compute-funnel.md`](compute-funnel.md) | N0-4C、V3 且获授权后使用的 S0-SCREEN–S4 计算漏斗 |
+| [`case-lessons.md`](case-lessons.md) | 成功上钻与失败纠偏案例（含 2026-08 事故复盘） |
 | [`scripts/`](scripts) | Schema、声明、证据、审计和计算门的确定性校验脚本 |
+| [`docs/optimization-plan-2026-08.md`](docs/optimization-plan-2026-08.md) | 2026-08 技能整体优化方案（已实施，含事故根因分析） |
+| [`docs/archive/`](docs/archive) | 历史设计档案（仅存档，非现行规范） |
 
 ## 适用边界
 

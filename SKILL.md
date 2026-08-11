@@ -34,6 +34,22 @@ description: >-
 
 详细字段只在 [templates.md](templates.md) 定义；本文件不复制模板字段。
 
+### 1.1 术语词汇表（一词一义）
+
+- **S0-SCREEN**：计算漏斗的文献链碰撞筛查阶段，只读现有工件、零数值输出；
+  state `compute_stage` 枚举值仍为 `S0`（schema 兼容）。S1–S4 才是计算阶段。
+- **BLOCKED（状态）**：`active_state=BLOCKED`，恢复后去 `resume_state`。
+- **BLOCKED（退出码）**：校验器退出码 2，表示具体能力不可用
+  （`capability.available=false` + 原因），不是失败也不是通过。
+- **BLOCKED_CAPABILITY**：BLOCKED 退出码的条目形态；绝不能伪造 reviewer、
+  thread 或 PASS 来绕过。
+- **五种"锁"**：`scope_lock`（课题冻结文件）、`SYNTHESIS_LOCK`（search_mode，
+  检索综合锁）、`DIRECTION_LOCK`（状态，只锁研究方向）、`FINAL_LOCK`（状态，
+  最终锁定）、STOP 锁（`.workflow_stop.lock`，校验非零退出后落地，锁期间状态
+  被推进即 INVALID）。五者互不可替代。
+- **探索级证据**：`exploration_registry.json` 登记的永久探索产物；其数字不得
+  进入任何冻结工件（`EXPLORATION_LEAK`），只能定性转述。
+
 ## 2. Schema 2.0 是唯一可执行合同
 
 每个研究目录必须有 `workflow_state.json`，并满足：
@@ -248,8 +264,31 @@ BLOCKED 期间仅允许三件事：验证所有已有产物、记录唯一恢复
 交接必须从机器状态和刚运行的验证结果生成，至少报告：成果合同、active track/state、
 N level、V level、claim profile、validation epoch、bundle hash、frontier/全文/观点计数、
 独立 reviewer provenance、四退出码中的最终值、blocked reasons 和唯一
-`next_required_action`。避免“基本完成”“大致有效”等非状态词。
+`next_required_action`。避免“基本完成”“大致有效”等非状态词。标准动作：
+`iph handover`（从机器状态自动生成交接报告）；本清单是唯一权威版本，其他文档
+引用本节，不复制。
 
 > 核心纪律：先证明候选达到 N0-4C，再冻结准备声称的 exact claim；用 form-sensitive
 > audit 证明它可被反驳和复现，用不同 agent 审精确 bundle；只有 V3 才能计算，计算
 > 后必须新 epoch 达 V4，才允许最终锁定。
+
+## 11. 规则注册表（RULE-ID）
+
+每条规范句只在一处定义（权威节），本表是唯一索引；资源文件与 tutorial 引用
+RULE-ID，不复制规则文本。新检查码默认 WARNING、`--strict-new-checks` 升
+INVALID（§9）。
+
+| RULE-ID | 规则 | 权威节 |
+|---|---|---|
+| R-AUTH-01 | 用户授权只是 `compute_authorized` 的必要条件，不构成硬门旁路：N0-4C 与 V3 仍须先满足 | §8 |
+| R-COMPUTE-02 | COMPUTE 门前禁止任何数值输出实验；S0-SCREEN 数值预实验必须当天登记 `exploration_registry.json`，其数字不得进入冻结工件（`UNREGISTERED_COMPUTE_ARTIFACT` / `EXPLORATION_LEAK`） | §8、compute-funnel §2、templates §12 |
+| R-BLOCKED-03 | BLOCKED 期间仅允许：验证已有产物、记录唯一恢复动作、登记用户直接提供的解阻材料 | §9 |
+| R-LOG-04 | 每次状态完成必须追加 decision_log 条目（真实 UTC 时间、单调、gate 置真有对应条目）；标准动作是 `iph advance`，禁止手工回填 | §2、templates §1 |
+| R-SEARCH-05 | `search_mode` 三态：`SEARCH_OPEN` → `SYNTHESIS_LOCK`（100 篇自动综合锁）→ `EXCEPTION_REOPEN`（例外重开须登记） | templates §1、reference §5.1 |
+| R-SELFTEST-06 | 禁自证：测试必须静态声明 `TARGET_CLAIM_IDS` 且 AST 可证 import 被绑定实现；只断言自身硬编码期望的脚本不计入证据（`SELF_ATTESTING_TEST`） | §4、templates §6 |
+| R-EMPIRICAL-07 | empirical 不得升格为 theorem：实证结果不能改写成全称命题，命题强度以实际支持的最弱形式重建 epoch | §6、compute-funnel §2 |
+| R-PERSIST-08 | 先落盘再升级：每次阶段/状态升级先保存产物与哈希，再改 `compute_stage`/`active_state`（`iph advance` 内置此顺序） | compute-funnel §1、§2 |
+| R-KEY-09 | API key 卫生：密钥只进环境变量或本地未跟踪配置，绝不写进任何 tracked 工件、decision_log 或交接报告 | evidence-pipeline、reference §5.0 |
+| R-WITNESS-10 | 见证咬合力：PREMISE_REMOVAL 附非恒真 `mechanism`、NONZERO_NUISANCE 附 `sensitivity_control`、子规律须 `addresses_subclaim` 认领；RANDOM_PROPERTY 豁免两阶段闭合 | §4、templates §3 |
+| R-FRONTIER-11 | 前沿七轴缺一不可；作者续作边须真实 `shared_authors`（`HOLLOW_COVERAGE_AXIS`），引用链放 `method_lineage` | §7、templates §7 |
+| R-BASELINE-12 | ALGORITHM 类 claim 存在即必须有 baseline_budget；comparator.claim_ids 与 algorithm claims 求交，无触发词门控 | §4、templates §5 |
