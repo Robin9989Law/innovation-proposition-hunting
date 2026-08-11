@@ -337,6 +337,7 @@ INVALID（§9）。
 | R-LAYER-13 | 主线是 L1→L2→L3 逐层构建，证据深度按层供给；全局注册表保留历史，本轮预算由 `current_evidence_scope.json` 计费；原子观点机器只服务 L3 候选集（K 集合），超层取证报 `EVIDENCE_DEPTH_EXCEEDS_LAYER` | §3.1 |
 | R-SKILL-14 | 项目 agent 修改技能仓库后必须提交、测试全绿、文档同步且风格一致；留未提交半成品或红测试即流程违规 | §12 |
 | R-CLOSE-15 | N0-1/N0-2 是合法终局：停留 `N0_AUDIT`、decision_log 记录裁决与处置、负结果产物保留在册；不得为抵达 COMPLETE 硬撑候选或包装等级 | §3.1 |
+| R-LOG-16 | decision_log 只锚定不可变产物（可变文件由 state 指针对账）；epoch 失效后重建日志须保留 `.superseded` 快照、条目标注 replay 标签、`at` 用重建时刻真实 UTC，不得回填虚构历史时刻 | templates §1 |
 
 ## 12. 修改技能仓库的自律规则
 

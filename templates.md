@@ -89,6 +89,15 @@ POSIX path；所有 SHA-256 均为 64 位小写十六进制；`validation_epoch`
 - `state`：必须是状态机中的状态；BLOCKED 期间的条目用 `BLOCKED@<STATE>`。
 - `artifacts`：本状态新产/变更的产物及 SHA-256；登记后内容再变即判
   `STALE_DECISION_ARTIFACT`。无产物变更的状态可省略此字段。
+- **只锚定不可变产物**：会随后续状态或 epoch 合法重写的文件
+  （`independent_audit.json`、`compute_evidence.json`、`validation.log` 等）由
+  state 指针对账，不登记进条目 `artifacts`——否则下一次合法重写立即触发
+  `STALE_DECISION_ARTIFACT`，逼出无谓的 epoch 重建（2026-08 神经符号 epoch-2
+  教训）。条目只锚定"本状态冻结后不再变"的产物。
+- **epoch 失效后的日志重建约定**：被取代的 state 文件改名保留为
+  `workflow_state.<tag>.superseded`；重建条目在 `action` 统一标注 replay 标签
+  （如 `replay3`），`at` 用重建时刻的真实 UTC——不得回填虚构的历史时刻；
+  重建只修复条目锚定与记账结构，不改写已冻结产物的内容与哈希。
 - gate 置真必须能在此找到对应状态的条目（gate 与状态的映射见
   `validate_workflow_state.py` 的 `GATE_COMPLETION_STATE`），否则视为自报置真。
 - `updated_at` 不得早于末条目 `at`。

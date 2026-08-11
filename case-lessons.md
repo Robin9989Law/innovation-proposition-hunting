@@ -16,6 +16,7 @@
 - [纠偏后的标准工作流](#四纠偏后的标准工作流)
 - [新增教训：读准结果口径与只推进一步](#六新增教训读准结果口径与只推进一步)
 - [负结果终局案例：中介效应协变量机制分流](#负结果终局案例中介效应协变量机制分流2026-08-11schema-30-实战)
+- [成功终局案例：神经符号结项报告](#成功终局案例神经符号结项报告2026-08-11s4-fail-后的-final_lock)
 
 ---
 
@@ -487,3 +488,24 @@ lock，提升 epoch，重建 manifest，再由 different agent 审新 bundle。�
 4. **严格推进接口缺口当场修复**：L2→L3 跨越时贡献从 NONE 切到 M/A/B/C
    必须与原状态写入原子完成（`iph advance --contribution`）；显式非法贡献
    拒绝而非静默改写。Round 2 壁钟 1 小时 43 分。
+
+## 成功终局案例：神经符号结项报告（2026-08-11，S4 FAIL 后的 FINAL_LOCK）
+
+第二个 schema 3.0 全程项目到达 `FINAL_LOCK`（N0-4C + V4 + 不同 agent
+审计 PASS，suite READY）。价值不在"通过了"，而在**一次 S4 FAIL 被诚实吸收**：
+
+1. **S4 verdict=FAIL 不硬推**：确认阶段 7 门中 G5a 与最强 baseline 持平
+   （rigid tie），响应不是调参重跑或弱化判据，而是开 epoch 3、按
+   最弱可支持形式重建 claim（R-EMPIRICAL-07），把 G5a/BL5 持平写进限制
+   章节，再重建 bundle 过 V4。实证结果改变主张强度时必须新 epoch——
+   这是第一次在真实项目上完整走通。
+2. **两次独立审计均为不同 agent**（agent-98 @V3、agent-100 @V4），provenance
+   在册，G9 硬门未绕行。
+3. **可变文件锚定教训（epoch-2 事故）**：decision_log 条目曾锚定
+   `independent_audit.json` 等会合法重写的文件，下一次重写即触发
+   `STALE_DECISION_ARTIFACT`，逼出 replay2/replay3 两次日志重建。规则成文
+   （R-LOG-16）：条目只锚定不可变产物，可变文件由 state 指针对账。
+4. **日志重建的诚实做法**：被取代 state 保留为
+   `workflow_state.v3-replayN.superseded`，重建条目统一标注 replay 标签，
+   时间戳用重建时刻真实 UTC，不回填虚构历史时刻——重建痕迹本身也是
+   审计证据。
