@@ -55,6 +55,7 @@ POSIX path；所有 SHA-256 均为 64 位小写十六进制；`validation_epoch`
     "scope_lock": "scope_lock.md",
     "literature_registry": "near_neighbor_registry.json",
     "claim_registry": "literature_claim_registry.json",
+    "current_evidence_scope": "current_evidence_scope.json",
     "output_support": "output_claim_support.json",
     "literature_archive": "literature_archive",
     "hierarchy_status": "hierarchy_status.md",
@@ -561,3 +562,23 @@ Markdown、claim 相关 JSON、manuscript）中，即使注明"探索"也不行�
 
 检索发现只能更新证据或触发显式重开，不能静默改变课题。不同主题必须使用不同
 连续簇、注册表和权威裁决文件。
+
+## 14. `current_evidence_scope.json`
+
+全局文献与观点注册表追加保留所有轮次；本文件只声明当前 `collision_round` 实际
+消耗证据深度预算的 ID。空数组表示本轮尚未读取全文或提取原子观点，不表示历史
+证据不存在。列入的 work 必须在全局文献注册表中且全文已归档；列入的 claim 必须
+在全局观点注册表中。重复、悬空 ID 或轮次不一致均为 INVALID。
+
+```json
+{
+  "schema_version": "2.0",
+  "collision_round": 2,
+  "fulltext_registry_ids": ["W-0001"],
+  "atomic_claim_ids": ["LC-0001"]
+}
+```
+
+缺少该 artifact 时，校验器为防止静默放宽，继续按全注册表计数。复用已有研究
+目录或开启新碰撞时，应在进入 `RECENT_FRONTIER` 前创建当前轮次的 scope，并在
+state `artifacts.current_evidence_scope` 中登记。

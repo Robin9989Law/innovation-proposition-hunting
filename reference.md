@@ -651,6 +651,10 @@ L3 的不可替代机制。方法新不能挽救 L3 被占据；标准方法也�
 不得用 URL 账本替代论文级去重，不得用论文 ID 替代观点 ID，也不得因论文级
 去重删除入口 URL。完整 schema 见 [evidence-pipeline.md](evidence-pipeline.md)。
 
+四账本都是跨轮、追加式的全局证据账本；`current_evidence_scope.json` 不是第五本
+证据账，而是当前 `collision_round` 的预算视图。它只引用四账本中的既有 ID，
+使历史真实性与本轮 L1/L2/L3 证据深度分开审计。
+
 注册表另保存 `peer_review_status`、`peer_review_verification_url`、
 `peer_reviewed_published_count`、`search_mode` 和首次达到 100 篇的日期。
 达到阈值后，新增记录必须关联一个 `search_reopen_log` 例外条目。

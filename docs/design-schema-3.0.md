@@ -89,3 +89,29 @@ architecture_frozen + evidence_validated。
 - 不动 VALIDITY 轴、N/V 等级、G9 不同-agent 硬门、E1–E4 分级、epoch 失效协议。
 - 不为 2.0 保留可执行兼容：2.0 一律 MIGRATION（单一可执行合同原则）。
 - 不动预算数值本身（L2 ≤12、L3 ≤20/60 维持 R-LAYER-13 既定值）。
+
+## 7. current_evidence_scope 与 REGISTRY_POINTER_MISSING（2026-08-11，三项目实战复盘后补）
+
+Schema 3.0 在三项目裸跑后暴露一个结构性冲突：全局注册表跨轮只增不删
+（URL 完整性与历史溯源依赖这一点），而 R-LAYER-13 预算按全注册表计数——
+多轮项目开启新碰撞、尚未选出当轮 K 集合时，L1/L2 段预算（0/0、12/0）必然
+INVALID，合规流程走不下去。某项目 agent 的实际应对是把
+`artifacts.literature_registry` / `claim_registry` 指向不存在的路径：旧校验器
+对缺失文件按 0 计，预算被静默架空。两处修复：
+
+- **`current_evidence_scope.json`**（templates §14）：预算视图，不是第五本证据账。
+  声明后，EVIDENCE_DEPTH_EXCEEDS_LAYER 只按 scope 明列的当轮 work/claim ID
+  计费；scope 文件缺失、轮次不符、schema_version 不符、ID 重复、悬空 ID、
+  未归档全文均为 CURRENT_EVIDENCE_SCOPE_INVALID（常驻 INVALID，不进
+  NEW_CHECK_CODES）。未声明 scope 时保持旧的全量计数行为，禁止借缺字段
+  静默放宽。
+- **REGISTRY_POINTER_MISSING**（WARNING 级，strict 升 INVALID）：state 声明的
+  注册表路径缺失或不安全、而默认路径存在时，回退按默认路径计数并告警。
+  指针落空不再等于证据为零，改指针规避预算的做法自此失效。
+
+**已知残余风险**：scope 内容是自证的——agent 可以少报当轮实际深读的 ID 来
+隐藏超预算取证。校验器只能保证 scope 内部一致（ID 存在、已归档、轮次匹配），
+无法证明"当轮只读了这些"。该风险由独立复核（G9 不同-agent 硬门与
+independent_audit）兜底：复核人抽查注册表时间戳与 decision_log，发现未申报的
+深证据即打回。不引入更强的机器校验（如下载时间窗比对），因为误报成本高于
+收益——历史归档的合法复用与当轮新取证在时间戳上无法可靠区分。

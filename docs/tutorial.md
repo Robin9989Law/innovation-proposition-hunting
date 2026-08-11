@@ -322,6 +322,10 @@ next_required_action = "Provide a lawful author manuscript or institutional acce
 > （全文 ≤20、原子观点 ≤60）。超出预算报 `EVIDENCE_DEPTH_EXCEEDS_LAYER`
 > （R-LAYER-13，见 SKILL.md §3.1）。不要把"注册了多少文献"当作进度——
 > 进度是层级决策，不是证据堆积。
+>
+> 复用历史项目时，全局注册表仍保留全部旧文献、URL、下载状态和观点；另建
+> `current_evidence_scope.json`，只把当前轮次实际试读/深读的 work ID 与提取的
+> claim ID 加入数组。没有 scope 时校验器仍按全注册表计数，不会静默放宽。
 
 ### 7.1 启动（`BOOT`）
 

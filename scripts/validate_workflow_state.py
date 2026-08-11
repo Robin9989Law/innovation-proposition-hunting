@@ -207,6 +207,7 @@ NEW_CHECK_CODES = frozenset(
         "SELF_DECLARED_LEVEL",
         "COMPLETE_REQUIRES_FINAL_LOCK_CONDITIONS",
         "UNREGISTERED_COMPUTE_ARTIFACT",
+        "REGISTRY_POINTER_MISSING",
     }
 )
 
@@ -239,13 +240,31 @@ def evidence_tier(effective_state: str) -> str:
     return STATE_EVIDENCE_TIER.get(effective_state, "L3")
 
 
-def count_registered_evidence(root: Path, state: dict[str, Any]) -> tuple[int, int]:
-    """统计已注册的全文数与原子观点数；注册表缺失或损坏按 0 计。"""
+def count_registered_evidence(
+    root: Path, state: dict[str, Any]
+) -> tuple[int, int, list[str]]:
+    """统计已注册的全文数与原子观点数；注册表缺失或损坏按 0 计。
+
+    若 state 声明的注册表路径缺失或不安全，而默认路径（项目根下
+    near_neighbor_registry.json / literature_claim_registry.json）存在，则回退按
+    默认路径计数并记录一条 issue——防止改指针架空证据预算（指针落空≠证据为零）。
+    """
+
+    artifacts = state.get("artifacts")
+    issues: list[str] = []
 
     def registry_path(key: str, default: str) -> Path:
-        artifacts = state.get("artifacts")
         raw = artifacts.get(key) if isinstance(artifacts, dict) else None
-        return root / (raw if isinstance(raw, str) else default)
+        if nonempty(raw):
+            declared = resolve_artifact(root, raw)
+            if declared is not None and declared.is_file():
+                return declared
+            fallback = root / default
+            if fallback.is_file():
+                issues.append(f"{key}:declared_missing:{raw};counted_default:{default}")
+                return fallback
+            return root / str(raw)
+        return root / default
 
     fulltext = 0
     try:
@@ -269,7 +288,119 @@ def count_registered_evidence(root: Path, state: dict[str, Any]) -> tuple[int, i
             atomic_claims = sum(isinstance(record, dict) for record in records)
     except (OSError, ValueError):
         pass
-    return fulltext, atomic_claims
+    return fulltext, atomic_claims, issues
+
+
+def count_current_evidence(
+    root: Path, state: dict[str, Any]
+) -> tuple[int, int, list[tuple[str, str]]]:
+    """统计计入当前碰撞轮深证据预算的全文数与原子观点数。
+
+    全局注册表跨轮追加、只增不删，以保住 URL 完整性与历史溯源。state 声明了
+    ``artifacts.current_evidence_scope`` 时，只有 scope 明列的 work/claim ID 计入
+    当前层预算；未声明 scope 的项目保持旧行为，按全注册表计数。
+
+    返回 (全文数, 观点数, issues)；issues 为 (检查码, 明细) 二元组：
+    scope 文件自身的问题报 CURRENT_EVIDENCE_SCOPE_INVALID（INVALID 级），
+    回退分支里注册表指针落空报 REGISTRY_POINTER_MISSING（WARNING 级）。
+    """
+
+    artifacts = state.get("artifacts")
+    raw_scope = (
+        artifacts.get("current_evidence_scope")
+        if isinstance(artifacts, dict)
+        else None
+    )
+    if not isinstance(raw_scope, str) or not raw_scope.strip():
+        fulltext, claims, pointer_issues = count_registered_evidence(root, state)
+        return (
+            fulltext,
+            claims,
+            [("REGISTRY_POINTER_MISSING", detail) for detail in pointer_issues],
+        )
+
+    scope_path = resolve_artifact(root, raw_scope)
+    if scope_path is None or not scope_path.is_file():
+        return 0, 0, [("CURRENT_EVIDENCE_SCOPE_INVALID", f"missing_or_unsafe_path:{raw_scope}")]
+    try:
+        payload = json.loads(scope_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        return 0, 0, [("CURRENT_EVIDENCE_SCOPE_INVALID", f"unreadable:{raw_scope}:{error}")]
+    if not isinstance(payload, dict):
+        return 0, 0, [("CURRENT_EVIDENCE_SCOPE_INVALID", "top_level_must_be_object")]
+
+    issues: list[str] = []
+    if payload.get("schema_version") != "2.0":
+        issues.append(f"schema_version:{payload.get('schema_version')}")
+    if payload.get("collision_round") != state.get("collision_round"):
+        issues.append(
+            "collision_round:"
+            f"{payload.get('collision_round')};state:{state.get('collision_round')}"
+        )
+
+    def scoped_ids(key: str) -> list[str]:
+        value = payload.get(key)
+        if not isinstance(value, list) or not all(nonempty(item) for item in value):
+            issues.append(f"{key}:nonempty_string_list_required")
+            return []
+        if len(value) != len(set(value)):
+            issues.append(f"{key}:duplicate_ids")
+        return list(dict.fromkeys(value))
+
+    fulltext_ids = scoped_ids("fulltext_registry_ids")
+    claim_ids = scoped_ids("atomic_claim_ids")
+
+    def artifact_payload(key: str, default: str) -> dict[str, Any]:
+        raw = artifacts.get(key) if isinstance(artifacts, dict) else None
+        path = resolve_artifact(root, raw if isinstance(raw, str) else default)
+        if path is None or not path.is_file():
+            issues.append(f"{key}:missing_or_unsafe_path")
+            return {}
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            issues.append(f"{key}:unreadable:{error}")
+            return {}
+        if not isinstance(value, dict):
+            issues.append(f"{key}:top_level_must_be_object")
+            return {}
+        return value
+
+    literature = artifact_payload(
+        "literature_registry", "near_neighbor_registry.json"
+    )
+    literature_records = literature.get("works") or literature.get("records") or []
+    works_by_id = {
+        record.get("registry_id"): record
+        for record in literature_records
+        if isinstance(record, dict) and nonempty(record.get("registry_id"))
+    }
+    for registry_id in fulltext_ids:
+        record = works_by_id.get(registry_id)
+        if record is None:
+            issues.append(f"unknown_fulltext_registry_id:{registry_id}")
+            continue
+        status = (record.get("download") or {}).get("status")
+        if status not in {"FULLTEXT_ARCHIVED", "OFFICIAL_HTML_ARCHIVED"}:
+            issues.append(
+                f"fulltext_registry_id_not_archived:{registry_id};status:{status}"
+            )
+
+    claims = artifact_payload("claim_registry", "literature_claim_registry.json")
+    claim_records = claims.get("claims") or claims.get("records") or []
+    known_claim_ids = {
+        record.get("claim_id")
+        for record in claim_records
+        if isinstance(record, dict) and nonempty(record.get("claim_id"))
+    }
+    for claim_id in claim_ids:
+        if claim_id not in known_claim_ids:
+            issues.append(f"unknown_atomic_claim_id:{claim_id}")
+    return (
+        len(fulltext_ids),
+        len(claim_ids),
+        [("CURRENT_EVIDENCE_SCOPE_INVALID", detail) for detail in issues],
+    )
 
 
 # compute_authorized=false 时视为"未授权计算产物"的路径模式（根相对 glob）。
@@ -759,7 +890,9 @@ def validate(
     # R-LAYER-13：证据深度按段供给；超段超量取证即主次颠倒。
     tier = evidence_tier(str(effective_state))
     fulltext_budget, claim_budget = EVIDENCE_DEPTH_BUDGETS[tier]
-    fulltext_count, claim_count = count_registered_evidence(root, state)
+    fulltext_count, claim_count, scope_issues = count_current_evidence(root, state)
+    for code, detail in scope_issues:
+        add(errors, code, detail)
     if fulltext_count > fulltext_budget:
         add(
             errors,

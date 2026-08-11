@@ -124,7 +124,11 @@ def main() -> int:
         migrated, warnings = migrate(source)
 
         # 预算告警：迁移后的 state 按 3.0 预算（L3 段）盘点证据深度
-        fulltext_count, claim_count = count_registered_evidence(root, migrated)
+        fulltext_count, claim_count, pointer_issues = count_registered_evidence(
+            root, migrated
+        )
+        for detail in pointer_issues:
+            warnings.append(f"REGISTRY_POINTER_MISSING: {detail}")
         fulltext_budget, claim_budget = EVIDENCE_DEPTH_BUDGETS["L3"]
         if fulltext_count > fulltext_budget or claim_count > claim_budget:
             warnings.append(

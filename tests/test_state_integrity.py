@@ -259,6 +259,27 @@ class EvidenceDepthBudgetTests(unittest.TestCase):
             {"records": [{"claim_id": f"LC-{index:04d}"} for index in range(claims)]},
         )
 
+    def write_current_evidence_scope(
+        self,
+        *,
+        fulltext_registry_ids: list[str],
+        atomic_claim_ids: list[str],
+    ) -> None:
+        state = load_json(self.project / "workflow_state.json")
+        state.setdefault("artifacts", {})["current_evidence_scope"] = (
+            "current_evidence_scope.json"
+        )
+        write_json(self.project / "workflow_state.json", state)
+        write_json(
+            self.project / "current_evidence_scope.json",
+            {
+                "schema_version": "2.0",
+                "collision_round": state["collision_round"],
+                "fulltext_registry_ids": fulltext_registry_ids,
+                "atomic_claim_ids": atomic_claim_ids,
+            },
+        )
+
     def test_l1_allows_zero_deep_evidence(self) -> None:
         self.set_tier("L1")
         result = self.run_state("--current-year", "2026")
@@ -271,6 +292,85 @@ class EvidenceDepthBudgetTests(unittest.TestCase):
         self.assertIn("INVALID\tEVIDENCE_DEPTH_EXCEEDS_LAYER", result.stdout)
         self.assertIn("tier:L1;fulltext:1>budget:0", result.stdout)
         self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+
+    def test_l1_budget_uses_current_scope_not_historical_global_registry(self) -> None:
+        self.set_tier("L1")
+        self.write_registries(fulltext=1, claims=1)
+        self.write_current_evidence_scope(
+            fulltext_registry_ids=[],
+            atomic_claim_ids=[],
+        )
+
+        result = self.run_state("--current-year", "2026")
+
+        self.assertNotIn("EVIDENCE_DEPTH_EXCEEDS_LAYER", result.stdout)
+
+    def test_l1_scoped_fulltext_is_charged_to_current_budget(self) -> None:
+        self.set_tier("L1")
+        self.write_registries(fulltext=1, claims=0)
+        self.write_current_evidence_scope(
+            fulltext_registry_ids=["W-0000"],
+            atomic_claim_ids=[],
+        )
+
+        result = self.run_state("--current-year", "2026")
+
+        self.assertIn("tier:L1;fulltext:1>budget:0", result.stdout)
+
+    def test_current_scope_rejects_unknown_registry_ids(self) -> None:
+        self.set_tier("L1")
+        self.write_registries(fulltext=1, claims=1)
+        self.write_current_evidence_scope(
+            fulltext_registry_ids=["W-9999"],
+            atomic_claim_ids=["LC-9999"],
+        )
+
+        result = self.run_state("--current-year", "2026")
+
+        self.assertIn("CURRENT_EVIDENCE_SCOPE_INVALID", result.stdout)
+        self.assertIn("unknown_fulltext_registry_id:W-9999", result.stdout)
+        self.assertIn("unknown_atomic_claim_id:LC-9999", result.stdout)
+
+    def test_global_url_registry_and_empty_current_scope_can_coexist(self) -> None:
+        self.set_tier("L1")
+        write_json(
+            self.project / "near_neighbor_registry.json",
+            {
+                "records": [
+                    {
+                        "registry_id": "W-HISTORICAL",
+                        "canonical_url": "https://arxiv.org/abs/2401.00001",
+                        "publication_status": "PREPRINT_ONLY",
+                        "terminal_rejection_eligibility": "NOT_QUALIFIED",
+                        "peer_review_status": "NON_PEER_REVIEWED",
+                        "download": {"status": "FULLTEXT_ARCHIVED"},
+                    }
+                ],
+                "peer_reviewed_published_count": 0,
+                "search_mode": "SEARCH_OPEN",
+                "synthesis_lock_threshold": 100,
+            },
+        )
+        write_json(self.project / "literature_claim_registry.json", {"records": []})
+        (self.project / "notes.md").write_text(
+            "Historical source: https://arxiv.org/pdf/2401.00001\n",
+            encoding="utf-8",
+        )
+        self.write_current_evidence_scope(
+            fulltext_registry_ids=[],
+            atomic_claim_ids=[],
+        )
+
+        state_result = self.run_state("--current-year", "2026")
+        literature_result = run_script(
+            "validate_literature_registry.py",
+            self.project,
+            ("--registry", str(self.project / "near_neighbor_registry.json")),
+        )
+
+        self.assertNotIn("EVIDENCE_DEPTH_EXCEEDS_LAYER", state_result.stdout)
+        self.assertNotIn("UNREGISTERED", literature_result.stdout)
+        self.assertEqual(0, literature_result.returncode, literature_result.stdout)
 
     def test_l2_atomic_claims_are_over_depth(self) -> None:
         self.set_tier("L2")
@@ -288,6 +388,39 @@ class EvidenceDepthBudgetTests(unittest.TestCase):
     def test_missing_registries_do_not_crash(self) -> None:
         self.set_tier("L3")
         result = self.run_state("--current-year", "2026")
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_registry_pointer_falls_back_to_default_and_counts(self) -> None:
+        # 声明路径落空 ≠ 证据为零：回退默认路径计数，预算仍然生效
+        self.set_tier("L1")
+        self.write_registries(fulltext=1, claims=0)
+        state = load_json(self.project / "workflow_state.json")
+        state.setdefault("artifacts", {})["literature_registry"] = (
+            "workflow_current/round2/pending/near_neighbor_registry.json"
+        )
+        write_json(self.project / "workflow_state.json", state)
+
+        result = self.run_state("--current-year", "2026")
+
+        self.assertIn("WARNING\tREGISTRY_POINTER_MISSING", result.stdout)
+        self.assertIn("counted_default:near_neighbor_registry.json", result.stdout)
+        self.assertIn("INVALID\tEVIDENCE_DEPTH_EXCEEDS_LAYER", result.stdout)
+        self.assertIn("tier:L1;fulltext:1>budget:0", result.stdout)
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+
+    def test_registry_pointer_missing_is_warning_when_budget_clean(self) -> None:
+        self.set_tier("L3")
+        self.write_registries(fulltext=1, claims=1)
+        state = load_json(self.project / "workflow_state.json")
+        state.setdefault("artifacts", {})["claim_registry"] = (
+            "workflow_current/round2/pending/literature_claim_registry.json"
+        )
+        write_json(self.project / "workflow_state.json", state)
+
+        result = self.run_state("--current-year", "2026")
+
+        self.assertIn("WARNING\tREGISTRY_POINTER_MISSING", result.stdout)
+        self.assertNotIn("EVIDENCE_DEPTH_EXCEEDS_LAYER", result.stdout)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_incident_fixture_reports_both_dimensions(self) -> None:

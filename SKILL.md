@@ -117,6 +117,11 @@ L1/L2 阶段就批量下载全文、批量注册原子观点，等于在不知�
 先写答案的脚注——主次颠倒，且这些证据大多数在层级决策后作废。默认预算
 可被课题规模证伪：确需超出时在 decision_log 逐条登记理由，而不是悄悄突破。
 
+全局 `near_neighbor_registry.json` 仍须追加保留全部相关文献和 URL；它不等于本轮
+深证据预算。复用历史注册表或开启新碰撞时，必须用
+`current_evidence_scope.json` 明列本轮计费的全文 work ID 与原子 claim ID。预算只
+统计该 scope；未提供 scope 时保持旧行为、统计全注册表，禁止借缺字段静默放宽。
+
 | 等级 | 含义 | 动作 |
 |---|---|---|
 | `N0-1` | 正式出版近邻直接占据 | 关闭或吸收 |
@@ -317,4 +322,4 @@ INVALID（§9）。
 | R-WITNESS-10 | 见证咬合力：PREMISE_REMOVAL 附非恒真 `mechanism`、NONZERO_NUISANCE 附 `sensitivity_control`、子规律须 `addresses_subclaim` 认领；RANDOM_PROPERTY 豁免两阶段闭合 | §4、templates §3 |
 | R-FRONTIER-11 | 前沿七轴缺一不可；作者续作边须真实 `shared_authors`（`HOLLOW_COVERAGE_AXIS`），引用链放 `method_lineage` | §7、templates §7 |
 | R-BASELINE-12 | ALGORITHM 类 claim 存在即必须有 baseline_budget；comparator.claim_ids 与 algorithm claims 求交，无触发词门控 | §4、templates §5 |
-| R-LAYER-13 | 主线是 L1→L2→L3 逐层构建，证据深度按层供给；原子观点机器只服务 L3 候选集（K 集合），超层取证报 `EVIDENCE_DEPTH_EXCEEDS_LAYER` | §3.1 |
+| R-LAYER-13 | 主线是 L1→L2→L3 逐层构建，证据深度按层供给；全局注册表保留历史，本轮预算由 `current_evidence_scope.json` 计费；原子观点机器只服务 L3 候选集（K 集合），超层取证报 `EVIDENCE_DEPTH_EXCEEDS_LAYER` | §3.1 |

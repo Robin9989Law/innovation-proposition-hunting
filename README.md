@@ -88,6 +88,10 @@ L2 摘要级、全重机器只对 L3 候选 K 集合运行，见 `SKILL.md` §3.
 `EVIDENCE_DEPTH_EXCEEDS_LAYER` 预算检查）。达到 L3 候选阶段后，每轮新碰撞
 按固定顺序执行：
 
+全局文献/观点注册表跨轮追加，继续承担 URL 完整性与证据追溯；
+`current_evidence_scope.json` 只列本轮计入深证据预算的 work/claim ID。开启新轮次
+时 scope 可以为空，但不得删除历史记录或把已归档全文改写成 `NOT_REQUIRED`。
+
 ```text
 耗尽旧观点
   → 检索当前年份及前两年的近邻文献
