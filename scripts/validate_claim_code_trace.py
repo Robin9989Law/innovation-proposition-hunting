@@ -32,6 +32,7 @@ from validate_protocol_contract import (
     collect_algorithm_claims,
     parse_python_test_contract,
     python_top_level_symbol_status,
+    self_attesting_test_issues,
 )
 
 
@@ -654,6 +655,46 @@ def validate_output_reference_groups(
     return issues
 
 
+def validate_test_self_attestation(
+    snapshot_fn: SnapshotReader,
+    raw_bindings: list[Any],
+    *,
+    strict_new_checks: bool = False,
+) -> list[Issue]:
+    """绑定测试文件的静态反自证检查（SELF_ATTESTING_TEST）。
+
+    与 validate_test_reference_groups 的严格契约互补：严格契约失败时
+    报 INVALID，本检查以 WARNING（默认）/INVALID（strict）补充
+    TARGET_CLAIM_IDS 交集与实现 import 绑定的信号。
+    """
+
+    issues: list[Issue] = []
+    for test_path, bindings in grouped_bindings(
+        raw_bindings, "executable_test_relative_path"
+    ).items():
+        registered = {binding["claim_id"] for binding in bindings}
+        implementation_paths = {
+            binding.get("implementation_relative_path")
+            for binding in bindings
+            if canonical_relative_path(binding.get("implementation_relative_path"))
+        }
+        try:
+            snapshot = snapshot_fn(test_path, include_data=True)
+        except (FileNotFoundError, UnsafePathError, OSError):
+            continue  # Per-binding path validation already reports the exact failure.
+        assert snapshot.data is not None
+        issues.extend(
+            self_attesting_test_issues(
+                snapshot.data,
+                test_path,
+                registered,
+                implementation_paths,
+                strict_new_checks=strict_new_checks,
+            )
+        )
+    return issues
+
+
 def validate_protocol_cross_binding(
     snapshot_fn: SnapshotReader,
     protocol: dict[str, Any] | None,
@@ -848,6 +889,7 @@ def validate_with_context(
     inventory: str | None = None,
     trace: str | None = None,
     protocol: str | None = None,
+    strict_new_checks: bool = False,
 ) -> list[Issue]:
     """库函数入口：复用 ProjectContext 完成全部校验，供 CLI 与批量调用共用。
 
@@ -855,7 +897,8 @@ def validate_with_context(
     ctx.load_json；稿件/实现/测试/输出文件走 ctx.snapshot（按路径缓存，
     消除按 binding 的重复读盘与重哈希）；测试 AST 契约按
     (测试路径, 实现路径, 实现符号) 缓存。各可选参数为 CLI 显式覆盖的
-    相对路径；缺省按 state["artifacts"] 解析。
+    相对路径；缺省按 state["artifacts"] 解析。strict_new_checks 将
+    NEW_CHECK_CODES 中的新检查码从 WARNING 升为 INVALID。
     """
 
     state = ctx.state
@@ -900,6 +943,15 @@ def validate_with_context(
                 ctx.snapshot, {}, state, inventory_data, registry, protocol_data
             )
         )
+        raw_bindings = registry.get("traces")
+        if isinstance(raw_bindings, list):
+            issues.extend(
+                validate_test_self_attestation(
+                    ctx.snapshot,
+                    raw_bindings,
+                    strict_new_checks=strict_new_checks,
+                )
+            )
     return issues
 
 
@@ -910,6 +962,7 @@ def main() -> int:
     parser.add_argument("--inventory", type=Path)
     parser.add_argument("--trace", type=Path)
     parser.add_argument("--protocol", type=Path)
+    parser.add_argument("--strict-new-checks", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -938,7 +991,11 @@ def main() -> int:
         if state is not None:
             with ProjectContext(args.root, args.state) as ctx:
                 issues.extend(
-                    validate_with_context(ctx, **resolved)
+                    validate_with_context(
+                        ctx,
+                        strict_new_checks=args.strict_new_checks,
+                        **resolved,
+                    )
                 )
     except Exception as error:
         issues = [

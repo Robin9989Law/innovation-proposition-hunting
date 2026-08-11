@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "validation_epoch": 1,
-  "claim_bundle_sha256": "5769179042eee2dcf9b122a51e2f372e55d6137b4a63334712121f1a922a5d64",
+  "claim_bundle_sha256": "84dc23ac301194dd34dbdebafe8a67ba82fcdc885b81bec5da8d9eb6218dc052",
   "entries": [
     {
       "path": "baseline_budget.json",
@@ -26,7 +26,7 @@
     {
       "path": "frontier_coverage.json",
       "role": "FRONTIER_COVERAGE",
-      "sha256": "85e5337162f1b4a61d57f8c3fa15635caaeb235e07d8975b2916caf7eb2b4d55"
+      "sha256": "cd1101ef8be0c14eb9eb332175d2090338f0e43bbfc2df0263a2a0caafc53866"
     },
     {
       "path": "implementation/online_algorithm.py",

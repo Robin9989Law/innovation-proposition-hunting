@@ -19,6 +19,7 @@ from validation_common import (
     ProjectContext,
     choose_exit,
     file_sha256,
+    nonempty_string,
     render,
 )
 from validate_workflow_state import issue_severity
@@ -595,22 +596,25 @@ def main() -> int:
         gates.get("recent_frontier_complete")
     )
     if run_frontier:
+        frontier_command = [
+            sys.executable,
+            str(script_dir / "validate_frontier_integrity.py"),
+            "--root",
+            str(root),
+            "--state",
+            str(state_path),
+            "--literature-registry",
+            str(literature),
+            "--claim-registry",
+            str(claims),
+            "--frontier-coverage",
+            str(frontier_coverage),
+        ]
+        if args.strict_new_checks:
+            frontier_command.append("--strict-new-checks")
         frontier_exit = execute(
             "frontier_integrity",
-            [
-                sys.executable,
-                str(script_dir / "validate_frontier_integrity.py"),
-                "--root",
-                str(root),
-                "--state",
-                str(state_path),
-                "--literature-registry",
-                str(literature),
-                "--claim-registry",
-                str(claims),
-                "--frontier-coverage",
-                str(frontier_coverage),
-            ],
+            frontier_command,
             ctx=ctx,
             module="validate_frontier_integrity",
             ctx_kwargs={
@@ -618,7 +622,8 @@ def main() -> int:
                     "near_neighbor_registry": literature,
                     "literature_claim_registry": claims,
                     "frontier_coverage": frontier_coverage,
-                }
+                },
+                "strict_new_checks": args.strict_new_checks,
             },
         )
         frontier_issue = issue_for_exit("frontier_integrity", frontier_exit)
@@ -688,25 +693,29 @@ def main() -> int:
                 )
             )
         else:
+            theory_command = [
+                sys.executable,
+                str(script_dir / "validate_theory_obligations.py"),
+                "--root",
+                str(root),
+                "--state",
+                str(state_path),
+                "--inventory",
+                str(inventory),
+                "--registry",
+                str(theory_obligations),
+            ]
+            if args.strict_new_checks:
+                theory_command.append("--strict-new-checks")
             theory_exit = execute(
                 "theory_obligations",
-                [
-                    sys.executable,
-                    str(script_dir / "validate_theory_obligations.py"),
-                    "--root",
-                    str(root),
-                    "--state",
-                    str(state_path),
-                    "--inventory",
-                    str(inventory),
-                    "--registry",
-                    str(theory_obligations),
-                ],
+                theory_command,
                 ctx=ctx,
                 module="validate_theory_obligations",
                 ctx_kwargs={
                     "registry_path": relative_cli_path(root, theory_obligations),
                     "inventory_path": relative_cli_path(root, inventory),
+                    "strict_new_checks": args.strict_new_checks,
                 },
             )
             theory_issue = issue_for_exit("theory_obligations", theory_exit)
@@ -741,51 +750,53 @@ def main() -> int:
                     )
                 )
             elif baseline_budget.exists():
-                baseline_exit = execute(
-                    "baseline_budget",
-                    [
-                        sys.executable,
-                        str(script_dir / "validate_protocol_contract.py"),
-                        "--root",
-                        str(root),
-                        "--state",
-                        str(state_path),
-                        "--inventory",
-                        str(inventory),
-                        "--baseline-budget",
-                        str(baseline_budget),
-                        "--baseline-only",
-                    ],
-                    ctx=ctx,
-                    module="validate_protocol_contract",
-                    ctx_kwargs={
-                        "baseline_only": True,
-                        "baseline_budget": relative_cli_path(root, baseline_budget),
-                        "inventory": relative_cli_path(root, inventory),
-                    },
-                )
-                baseline_issue = issue_for_exit("baseline_budget", baseline_exit)
-                if baseline_issue:
-                    suite_issues.append(baseline_issue)
-        else:
-            protocol_exit = execute(
-                "protocol_contract",
-                [
+                baseline_command = [
                     sys.executable,
-                    str(script_dir / "validate_protocol_contract.py"),
+                    str(script_dir / "validate_baseline_budget.py"),
                     "--root",
                     str(root),
                     "--state",
                     str(state_path),
                     "--inventory",
                     str(inventory),
-                    "--protocol",
-                    str(protocol_contract),
                     "--baseline-budget",
                     str(baseline_budget),
-                    "--claim-code-trace",
-                    str(claim_code_trace),
-                ],
+                ]
+                baseline_exit = execute(
+                    "baseline_budget",
+                    baseline_command,
+                    ctx=ctx,
+                    module="validate_baseline_budget",
+                    ctx_kwargs={
+                        "baseline_budget": relative_cli_path(root, baseline_budget),
+                        "inventory_path": relative_cli_path(root, inventory),
+                    },
+                )
+                baseline_issue = issue_for_exit("baseline_budget", baseline_exit)
+                if baseline_issue:
+                    suite_issues.append(baseline_issue)
+        else:
+            protocol_command = [
+                sys.executable,
+                str(script_dir / "validate_protocol_contract.py"),
+                "--root",
+                str(root),
+                "--state",
+                str(state_path),
+                "--inventory",
+                str(inventory),
+                "--protocol",
+                str(protocol_contract),
+                "--baseline-budget",
+                str(baseline_budget),
+                "--claim-code-trace",
+                str(claim_code_trace),
+            ]
+            if args.strict_new_checks:
+                protocol_command.append("--strict-new-checks")
+            protocol_exit = execute(
+                "protocol_contract",
+                protocol_command,
                 ctx=ctx,
                 module="validate_protocol_contract",
                 ctx_kwargs={
@@ -793,6 +804,7 @@ def main() -> int:
                     "protocol": relative_cli_path(root, protocol_contract),
                     "baseline_budget": relative_cli_path(root, baseline_budget),
                     "claim_code_trace": relative_cli_path(root, claim_code_trace),
+                    "strict_new_checks": args.strict_new_checks,
                 },
             )
             protocol_issue = issue_for_exit("protocol_contract", protocol_exit)
@@ -811,28 +823,32 @@ def main() -> int:
                     )
                 )
         else:
+            trace_command = [
+                sys.executable,
+                str(script_dir / "validate_claim_code_trace.py"),
+                "--root",
+                str(root),
+                "--state",
+                str(state_path),
+                "--inventory",
+                str(inventory),
+                "--trace",
+                str(claim_code_trace),
+                "--protocol",
+                str(protocol_contract),
+            ]
+            if args.strict_new_checks:
+                trace_command.append("--strict-new-checks")
             trace_exit = execute(
                 "claim_code_trace",
-                [
-                    sys.executable,
-                    str(script_dir / "validate_claim_code_trace.py"),
-                    "--root",
-                    str(root),
-                    "--state",
-                    str(state_path),
-                    "--inventory",
-                    str(inventory),
-                    "--trace",
-                    str(claim_code_trace),
-                    "--protocol",
-                    str(protocol_contract),
-                ],
+                trace_command,
                 ctx=ctx,
                 module="validate_claim_code_trace",
                 ctx_kwargs={
                     "inventory": relative_cli_path(root, inventory),
                     "trace": relative_cli_path(root, claim_code_trace),
                     "protocol": relative_cli_path(root, protocol_contract),
+                    "strict_new_checks": args.strict_new_checks,
                 },
             )
             trace_issue = issue_for_exit("claim_code_trace", trace_exit)
@@ -928,6 +944,43 @@ def main() -> int:
     else:
         print("=== literature_registry ===")
         print(f"SKIP\tnot_required_at_state:{effective_state}")
+
+    # exploration firewall：登记簿存在即有义务（数字不得泄入冻结工件）。
+    exploration_registry = root / "exploration_registry.json"
+    artifacts_map = state.get("artifacts")
+    if isinstance(artifacts_map, dict) and nonempty_string(
+        artifacts_map.get("exploration_registry")
+    ):
+        exploration_registry = root / artifacts_map["exploration_registry"]
+    if exploration_registry.is_file():
+        firewall_command = [
+            sys.executable,
+            str(script_dir / "validate_exploration_firewall.py"),
+            "--root",
+            str(root),
+            "--state",
+            str(state_path),
+            "--registry",
+            str(exploration_registry),
+        ]
+        if args.strict_new_checks:
+            firewall_command.append("--strict-new-checks")
+        firewall_exit = execute(
+            "exploration_firewall",
+            firewall_command,
+            ctx=ctx,
+            module="validate_exploration_firewall",
+            ctx_kwargs={
+                "registry_path": relative_cli_path(root, exploration_registry),
+                "strict_new_checks": args.strict_new_checks,
+            },
+        )
+        firewall_issue = issue_for_exit("exploration_firewall", firewall_exit)
+        if firewall_issue:
+            suite_issues.append(firewall_issue)
+    else:
+        print("=== exploration_firewall ===")
+        print("SKIP\tno_exploration_registry")
 
     # STOP 锁落地：锁期间状态被推进一律追加 INVALID（无论本次校验是否通过）；
     # 非零退出写锁；READY 自动清锁。

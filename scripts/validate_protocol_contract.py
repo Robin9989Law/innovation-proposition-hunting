@@ -96,60 +96,15 @@ REQUIRED_CHRONOLOGY_FIELDS = (
     "implementation_symbol",
     "implementation_sha256",
 )
-REQUIRED_COMPARATOR_FIELDS = (
-    "width_or_parameter_budget",
-    "seeds",
-    "regularization_search_space",
-    "tuning_data",
-    "label_access",
-    "update_frequency",
-    "compute_budget",
-    "stopping_rules",
-)
-ENGLISH_BUDGET_TERMS = (
-    re.compile(r"(?<![A-Za-z0-9_])strong(?![A-Za-z0-9_])", re.I),
-    re.compile(r"(?<![A-Za-z0-9_])strong(?:[ -]+)baseline(?![A-Za-z0-9_])", re.I),
-    re.compile(r"(?<![A-Za-z0-9_])fair(?:[ -]+(?:baseline|comparison))?(?![A-Za-z0-9_])", re.I),
-    re.compile(r"(?<![A-Za-z0-9_])matched(?:[ -]+)budget(?![A-Za-z0-9_])", re.I),
-    re.compile(r"(?<![A-Za-z0-9_])same(?:[ -]+)budget(?![A-Za-z0-9_])", re.I),
-)
-CHINESE_BUDGET_TERMS = (
-    "强基线",
-    "强比较基线",
-    "公平基线",
-    "公平比较",
-    "匹配预算",
-    "预算匹配",
-    "同预算",
-    "相同预算",
-    "等预算",
-)
-CANONICAL_BUDGET_RISK_TERMS = {
-    "strong",
-    "strong baseline",
-    "fair",
-    "fair comparison",
-    "matched budget",
-    "same budget",
-    "强基线",
-    "公平",
-    "公平比较",
-    "匹配预算",
-    "同预算",
-}
-CHINESE_FAIR_COMPARISON_PATTERN = re.compile(
-    r"(?:作|做|进行|开展|报告)?\s*公平(?:的|地|性)?\s*(?:比较|对比|基线)"
-)
-CONTEXTUAL_STRONGER_PATTERN = re.compile(
-    r"(?:"
-    r"(?<![A-Za-z0-9_])strong(?:er|est)(?![A-Za-z0-9_])"
-    r"[^\n]{0,40}(?<![A-Za-z0-9_])(?:baseline|comparison)(?![A-Za-z0-9_])"
-    r"|"
-    r"(?<![A-Za-z0-9_])(?:baseline|comparison)(?![A-Za-z0-9_])"
-    r"[^\n]{0,40}(?<![A-Za-z0-9_])strong(?:er|est)(?![A-Za-z0-9_])"
-    r")",
-    re.IGNORECASE,
-)
+# 新增检查码：默认 WARNING（不计入退出码），--strict-new-checks 升为 INVALID。
+# 不在此集合内的码维持原有严重级语义。
+NEW_CHECK_CODES = frozenset({"SELF_ATTESTING_TEST"})
+
+
+def issue_severity(code: str, strict_new_checks: bool) -> str:
+    if code in NEW_CHECK_CODES and not strict_new_checks:
+        return "WARNING"
+    return "INVALID"
 
 
 def canonical_identifier(value: Any) -> bool:
@@ -1162,33 +1117,6 @@ def collect_algorithm_claims(
     return claims, issues
 
 
-def claim_triggers_budget(claim: dict[str, Any]) -> bool:
-    risk_terms = claim.get("risk_terms")
-    if isinstance(risk_terms, list):
-        risk_text = "\n".join(term for term in risk_terms if isinstance(term, str))
-        normalized_risks = {
-            re.sub(r"[-_]+", " ", term.strip().casefold())
-            for term in risk_terms
-            if isinstance(term, str)
-        }
-        if (
-            normalized_risks & CANONICAL_BUDGET_RISK_TERMS
-            or any(pattern.search(risk_text) for pattern in ENGLISH_BUDGET_TERMS)
-            or CONTEXTUAL_STRONGER_PATTERN.search(risk_text) is not None
-            or any(term in risk_text for term in CHINESE_BUDGET_TERMS)
-            or CHINESE_FAIR_COMPARISON_PATTERN.search(risk_text) is not None
-        ):
-            return True
-    statement = claim.get("statement")
-    text = statement if isinstance(statement, str) else ""
-    return (
-        any(pattern.search(text) for pattern in ENGLISH_BUDGET_TERMS)
-        or CONTEXTUAL_STRONGER_PATTERN.search(text) is not None
-        or any(term in text for term in CHINESE_BUDGET_TERMS)
-        or CHINESE_FAIR_COMPARISON_PATTERN.search(text) is not None
-    )
-
-
 def validate_protocol_fields(protocol: dict[str, Any], state_epoch: Any) -> list[Issue]:
     issues: list[Issue] = []
     if protocol.get("schema_version") != "2.0":
@@ -1690,151 +1618,174 @@ def validate_chronology(
     return issues
 
 
-def comparator_field_valid(field: str, value: Any) -> bool:
-    if field == "seeds":
-        return (
-            isinstance(value, list)
-            and bool(value)
-            and all(not isinstance(seed, bool) and isinstance(seed, int) for seed in value)
-            and len(set(value)) == len(value)
-        )
-    if field == "regularization_search_space":
-        return (
-            isinstance(value, list)
-            and bool(value)
-            and all(
-                not isinstance(item, (dict, list, bool))
-                and (isinstance(item, (int, float, str)))
-                and (not isinstance(item, str) or bool(item.strip()))
-                for item in value
-            )
-        )
-    return nonempty_string(value)
+def _module_level_target_claim_ids(tree: ast.Module) -> set[str]:
+    """提取模块级 TARGET_CLAIM_IDS 字面量赋值（list/tuple，元素均为 str）。
+
+    取最后一次可字面求值的赋值（Python 模块语义）；动态值或多次赋值由
+    严格契约 parse_python_test_contract 另行拒绝。
+    """
+
+    declared: set[str] = set()
+    for statement in tree.body:
+        target: ast.AST | None = None
+        value: ast.AST | None = None
+        if isinstance(statement, ast.Assign) and len(statement.targets) == 1:
+            target, value = statement.targets[0], statement.value
+        elif isinstance(statement, ast.AnnAssign) and statement.value is not None:
+            target, value = statement.target, statement.value
+        if not (
+            isinstance(target, ast.Name)
+            and target.id == "TARGET_CLAIM_IDS"
+            and value is not None
+        ):
+            continue
+        try:
+            literal = ast.literal_eval(value)
+        except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+            continue
+        if isinstance(literal, (list, tuple)) and all(
+            isinstance(item, str) for item in literal
+        ):
+            declared = set(literal)
+    return declared
 
 
-def validate_baselines(
-    baseline: dict[str, Any] | None,
-    trigger_claims: set[str],
-    state_epoch: Any,
+def _test_imports_implementation(tree: ast.Module, implementation_path: str) -> bool:
+    """宽松判定测试文件是否 import 了登记的实现模块。
+
+    允许 sys.path.insert 后的裸 stem 导入、完整点分路径导入、
+    from 导入及相对导入：Import/ImportFrom 的模块名首/末段或
+    from 导入的名字与实现文件 stem 匹配即可。
+    """
+
+    module = _implementation_module(implementation_path)
+    if module is None:
+        return False
+    stem = module.split(".")[-1]
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                parts = alias.name.split(".")
+                if alias.name == module or parts[0] == stem or parts[-1] == stem:
+                    return True
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                parts = node.module.split(".")
+                if node.module == module or parts[0] == stem or parts[-1] == stem:
+                    return True
+            if any(alias.name == stem for alias in node.names):
+                return True
+    return False
+
+
+def self_attesting_test_issues(
+    data: bytes,
+    test_path: str,
+    registered_claim_ids: set[str],
+    implementation_paths: set[str],
+    *,
+    strict_new_checks: bool = False,
 ) -> list[Issue]:
-    if baseline is None:
-        return (
-            [
-                Issue(
-                    "BASELINE_BUDGET_INCOMPLETE",
-                    "INVALID",
-                    claim_id,
-                    "baseline_budget.json:missing",
-                )
-                for claim_id in sorted(trigger_claims)
-            ]
-            if trigger_claims
-            else []
-        )
+    """静态反自证检查：登记/绑定的测试必须机器可读地绑定 claim 与实现。
+
+    测试文件必须含模块级 TARGET_CLAIM_IDS 字面量（非空且与登记/绑定的
+    claim_ids 有交集），并 import 登记的实现模块；否则报
+    SELF_ATTESTING_TEST（默认 WARNING，--strict-new-checks 升 INVALID）。
+    无法解析的测试文件由严格契约或执行证据另行报告，这里不重复。
+    """
+
+    severity = issue_severity("SELF_ATTESTING_TEST", strict_new_checks)
+    try:
+        tree = ast.parse(data.decode("utf-8"), filename=test_path)
+    except (UnicodeError, SyntaxError):
+        return []
     issues: list[Issue] = []
-    if baseline.get("schema_version") != "2.0":
+    declared = _module_level_target_claim_ids(tree)
+    if not declared:
         issues.append(
             Issue(
-                "BASELINE_BUDGET_INCOMPLETE",
-                "INVALID",
-                "baseline_budget",
-                f"schema_version:{baseline.get('schema_version')}",
+                "SELF_ATTESTING_TEST",
+                severity,
+                test_path,
+                "TARGET_CLAIM_IDS:missing_or_empty_module_literal",
             )
         )
-    epoch = baseline.get("validation_epoch")
-    if not positive_integer(epoch) or (
-        positive_integer(state_epoch) and epoch != state_epoch
+    elif registered_claim_ids and declared.isdisjoint(registered_claim_ids):
+        issues.append(
+            Issue(
+                "SELF_ATTESTING_TEST",
+                severity,
+                test_path,
+                "TARGET_CLAIM_IDS:no_intersection_with_registered_claims:"
+                + ",".join(sorted(registered_claim_ids)),
+            )
+        )
+    if implementation_paths and not any(
+        _test_imports_implementation(tree, path) for path in implementation_paths
     ):
         issues.append(
             Issue(
-                "BASELINE_BUDGET_INCOMPLETE",
-                "INVALID",
-                "baseline_budget",
-                f"validation_epoch:{epoch};state:{state_epoch}",
-            )
-        )
-    comparators = baseline.get("comparators")
-    if not isinstance(comparators, list):
-        return issues + [
-            Issue(
-                "BASELINE_BUDGET_INCOMPLETE",
-                "INVALID",
-                "baseline_budget",
-                "comparators:expected_list",
-            )
-        ]
-    covered: set[str] = set()
-    comparator_ids: list[str] = []
-    for index, comparator in enumerate(comparators):
-        item_id = f"comparator[{index}]"
-        if not isinstance(comparator, dict):
-            issues.append(
-                Issue(
-                    "BASELINE_BUDGET_INCOMPLETE",
-                    "INVALID",
-                    item_id,
-                    "expected_object",
-                )
-            )
-            continue
-        comparator_id = comparator.get("comparator_id")
-        if not nonempty_string(comparator_id) or comparator_id.strip() != comparator_id:
-            issues.append(
-                Issue(
-                    "BASELINE_BUDGET_INCOMPLETE",
-                    "INVALID",
-                    item_id,
-                    "comparator_id:expected_canonical_nonempty_string",
-                )
-            )
-        else:
-            item_id = comparator_id
-            comparator_ids.append(comparator_id)
-        claim_ids = comparator.get("claim_ids")
-        if not string_list(claim_ids) or len(set(claim_ids)) != len(claim_ids):
-            issues.append(
-                Issue(
-                    "BASELINE_BUDGET_INCOMPLETE",
-                    "INVALID",
-                    item_id,
-                    "claim_ids:expected_nonempty_unique_string_list",
-                )
-            )
-        else:
-            covered.update(claim_ids)
-        if trigger_claims:
-            for field in REQUIRED_COMPARATOR_FIELDS:
-                if field not in comparator or not comparator_field_valid(
-                    field, comparator.get(field)
-                ):
-                    issues.append(
-                        Issue(
-                            "BASELINE_BUDGET_INCOMPLETE",
-                            "INVALID",
-                            item_id,
-                            f"{field}:missing_or_invalid",
-                        )
-                    )
-    for comparator_id, count in Counter(comparator_ids).items():
-        if count > 1:
-            issues.append(
-                Issue(
-                    "BASELINE_BUDGET_INCOMPLETE",
-                    "INVALID",
-                    comparator_id,
-                    f"duplicate_comparator_id:count:{count}",
-                )
-            )
-    for claim_id in sorted(trigger_claims - covered):
-        issues.append(
-            Issue(
-                "BASELINE_BUDGET_INCOMPLETE",
-                "INVALID",
-                claim_id,
-                "no_comparator_covers_trigger_claim",
+                "SELF_ATTESTING_TEST",
+                severity,
+                test_path,
+                "implementation_import:missing",
             )
         )
     return issues
+
+
+def validate_chronology_self_attestation(
+    snapshot_fn: SnapshotReader,
+    protocol: dict[str, Any],
+    strict_new_checks: bool = False,
+) -> list[Issue]:
+    """protocol chronology_test 登记测试的反自证检查。
+
+    严格 AST 契约只在 prediction_unit=SAMPLE 时执行（validate_chronology）；
+    本检查对任意 prediction_unit 登记的 chronology_test 生效，经 output
+    manifest 找到可执行测试文件后做静态 TARGET_CLAIM_IDS/import 绑定检查。
+    """
+
+    chronology = protocol.get("chronology_test")
+    if not isinstance(chronology, dict):
+        return []
+    output_path = chronology.get("output_file")
+    if not canonical_relative_path(output_path):
+        return []
+    try:
+        output_snapshot = snapshot_fn(output_path, include_data=True)
+    except (FileNotFoundError, UnsafePathError, OSError):
+        return []
+    assert output_snapshot.data is not None
+    try:
+        manifest = strict_object_from_snapshot(
+            output_snapshot.data, "chronology_test_output"
+        )
+    except (StrictJSONError, TypeError):
+        return []
+    test_path = manifest.get("executable_test_relative_path")
+    if not canonical_relative_path(test_path):
+        return []
+    try:
+        test_snapshot = snapshot_fn(test_path, include_data=True)
+    except (FileNotFoundError, UnsafePathError, OSError):
+        return []
+    assert test_snapshot.data is not None
+    raw_targets = chronology.get("target_claim_ids")
+    registered = set(raw_targets) if string_list(raw_targets) else set()
+    implementation_path = chronology.get("implementation_relative_path")
+    implementation_paths = (
+        {implementation_path}
+        if canonical_relative_path(implementation_path)
+        else set()
+    )
+    return self_attesting_test_issues(
+        test_snapshot.data,
+        test_path,
+        registered,
+        implementation_paths,
+        strict_new_checks=strict_new_checks,
+    )
 
 
 def validate_loaded(
@@ -1850,13 +1801,21 @@ def validate_loaded(
     algorithm_claims, claim_issues = collect_algorithm_claims(inventory, state_epoch)
     issues.extend(claim_issues)
     issues.extend(validate_chronology(snapshot_fn, protocol, algorithm_claims, trace))
-    trigger_claims = {
-        claim_id
-        for claim_id, claim in algorithm_claims.items()
-        if claim_triggers_budget(claim)
-    }
-    issues.extend(validate_baselines(baseline, trigger_claims, state_epoch))
+    issues.extend(_baseline_budget_issues(baseline, algorithm_claims, state_epoch))
     return issues
+
+
+def _baseline_budget_issues(
+    baseline: dict[str, Any] | None,
+    algorithm_claims: dict[str, dict[str, Any]],
+    state_epoch: Any,
+) -> list[Issue]:
+    # 延迟导入打破循环：validate_baseline_budget 依赖本模块的
+    # collect_algorithm_claims / load_object_via_ctx。baseline 硬校验已
+    # 迁出（去 trigger 门控），这里委托给新模块以保持完整运行口径一致。
+    from validate_baseline_budget import validate_baselines
+
+    return validate_baselines(baseline, algorithm_claims, state_epoch)
 
 
 def validate_with_context(
@@ -1867,12 +1826,15 @@ def validate_with_context(
     protocol: str | None = None,
     baseline_budget: str | None = None,
     claim_code_trace: str | None = None,
+    strict_new_checks: bool = False,
 ) -> list[Issue]:
     """库函数入口：复用 ProjectContext 完成全部校验，供 CLI 与批量调用共用。
 
     state 直接取 ctx.state（构建 ctx 时已 strict 解析）；各 JSON 走
     ctx.load_json；实现/测试/输出文件走 ctx.snapshot（按路径缓存）。
     各可选参数为 CLI 显式覆盖的相对路径；缺省按 state["artifacts"] 解析。
+    strict_new_checks 将 NEW_CHECK_CODES 中的新检查码从 WARNING 升为
+    INVALID。baseline_only 为兼容入口，转发 validate_baseline_budget。
     """
 
     state = ctx.state
@@ -1894,6 +1856,19 @@ def validate_with_context(
         return issues
     if profile not in ALGORITHM_PROFILES:
         return issues
+    if baseline_only:
+        # 兼容入口（deprecated）：baseline 硬校验已迁到
+        # validate_baseline_budget.py，这里做 thin 转发。
+        from validate_baseline_budget import (
+            validate_with_context as validate_baseline_budget,
+        )
+
+        issues.extend(
+            validate_baseline_budget(
+                ctx, inventory_path=inventory, baseline_budget=baseline_budget
+            )
+        )
+        return issues
     inventory_data, inventory_issues = load_object_via_ctx(
         ctx,
         inventory or ctx.artifact_relative_path("claim_inventory"),
@@ -1903,28 +1878,9 @@ def validate_with_context(
         ctx,
         baseline_budget or ctx.artifact_relative_path("baseline_budget"),
         "baseline_budget",
-        required=baseline_only,
+        required=False,
     )
     issues.extend(inventory_issues + baseline_issues)
-    if baseline_only:
-        if inventory_data is not None and baseline is not None:
-            algorithm_claims, claim_issues = collect_algorithm_claims(
-                inventory_data, state.get("validation_epoch")
-            )
-            issues.extend(claim_issues)
-            trigger_claims = {
-                claim_id
-                for claim_id, claim in algorithm_claims.items()
-                if claim_triggers_budget(claim)
-            }
-            issues.extend(
-                validate_baselines(
-                    baseline,
-                    trigger_claims,
-                    state.get("validation_epoch"),
-                )
-            )
-        return issues
     protocol_data, protocol_issues = load_object_via_ctx(
         ctx,
         protocol or ctx.artifact_relative_path("protocol_contract"),
@@ -1943,6 +1899,12 @@ def validate_with_context(
                 ctx.snapshot, state, inventory_data, protocol_data, baseline, trace
             )
         )
+    if protocol_data is not None:
+        issues.extend(
+            validate_chronology_self_attestation(
+                ctx.snapshot, protocol_data, strict_new_checks
+            )
+        )
     return issues
 
 
@@ -1955,6 +1917,7 @@ def main() -> int:
     parser.add_argument("--baseline-budget", type=Path)
     parser.add_argument("--claim-code-trace", type=Path)
     parser.add_argument("--baseline-only", action="store_true")
+    parser.add_argument("--strict-new-checks", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -1987,6 +1950,7 @@ def main() -> int:
                     validate_with_context(
                         ctx,
                         baseline_only=args.baseline_only,
+                        strict_new_checks=args.strict_new_checks,
                         **resolved,
                     )
                 )

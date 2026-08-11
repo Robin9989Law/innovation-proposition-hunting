@@ -14,13 +14,21 @@
       "predict then update"
     ],
     "author_continuations": [
-      "follow-up works by key authors"
+      {
+        "edge": "W-KEY-01 → W-KEY-02",
+        "shared_authors": [
+          "Key Author"
+        ]
+      }
     ],
     "backward_citations": [
       "references of the nearest neighbor"
     ],
     "forward_citations": [
       "works citing the nearest neighbor"
+    ],
+    "method_lineage": [
+      "follow-up works by key authors (citation chain)"
     ]
   },
   "routes": [

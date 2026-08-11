@@ -120,13 +120,18 @@ necessary、sufficient、online、first/首次、strong/fair/matched-budget，�
 | profile | V2 前必须通过 |
 |---|---|
 | `THEORY` | claim inventory + theory obligation registry + 四类必需见证 |
-| `ALGORITHM` | claim inventory + protocol contract + claim-code trace；命中强/公平/同预算主张时加 baseline budget |
+| `ALGORITHM` | claim inventory + protocol contract + claim-code trace + baseline budget（存在 ALGORITHM 类 claim 即必须，无触发词门控） |
 | `MIXED` | THEORY 与 ALGORITHM 的并集，逐条 claim 路由 |
 
 理论命题必须登记 exact statement、量词、前提、proof locator，并运行
 `MINIMAL_POSITIVE`、`NONZERO_NUISANCE`、`BOUNDARY_OR_LIMIT`、
-`PREMISE_REMOVAL`。后者必须预期失败、实际失败且进程非零。随机性质测试只能执行，
-或由当前独立 reviewer 明确接受数学上的不适用理由。
+`PREMISE_REMOVAL`。后者必须预期失败、实际失败且进程非零。见证必须有咬合力
+（`WITNESS_NO_BITE`）：`PREMISE_REMOVAL` 附 `mechanism` 机制解释（禁构造性
+恒真表述），`NONZERO_NUISANCE` 附 `sensitivity_control` 对照取值；命题的每条
+`subclaims` 子规律须被见证的 `addresses_subclaim` 认领
+（`SUBCLAIM_WITNESS_GAP`）。随机性质测试只能执行，或走两阶段豁免：V2 作者
+提出（`proposed_by_author` + 数学理由）后保持未闭合，V3 独立 reviewer 追认
+方算闭合（`RANDOM_PROPERTY_EXEMPTION_PENDING`）。
 
 算法命题必须把稿件位置和伪代码符号绑定到当前实现符号、实现哈希、可执行测试及
 PASS 输出。在线主张必须冻结 prediction/update unit、顺序、标签可得性、数据角色和
@@ -175,7 +180,9 @@ bundle 内，旧 audit 仍会因哈希变化失效。不得手工把旧 hash 复
 ## 7. 前沿与证据不可降级
 
 近邻覆盖必须包含方法同义词、目标任务、理论术语、算法结构、作者续作、后向引用、
-前向引用，并有至少两种独立 route type。缺轴为 INVALID；仅当具体能力被声明为
+前向引用，并有至少两种独立 route type。作者续作轴的每条边必须给出真实
+`shared_authors` 交集（空交集或字符串条目报 `HOLLOW_COVERAGE_AXIS`）；引用链
+不是作者续作，放 `method_lineage` 轴。缺轴为 INVALID；仅当具体能力被声明为
 `available=false` 且给出原因时才可 BLOCKED。
 
 文献 `importance_history` 是追加式历史；current importance 必须等于末事件。任何
@@ -199,7 +206,7 @@ FINAL_LOCK = N0-4C AND V4 AND current independent audit
 探索性数据分析必须按 [compute-funnel.md](compute-funnel.md) 登记为永久探索级
 证据，其数值不得进入任何碰撞、审计或冻结工件。
 
-`DIRECTION_LOCK` 只锁方向。计算按 S0–S4 逐级升级；只有 S4 完成且 state 中的
+`DIRECTION_LOCK` 只锁方向。计算按 S0-SCREEN–S4 逐级升级；只有 S4 完成且 state 中的
 `compute_evidence` 指向当前 epoch、当前哈希的计算证据，才能进入
 `POSTCOMPUTE_CLAIM_FREEZE`。计算结果改变主张、强度或适用边界时必须新开 epoch；
 随后完成 `FINAL_VALIDITY_AUDIT`，由不同 agent 对新 bundle 复核，才可 `FINAL_LOCK`。

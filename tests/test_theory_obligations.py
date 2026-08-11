@@ -914,5 +914,273 @@ class TheoryObligationTests(unittest.TestCase):
         self.assertEqual(before, after)
 
 
+GOOD_MECHANISM = (
+    "Removing premise x >= 0 admits x = -1, so the stated implication fails."
+)
+GOOD_SENSITIVITY_CONTROL = (
+    "nuisance scale 0.5 versus 2.0 keeps the bound strictly positive."
+)
+
+
+def make_witnesses_bite_clean(obligation: dict[str, Any]) -> None:
+    find_witness(obligation, "PREMISE_REMOVAL")["mechanism"] = GOOD_MECHANISM
+    find_witness(obligation, "NONZERO_NUISANCE")[
+        "sensitivity_control"
+    ] = GOOD_SENSITIVITY_CONTROL
+
+
+def configure_author_proposed_na(
+    project: Path,
+    *,
+    reason: Any = "The finite domain is exhausted symbolically.",
+    acceptance: Any = None,
+) -> dict[str, Any]:
+    obligations = load_obligations(project)
+    obligation = first_obligation(obligations)
+    obligation["witnesses"] = [
+        witness
+        for witness in obligation["witnesses"]
+        if witness["kind"] != "RANDOM_PROPERTY"
+    ]
+    random_property: dict[str, Any] = {
+        "status": "NOT_APPLICABLE",
+        "mathematical_reason": reason,
+        "proposed_by_author": True,
+    }
+    if acceptance is not None:
+        random_property["independent_audit_acceptance"] = acceptance
+    obligation["random_property"] = random_property
+    write_obligations(project, obligations)
+    return obligation
+
+
+class WitnessBiteTests(unittest.TestCase):
+    def make_project(self) -> Path:
+        temporary_directory, project = make_valid_project(claim_profile="THEORY")
+        self.addCleanup(temporary_directory.cleanup)
+        return project
+
+    def run_theory(
+        self, project: Path, *extra_args: str
+    ) -> subprocess.CompletedProcess[str]:
+        return run_script(
+            "validate_theory_obligations.py", project, extra_args=extra_args
+        )
+
+    def load_bite_clean_obligations(self, project: Path) -> dict[str, Any]:
+        obligations = load_obligations(project)
+        make_witnesses_bite_clean(first_obligation(obligations))
+        write_obligations(project, obligations)
+        return obligations
+
+    def test_missing_mechanism_warns_by_default_and_fails_in_strict(self) -> None:
+        project = self.make_project()
+
+        completed = self.run_theory(project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("theory_obligations_status=READY", completed.stdout)
+        self.assertIn("WARNING\tWITNESS_NO_BITE", completed.stdout)
+        self.assertIn(
+            "PREMISE_REMOVAL.mechanism:missing_or_empty", completed.stdout
+        )
+
+        project = self.make_project()
+        completed = self.run_theory(project, "--strict-new-checks")
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("INVALID\tWITNESS_NO_BITE", completed.stdout)
+
+    def test_constructive_tautology_phrases_are_reported(self) -> None:
+        for phrase in ("by construction", "trivially", "by definition", "恒真"):
+            with self.subTest(phrase=phrase):
+                project = self.make_project()
+                obligations = load_obligations(project)
+                find_witness(first_obligation(obligations), "PREMISE_REMOVAL")[
+                    "mechanism"
+                ] = f"The observed failure holds {phrase} for this encoding."
+                write_obligations(project, obligations)
+
+                completed = self.run_theory(project)
+
+                self.assertEqual(
+                    0, completed.returncode, completed.stdout + completed.stderr
+                )
+                self.assertIn("WARNING\tWITNESS_NO_BITE", completed.stdout)
+                self.assertIn(
+                    f"PREMISE_REMOVAL.mechanism:constructive_tautology:{phrase}",
+                    completed.stdout,
+                )
+
+    def test_short_mechanism_is_reported(self) -> None:
+        project = self.make_project()
+        obligations = load_obligations(project)
+        find_witness(first_obligation(obligations), "PREMISE_REMOVAL")[
+            "mechanism"
+        ] = "premise removed"
+        write_obligations(project, obligations)
+
+        completed = self.run_theory(project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("WITNESS_NO_BITE", completed.stdout)
+        self.assertIn("PREMISE_REMOVAL.mechanism:too_short", completed.stdout)
+
+    def test_missing_or_short_sensitivity_control_is_reported(self) -> None:
+        project = self.make_project()
+        obligations = load_obligations(project)
+        obligation = first_obligation(obligations)
+        find_witness(obligation, "PREMISE_REMOVAL")["mechanism"] = GOOD_MECHANISM
+        write_obligations(project, obligations)
+
+        completed = self.run_theory(project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn(
+            "NONZERO_NUISANCE.sensitivity_control:missing_or_empty",
+            completed.stdout,
+        )
+
+        project = self.make_project()
+        obligations = load_obligations(project)
+        obligation = first_obligation(obligations)
+        find_witness(obligation, "PREMISE_REMOVAL")["mechanism"] = GOOD_MECHANISM
+        find_witness(obligation, "NONZERO_NUISANCE")["sensitivity_control"] = "nu=0"
+        write_obligations(project, obligations)
+
+        completed = self.run_theory(project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn(
+            "NONZERO_NUISANCE.sensitivity_control:too_short", completed.stdout
+        )
+
+        project = self.make_project()
+        completed = self.run_theory(project, "--strict-new-checks")
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("INVALID\tWITNESS_NO_BITE", completed.stdout)
+
+    def test_qualified_mechanism_and_sensitivity_control_are_clean(self) -> None:
+        project = self.make_project()
+        self.load_bite_clean_obligations(project)
+
+        completed = self.run_theory(project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertNotIn("WITNESS_NO_BITE", completed.stdout)
+        self.assertIn("theory_obligations_status=READY", completed.stdout)
+
+    def test_subclaims_without_any_addressing_witness_warn(self) -> None:
+        project = self.make_project()
+        obligations = self.load_bite_clean_obligations(project)
+        first_obligation(obligations)["subclaims"] = [
+            "Sub-law alpha holds.",
+            "Sub-law beta holds.",
+        ]
+        write_obligations(project, obligations)
+
+        completed = self.run_theory(project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("theory_obligations_status=READY", completed.stdout)
+        self.assertEqual(2, completed.stdout.count("SUBCLAIM_WITNESS_GAP"))
+        self.assertIn("WARNING\tSUBCLAIM_WITNESS_GAP", completed.stdout)
+
+        project = self.make_project()
+        obligations = self.load_bite_clean_obligations(project)
+        first_obligation(obligations)["subclaims"] = ["Sub-law alpha holds."]
+        write_obligations(project, obligations)
+        completed = self.run_theory(project, "--strict-new-checks")
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("INVALID\tSUBCLAIM_WITNESS_GAP", completed.stdout)
+
+    def test_partial_subclaim_coverage_reports_only_the_gap(self) -> None:
+        project = self.make_project()
+        obligations = self.load_bite_clean_obligations(project)
+        obligation = first_obligation(obligations)
+        obligation["subclaims"] = ["Sub-law alpha holds.", "Sub-law beta holds."]
+        obligation["witnesses"][0]["addresses_subclaim"] = "Sub-law alpha holds."
+        write_obligations(project, obligations)
+
+        completed = self.run_theory(project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual(1, completed.stdout.count("SUBCLAIM_WITNESS_GAP"))
+        self.assertIn(
+            "subclaim_without_witness:Sub-law beta holds.", completed.stdout
+        )
+        self.assertNotIn(
+            "subclaim_without_witness:Sub-law alpha holds.", completed.stdout
+        )
+
+    def test_full_subclaim_coverage_is_clean(self) -> None:
+        project = self.make_project()
+        obligations = self.load_bite_clean_obligations(project)
+        obligation = first_obligation(obligations)
+        obligation["subclaims"] = ["Sub-law alpha holds.", "Sub-law beta holds."]
+        obligation["witnesses"][0]["addresses_subclaim"] = "Sub-law alpha holds."
+        obligation["witnesses"][1]["addresses_subclaim"] = "Sub-law beta holds."
+        write_obligations(project, obligations)
+
+        completed = self.run_theory(project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertNotIn("SUBCLAIM_WITNESS_GAP", completed.stdout)
+
+    def test_obligation_without_subclaims_skips_coverage_check(self) -> None:
+        project = self.make_project()
+        self.load_bite_clean_obligations(project)
+
+        completed = self.run_theory(project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertNotIn("SUBCLAIM_WITNESS_GAP", completed.stdout)
+
+    def test_author_proposed_exemption_is_pending_until_ratified(self) -> None:
+        project = self.make_project()
+        configure_author_proposed_na(project)
+
+        completed = self.run_theory(project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("theory_obligations_status=READY", completed.stdout)
+        self.assertIn(
+            "WARNING\tRANDOM_PROPERTY_EXEMPTION_PENDING", completed.stdout
+        )
+        self.assertNotIn(
+            "INVALID_RANDOM_PROPERTY_AUDIT_ACCEPTANCE", completed.stdout
+        )
+        self.assertNotIn("RANDOM_PROPERTY_NA_NOT_AUDIT_ACCEPTED", completed.stdout)
+
+        project = self.make_project()
+        configure_author_proposed_na(project)
+        completed = self.run_theory(project, "--strict-new-checks")
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn(
+            "INVALID\tRANDOM_PROPERTY_EXEMPTION_PENDING", completed.stdout
+        )
+
+    def test_reviewer_ratified_exemption_closes_cleanly(self) -> None:
+        project = self.make_project()
+        configure_author_proposed_na(
+            project,
+            acceptance={"accepted": True, "reviewer_agent_id": "agent-b"},
+        )
+
+        completed = self.run_theory(project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertNotIn("RANDOM_PROPERTY_EXEMPTION_PENDING", completed.stdout)
+        self.assertIn("theory_obligations_status=READY", completed.stdout)
+
+    def test_empty_reason_stays_invalid_even_when_author_proposed(self) -> None:
+        project = self.make_project()
+        configure_author_proposed_na(project, reason="")
+
+        completed = self.run_theory(project)
+
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("RANDOM_PROPERTY_NA_REASON_REQUIRED", completed.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

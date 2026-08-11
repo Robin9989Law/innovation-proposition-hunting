@@ -53,6 +53,32 @@ JSON_OBJECT_ERROR_CODES = {
     "theory_obligation_registry": "INVALID_THEORY_REGISTRY",
 }
 
+# 新增检查码：默认 WARNING（不计入退出码），--strict-new-checks 升为 INVALID。
+# 不在此集合内的码维持原有严重级语义（与 validate_workflow_state.py 对齐）。
+NEW_CHECK_CODES = frozenset(
+    {
+        "WITNESS_NO_BITE",
+        "SUBCLAIM_WITNESS_GAP",
+        "RANDOM_PROPERTY_EXEMPTION_PENDING",
+    }
+)
+
+# PREMISE_REMOVAL 的机制解释不得是纯构造性恒真表述（命中子串即报，大小写不敏感）。
+TAUTOLOGY_BLACKLIST = (
+    "by construction",
+    "trivially",
+    "by definition",
+    "恒真",
+)
+MECHANISM_MIN_LENGTH = 20
+SENSITIVITY_CONTROL_MIN_LENGTH = 10
+
+
+def issue_severity(code: str, strict_new_checks: bool) -> str:
+    if code in NEW_CHECK_CODES and not strict_new_checks:
+        return "WARNING"
+    return "INVALID"
+
 # 见证输出文件的读取通道：相对路径 -> fd 级安全快照（CLI 与库函数共用）。
 SnapshotReader = Callable[[str], SafeFileSnapshot]
 
@@ -232,7 +258,10 @@ def collect_theorem_claims(
 
 
 def validate_random_property_na(
-    obligation: dict[str, Any], state: dict[str, Any], item_id: str
+    obligation: dict[str, Any],
+    state: dict[str, Any],
+    item_id: str,
+    strict_new_checks: bool = False,
 ) -> list[Issue]:
     issues: list[Issue] = []
     random_property = obligation.get("random_property")
@@ -264,7 +293,28 @@ def validate_random_property_na(
             )
         )
 
+    # 两阶段豁免：V2 作者提出（proposed_by_author: true），V3 reviewer 追认后闭合。
+    # 仅作者提出而尚无追认时豁免未闭合，报 RANDOM_PROPERTY_EXEMPTION_PENDING
+    # （WARNING/strict 机制），不再要求当前阶段不可得的审计字段。
     acceptance = random_property.get("independent_audit_acceptance")
+    ratified = (
+        isinstance(acceptance, dict)
+        and acceptance.get("accepted") is True
+        and nonempty_string(acceptance.get("reviewer_agent_id"))
+    )
+    if random_property.get("proposed_by_author") is True and not ratified:
+        issues.append(
+            Issue(
+                "RANDOM_PROPERTY_EXEMPTION_PENDING",
+                issue_severity(
+                    "RANDOM_PROPERTY_EXEMPTION_PENDING", strict_new_checks
+                ),
+                item_id,
+                "author_proposed_exemption_awaits_independent_reviewer_ratification",
+            )
+        )
+        return issues
+
     state_audit = state.get("independent_audit")
     accepted_value = acceptance.get("accepted") if isinstance(acceptance, dict) else None
     valid_accepted_type = type(accepted_value) is bool
@@ -387,6 +437,7 @@ def validate_witnesses(
     obligation: dict[str, Any],
     state: dict[str, Any],
     item_id: str,
+    strict_new_checks: bool = False,
 ) -> list[Issue]:
     issues: list[Issue] = []
     raw_witnesses = obligation.get("witnesses")
@@ -597,7 +648,11 @@ def validate_witnesses(
         )
 
     if "RANDOM_PROPERTY" not in kinds:
-        issues.extend(validate_random_property_na(obligation, state, item_id))
+        issues.extend(
+            validate_random_property_na(
+                obligation, state, item_id, strict_new_checks
+            )
+        )
     elif "random_property" in obligation:
         issues.append(
             Issue(
@@ -631,11 +686,142 @@ def validate_witnesses(
     return issues
 
 
+def validate_witness_bite(
+    obligation: dict[str, Any],
+    item_id: str,
+    strict_new_checks: bool = False,
+) -> list[Issue]:
+    """见证咬合力：存在性/哈希之外，要求关键见证给出可检验的机制信息。
+
+    - PREMISE_REMOVAL 必须有非空 mechanism（>=20 字符，且非构造性恒真表述）；
+    - NONZERO_NUISANCE 必须有非空 sensitivity_control（>=10 字符，说明对照取值）。
+    """
+
+    issues: list[Issue] = []
+    raw_witnesses = obligation.get("witnesses")
+    if not isinstance(raw_witnesses, list):
+        return issues
+    severity = issue_severity("WITNESS_NO_BITE", strict_new_checks)
+    for witness in raw_witnesses:
+        if not isinstance(witness, dict):
+            continue
+        kind = witness.get("kind")
+        if kind == "PREMISE_REMOVAL":
+            mechanism = witness.get("mechanism")
+            if not nonempty_string(mechanism):
+                issues.append(
+                    Issue(
+                        "WITNESS_NO_BITE",
+                        severity,
+                        item_id,
+                        "PREMISE_REMOVAL.mechanism:missing_or_empty",
+                    )
+                )
+                continue
+            assert isinstance(mechanism, str)
+            if len(mechanism.strip()) < MECHANISM_MIN_LENGTH:
+                issues.append(
+                    Issue(
+                        "WITNESS_NO_BITE",
+                        severity,
+                        item_id,
+                        f"PREMISE_REMOVAL.mechanism:too_short:"
+                        f"expected_at_least_{MECHANISM_MIN_LENGTH}_chars",
+                    )
+                )
+                continue
+            lowered = mechanism.lower()
+            hit = next(
+                (phrase for phrase in TAUTOLOGY_BLACKLIST if phrase in lowered),
+                None,
+            )
+            if hit is not None:
+                issues.append(
+                    Issue(
+                        "WITNESS_NO_BITE",
+                        severity,
+                        item_id,
+                        f"PREMISE_REMOVAL.mechanism:constructive_tautology:{hit}",
+                    )
+                )
+        elif kind == "NONZERO_NUISANCE":
+            control = witness.get("sensitivity_control")
+            if not nonempty_string(control):
+                issues.append(
+                    Issue(
+                        "WITNESS_NO_BITE",
+                        severity,
+                        item_id,
+                        "NONZERO_NUISANCE.sensitivity_control:missing_or_empty",
+                    )
+                )
+                continue
+            assert isinstance(control, str)
+            if len(control.strip()) < SENSITIVITY_CONTROL_MIN_LENGTH:
+                issues.append(
+                    Issue(
+                        "WITNESS_NO_BITE",
+                        severity,
+                        item_id,
+                        f"NONZERO_NUISANCE.sensitivity_control:too_short:"
+                        f"expected_at_least_{SENSITIVITY_CONTROL_MIN_LENGTH}_chars",
+                    )
+                )
+    return issues
+
+
+def validate_subclaim_coverage(
+    obligation: dict[str, Any],
+    item_id: str,
+    strict_new_checks: bool = False,
+) -> list[Issue]:
+    """子规律见证覆盖：obligation 带 subclaims 时，每条子规律须被至少一个
+    witness 的 addresses_subclaim（精确相等）覆盖；无 subclaims 字段则跳过。"""
+
+    issues: list[Issue] = []
+    if "subclaims" not in obligation:
+        return issues
+    subclaims = obligation.get("subclaims")
+    if not string_list(subclaims):
+        issues.append(
+            Issue(
+                "INVALID_OBLIGATION_FIELD",
+                "INVALID",
+                item_id,
+                "subclaims:expected_nonempty_string_list",
+            )
+        )
+        return issues
+    raw_witnesses = obligation.get("witnesses")
+    addressed = (
+        {
+            witness.get("addresses_subclaim")
+            for witness in raw_witnesses
+            if isinstance(witness, dict)
+        }
+        if isinstance(raw_witnesses, list)
+        else set()
+    )
+    severity = issue_severity("SUBCLAIM_WITNESS_GAP", strict_new_checks)
+    for subclaim in subclaims:
+        if subclaim not in addressed:
+            issues.append(
+                Issue(
+                    "SUBCLAIM_WITNESS_GAP",
+                    severity,
+                    item_id,
+                    f"subclaim_without_witness:{subclaim}",
+                )
+            )
+    return issues
+
+
 def validate(
     read_snapshot: SnapshotReader,
     state: dict[str, Any],
     inventory: dict[str, Any],
     registry: dict[str, Any],
+    strict_new_checks: bool = False,
 ) -> list[Issue]:
     issues: list[Issue] = []
     state_epoch = state.get("validation_epoch")
@@ -837,7 +1023,17 @@ def validate(
                     "claim_not_found_or_not_theorem_lemma_corollary",
                 )
             )
-        issues.extend(validate_witnesses(read_snapshot, obligation, state, item_id))
+        issues.extend(
+            validate_witnesses(
+                read_snapshot, obligation, state, item_id, strict_new_checks
+            )
+        )
+        issues.extend(
+            validate_witness_bite(obligation, item_id, strict_new_checks)
+        )
+        issues.extend(
+            validate_subclaim_coverage(obligation, item_id, strict_new_checks)
+        )
 
     counts = Counter(obligation_ids)
     for claim_id, count in counts.items():
@@ -868,6 +1064,7 @@ def validate_with_context(
     *,
     registry_path: str | None = None,
     inventory_path: str | None = None,
+    strict_new_checks: bool = False,
 ) -> list[Issue]:
     """库函数入口：复用 ctx 已解析的 state 与缓存读取，校验语义与 CLI 完全一致。
 
@@ -929,7 +1126,7 @@ def validate_with_context(
     if inventory is None:
         return inventory_issues
     return registry_issues + inventory_issues + validate(
-        ctx.snapshot, state, inventory, registry
+        ctx.snapshot, state, inventory, registry, strict_new_checks
     )
 
 
@@ -940,6 +1137,7 @@ def main() -> int:
     parser.add_argument("--inventory", type=Path)
     parser.add_argument("--registry", type=Path)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--strict-new-checks", action="store_true")
     args = parser.parse_args()
 
     ctx: ProjectContext | None = None
@@ -1008,6 +1206,7 @@ def main() -> int:
                 ctx,
                 registry_path=registry_override,
                 inventory_path=inventory_override,
+                strict_new_checks=args.strict_new_checks,
             )
     except Exception as error:
         issues = [

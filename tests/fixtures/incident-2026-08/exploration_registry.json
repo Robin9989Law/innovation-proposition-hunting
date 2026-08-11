@@ -1,0 +1,13 @@
+{
+  "schema_version": "2.0",
+  "explorations": [
+    {
+      "id": "exp-001",
+      "path": "s0_delta2_report.md",
+      "sha256": "9a95a60030a74db87a2480259cbb3f0b8410368d2da0f552075cef4ab0858c85",
+      "registered_at": "2026-08-10T16:30:00Z",
+      "data_role": "EXPLORATION_PERMANENT",
+      "description": "S0 未授权数值预实验：Δ2 延迟-储能替代边界 LP 扫描（事故 F1/F2 负例）"
+    }
+  ]
+}

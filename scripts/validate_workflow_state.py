@@ -217,8 +217,50 @@ NEW_CHECK_CODES = frozenset(
         "TRACK_STATE_MISMATCH",
         "LAST_COMPLETED_NOT_LOGGED",
         "COMPLETE_REQUIRES_FINAL_LOCK_CONDITIONS",
+        "UNREGISTERED_COMPUTE_ARTIFACT",
     }
 )
+
+
+# compute_authorized=false 时视为"未授权计算产物"的路径模式（根相对 glob）。
+COMPUTE_ARTIFACT_GLOBS = ("s0_*", "s0_outputs/**/*")
+
+
+def find_unregistered_compute_artifacts(
+    root: Path, state: dict[str, Any]
+) -> list[str]:
+    """S0-SCREEN 之前的数值产物必须登记 exploration_registry，否则逐一上报。"""
+
+    registered: set[str] = set()
+    try:
+        artifacts = state.get("artifacts")
+        relative = (
+            artifacts.get("exploration_registry")
+            if isinstance(artifacts, dict)
+            else None
+        )
+        registry_path = root / (
+            relative if isinstance(relative, str) else "exploration_registry.json"
+        )
+        if registry_path.is_file():
+            registry = json.loads(registry_path.read_text(encoding="utf-8"))
+            entries = registry.get("explorations")
+            if isinstance(entries, list):
+                for entry in entries:
+                    if isinstance(entry, dict) and isinstance(
+                        entry.get("path"), str
+                    ):
+                        registered.add(entry["path"])
+    except (OSError, ValueError):
+        pass
+    found: list[str] = []
+    for pattern in COMPUTE_ARTIFACT_GLOBS:
+        for path in sorted(root.glob(pattern)):
+            if path.is_file():
+                relative = path.relative_to(root).as_posix()
+                if relative not in registered:
+                    found.append(relative)
+    return sorted(set(found))
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -662,6 +704,10 @@ def validate(
     )
     novelty_level = state.get("novelty_level")
     compute_authorized = gates.get("compute_authorized") is True
+
+    if not compute_authorized:
+        for artifact in find_unregistered_compute_artifacts(root, state):
+            add(errors, "UNREGISTERED_COMPUTE_ARTIFACT", f"path:{artifact}")
 
     if effective_state == "CLAIM_FREEZE" and novelty_level != "N0-4C":
         add(

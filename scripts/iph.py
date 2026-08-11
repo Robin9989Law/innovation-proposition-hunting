@@ -216,8 +216,9 @@ def cmd_register_exploration(args: argparse.Namespace) -> int:
     registry_path = root / "exploration_registry.json"
     if registry_path.is_file():
         registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        registry.setdefault("schema_version", "2.0")
     else:
-        registry = {"explorations": []}
+        registry = {"schema_version": "2.0", "explorations": []}
     explorations = registry.setdefault("explorations", [])
     digest = file_sha256(candidate)
     for existing in explorations:

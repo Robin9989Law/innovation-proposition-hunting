@@ -48,6 +48,64 @@ REQUIRED_AXES = (
 )
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
+# 新增检查码：默认 WARNING（不计入退出码），--strict-new-checks 升为 INVALID。
+NEW_CHECK_CODES = frozenset({"HOLLOW_COVERAGE_AXIS"})
+
+
+def issue_severity(code: str, strict_new_checks: bool) -> str:
+    if code in NEW_CHECK_CODES and not strict_new_checks:
+        return "WARNING"
+    return "INVALID"
+
+
+def validate_author_continuations(
+    value: Any, issues: list[Issue], strict_new_checks: bool
+) -> None:
+    """author_continuations 轴：每条边必须给出真实 shared_authors 交集。
+
+    引用链（A → B → C 的引文传递）不是作者续作；引用链应放入
+    method_lineage 轴。legacy 字符串条目无法核验交集，一律 HOLLOW。
+    """
+
+    severity = issue_severity("HOLLOW_COVERAGE_AXIS", strict_new_checks)
+    unavailable, detail = unavailable_capability(value)
+    if unavailable:
+        add(issues, "FRONTIER_CAPABILITY_UNAVAILABLE", "author_continuations", detail, "BLOCKED")
+        return
+    if not isinstance(value, list) or not value:
+        add(
+            issues,
+            "FRONTIER_AXIS_INVALID",
+            "author_continuations",
+            "nonempty_list_required",
+        )
+        return
+    for index, entry in enumerate(value):
+        item_id = f"author_continuations[{index}]"
+        if isinstance(entry, str):
+            add(
+                issues,
+                "HOLLOW_COVERAGE_AXIS",
+                item_id,
+                "legacy_string_entry_without_shared_authors",
+                severity,
+            )
+            continue
+        if not isinstance(entry, dict):
+            add(issues, "FRONTIER_AXIS_INVALID", item_id, "entry_must_be_object")
+            continue
+        if not nonempty_string(entry.get("edge")):
+            add(issues, "FRONTIER_AXIS_INVALID", item_id, "edge:missing_or_empty")
+        shared = entry.get("shared_authors")
+        if not string_list(shared):
+            add(
+                issues,
+                "HOLLOW_COVERAGE_AXIS",
+                item_id,
+                f"shared_authors:{shared if shared is not None else 'missing'}",
+                severity,
+            )
+
 
 def add(
     issues: list[Issue], code: str, item_id: str, detail: str, severity: str = "INVALID"
@@ -341,7 +399,9 @@ def unavailable_capability(axis: Any) -> tuple[bool, str]:
     return True, f"{name}:{reason}"
 
 
-def validate_coverage(payload: dict[str, Any]) -> list[Issue]:
+def validate_coverage(
+    payload: dict[str, Any], strict_new_checks: bool = False
+) -> list[Issue]:
     issues: list[Issue] = []
     if payload.get("schema_version") != "2.0":
         add(
@@ -359,6 +419,9 @@ def validate_coverage(payload: dict[str, Any]) -> list[Issue]:
             add(issues, "FRONTIER_AXIS_MISSING", axis_name, "axis_omitted")
             continue
         value = axes[axis_name]
+        if axis_name == "author_continuations":
+            validate_author_continuations(value, issues, strict_new_checks)
+            continue
         if string_list(value):
             continue
         unavailable, detail = unavailable_capability(value)
@@ -377,6 +440,15 @@ def validate_coverage(payload: dict[str, Any]) -> list[Issue]:
                 axis_name,
                 detail or "nonempty_string_list_required",
             )
+
+    # method_lineage：可选轴，承载引用链（从 author_continuations 拆出）。
+    if "method_lineage" in axes and not string_list(axes["method_lineage"]):
+        add(
+            issues,
+            "FRONTIER_AXIS_INVALID",
+            "method_lineage",
+            "nonempty_string_list_required_when_present",
+        )
 
     routes = payload.get("routes")
     valid_independent: list[dict[str, Any]] = []
@@ -433,6 +505,7 @@ def validate(
     literature: dict[str, Any],
     claims: dict[str, Any],
     coverage: dict[str, Any],
+    strict_new_checks: bool = False,
 ) -> list[Issue]:
     evidence_issues, claim_artifacts = validate_evidence_records(claims)
     audit = state.get("independent_audit")
@@ -441,7 +514,7 @@ def validate(
     return [
         *evidence_issues,
         *validate_importance_records(literature, claim_artifacts, author_agent_ids),
-        *validate_coverage(coverage),
+        *validate_coverage(coverage, strict_new_checks),
     ]
 
 
@@ -460,7 +533,10 @@ def _relative_error_detail(root: Path, error: Exception) -> str:
 
 
 def validate_with_context(
-    ctx: ProjectContext, *, paths: dict[str, Path] | None = None
+    ctx: ProjectContext,
+    *,
+    paths: dict[str, Path] | None = None,
+    strict_new_checks: bool = False,
 ) -> list[Issue]:
     """库入口：复用 ctx 已解析的 state 与 strict JSON 缓存。
 
@@ -502,6 +578,7 @@ def validate_with_context(
         payloads["near_neighbor_registry"],
         payloads["literature_claim_registry"],
         payloads["frontier_coverage"],
+        strict_new_checks,
     )
 
 
@@ -535,6 +612,7 @@ def main() -> int:
     parser.add_argument("--literature-registry", type=Path)
     parser.add_argument("--claim-registry", type=Path)
     parser.add_argument("--frontier-coverage", type=Path)
+    parser.add_argument("--strict-new-checks", action="store_true")
     args = parser.parse_args()
 
     root = args.root.absolute()
@@ -579,7 +657,13 @@ def main() -> int:
         with ctx:
             # 显式 CLI 覆盖参数优先；缺省保持固定的默认文件名（不读
             # state["artifacts"]），与历史 CLI 行为一致。
-            issues.extend(validate_with_context(ctx, paths=cli_paths))
+            issues.extend(
+                validate_with_context(
+                    ctx,
+                    paths=cli_paths,
+                    strict_new_checks=args.strict_new_checks,
+                )
+            )
     elif ctx is None and not root_failed:
         issues.extend(_collect_artifact_errors(root, cli_paths))
     print(render("frontier_integrity", issues))

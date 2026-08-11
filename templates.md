@@ -176,7 +176,8 @@ METHOD, ONLINE, PROTOCOL, EMPIRICAL, BASELINE, COMPLEXITY
           "command": "<exact command>",
           "exit_code": 0,
           "output_file": "theory_witnesses/nonzero_nuisance.txt",
-          "output_sha256": "<sha256>"
+          "output_sha256": "<sha256>",
+          "sensitivity_control": "<对照的 nuisance 参数取值，≥10 字符>"
         },
         {
           "kind": "BOUNDARY_OR_LIMIT",
@@ -194,7 +195,8 @@ METHOD, ONLINE, PROTOCOL, EMPIRICAL, BASELINE, COMPLEXITY
           "command": "<exact command>",
           "exit_code": 1,
           "output_file": "theory_witnesses/premise_removal.txt",
-          "output_sha256": "<sha256>"
+          "output_sha256": "<sha256>",
+          "mechanism": "<移除前提后命题为何失败的机制解释，≥20 字符>"
         },
         {
           "kind": "RANDOM_PROPERTY",
@@ -211,18 +213,33 @@ METHOD, ONLINE, PROTOCOL, EMPIRICAL, BASELINE, COMPLEXITY
 }
 ```
 
-若 `RANDOM_PROPERTY` 数学上不适用，删除该 witness，并在同一 obligation 加：
+见证咬合力（`WITNESS_NO_BITE`，默认 WARNING，`--strict-new-checks` 升 INVALID）：
+`PREMISE_REMOVAL` 的 `mechanism` 不得是构造性恒真表述（"by construction" /
+"trivially" / "by definition" / "恒真" 命中即报）；`NONZERO_NUISANCE` 的
+`sensitivity_control` 必须写明对照取值。命题含 `subclaims`（可选字符串列表）时，
+每条子规律必须被至少一个见证的 `addresses_subclaim` 字段（精确相等）认领，否则
+逐条报 `SUBCLAIM_WITNESS_GAP`。
+
+若 `RANDOM_PROPERTY` 数学上不适用，删除该 witness，并在同一 obligation 加
+（两阶段闭合，解除 V2 死锁）：
 
 ```json
 "random_property": {
   "status": "NOT_APPLICABLE",
   "mathematical_reason": "<non-empty exact reason>",
+  "proposed_by_author": true,
   "independent_audit_acceptance": {
     "accepted": true,
     "reviewer_agent_id": "<same current independent reviewer>"
   }
 }
 ```
+
+V2 作者提出豁免（`proposed_by_author: true` + 非空 `mathematical_reason`）即可
+推进，但未追认前 registry 保持未闭合（`RANDOM_PROPERTY_EXEMPTION_PENDING`，
+默认 WARNING，strict 升 INVALID）；V3 独立 reviewer 追认
+（`independent_audit_acceptance.accepted=true` 且 `reviewer_agent_id` 非空）后
+方算闭合。作者提出不是自我赦免。
 
 ## 4. `protocol_contract.json`
 
@@ -275,7 +292,11 @@ BATCH_PREDICT_THEN_UPDATE|BLOCK_PREDICT_THEN_UPDATE`；label
 
 ## 5. `baseline_budget.json`
 
-强、fair、matched-budget、same-budget 主张至少由一个 comparator 覆盖：
+只要 claim inventory 存在 ALGORITHM 类 claim，`baseline_budget.json` 必须存在且
+有效（`validate_baseline_budget.py`）。**不再依赖 "strong baseline"/"fair
+comparison" 等触发词**——回避措辞不能免除基线预算义务。每个 comparator 必须有
+非空唯一 `claim_ids` 且与 algorithm claims 有交集；所有 algorithm claims 必须
+被至少一个 comparator 覆盖：
 
 ```json
 {
@@ -326,6 +347,12 @@ BATCH_PREDICT_THEN_UPDATE|BLOCK_PREDICT_THEN_UPDATE`；label
 测试文件必须以静态 `TARGET_CLAIM_IDS` 精确声明它覆盖的 trace 集，并实际导入/调用
 绑定实现；PASS output 必须声明相同 target IDs、命令、测试路径和测试 hash。
 
+`SELF_ATTESTING_TEST`（默认 WARNING，`--strict-new-checks` 升 INVALID）对
+protocol `chronology_test` 与 trace 绑定测试做静态核验：模块级
+`TARGET_CLAIM_IDS` 字面量非空且与登记/绑定 claim_ids 有交集；AST 可证 import
+登记的实现模块（允许 `sys.path.insert` 后按 stem 导入）。只断言自身硬编码期望、
+不绑定任何 claim 的"检验脚本"属于自证（运动员兼裁判），不计入 claim 证据。
+
 ## 7. `frontier_coverage.json`
 
 ```json
@@ -336,7 +363,10 @@ BATCH_PREDICT_THEN_UPDATE|BLOCK_PREDICT_THEN_UPDATE`；label
     "target_tasks": ["<task>"],
     "theory_terms": ["<term>"],
     "algorithm_structures": ["<structure>"],
-    "author_continuations": ["<route/result>"],
+    "author_continuations": [
+      {"edge": "<work A → work B>", "shared_authors": ["<真实交集作者>"]}
+    ],
+    "method_lineage": ["<route/result>"],
     "backward_citations": ["<route/result>"],
     "forward_citations": ["<route/result>"]
   },
@@ -362,6 +392,11 @@ BATCH_PREDICT_THEN_UPDATE|BLOCK_PREDICT_THEN_UPDATE`；label
 ```json
 {"status":"BLOCKED","capability":{"name":"<capability>","available":false,"reason":"<reason>"}}
 ```
+
+`author_continuations` 只收**作者续作边**：每条边必须给出 `shared_authors`
+（两端 work 的真实作者交集，非空）。空交集或 legacy 字符串条目报
+`HOLLOW_COVERAGE_AXIS`。引用链（A → B → C 的引文传递，无作者交集）不是
+作者续作，放入可选轴 `method_lineage`。
 
 ## 8. `audit_manifest.json`
 
@@ -452,3 +487,33 @@ post-compute claim inventory/bundle，完成 `FINAL_VALIDITY_AUDIT`；旧 pointe
 - validator exit: READY / INVALID / BLOCKED / MIGRATION_REQUIRED
 - unique next action: <one action>
 ```
+
+## 12. `exploration_registry.json`
+
+S0-SCREEN 之前（`gates.compute_authorized=false`）只允许不产生数值输出的文献
+筛查。任何数值预实验产物（脚本、扫描结果、报告）必须当天登记为**永久探索级**，
+否则报 `UNREGISTERED_COMPUTE_ARTIFACT`。登记入口：`iph register-exploration
+--path <相对路径> --desc <说明>`（改动产物后必须重新登记，否则
+`EXPLORATION_ARTIFACT_STALE`）。
+
+```json
+{
+  "schema_version": "2.0",
+  "explorations": [
+    {
+      "id": "exp-001",
+      "path": "s0_delta2_report.md",
+      "sha256": "<sha256 of UTF-8 file>",
+      "registered_at": "<ISO-8601 UTC>",
+      "data_role": "EXPLORATION_PERMANENT",
+      "description": "<非空：探索内容与结论性质>"
+    }
+  ]
+}
+```
+
+登记产物的显著数字 token（小数，有效位 ≥3）不得出现在任何冻结工件（根级
+Markdown、claim 相关 JSON、manuscript）中，即使注明"探索"也不行——冻结工件
+只允许定性转述。违反报 `EXPLORATION_LEAK`（`validate_exploration_firewall.py`）。
+有 E1/E2 出处的文献数字（出现在 `near_neighbor_registry.json` /
+`literature_claim_registry.json` 中的 token）豁免，因为其 provenance 独立。

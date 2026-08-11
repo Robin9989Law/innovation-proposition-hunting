@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from tests.helpers import (
+    REPOSITORY_ROOT,
     load_json,
     make_valid_project,
     run_all_validator,
@@ -286,6 +287,110 @@ class FrontierIntegrityTests(unittest.TestCase):
         self.assertEqual(1, result.returncode, result.stdout + result.stderr)
         self.assertIn("=== frontier_integrity ===", result.stdout)
         self.assertIn("FRONTIER_AXIS_MISSING", result.stdout)
+
+
+class HollowCoverageAxisTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp, self.project = make_valid_project()
+        write_json(
+            self.project / "near_neighbor_registry.json",
+            {
+                "records": [
+                    {
+                        "registry_id": "W-0001",
+                        "importance": "IMPORTANT",
+                        "importance_history": [
+                            {
+                                "importance": "IMPORTANT",
+                                "at": "2026-08-01T00:00:00Z",
+                                "reason": "Direct near neighbor.",
+                            }
+                        ],
+                        "download": {"status": "FULLTEXT_ARCHIVED"},
+                        "reclassifications": [],
+                    }
+                ]
+            },
+        )
+        write_json(
+            self.project / "literature_claim_registry.json",
+            {
+                "records": [
+                    {
+                        "claim_id": "LC-0001",
+                        "source_registry_id": "W-0001",
+                        "evidence_level": "E2",
+                        "source_artifact_id": "FT-W-0001",
+                        "source_artifact_kind": "FULL_ARTICLE_PDF",
+                        "locator": {"page": "7"},
+                    }
+                ]
+            },
+        )
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def run_frontier(self, *extra: str):
+        return run_script("validate_frontier_integrity.py", self.project, extra)
+
+    def set_author_continuations(self, value) -> None:
+        coverage = load_json(self.project / "frontier_coverage.json")
+        coverage["axes"]["author_continuations"] = value
+        write_json(self.project / "frontier_coverage.json", coverage)
+
+    def test_structured_edges_with_shared_authors_are_clean(self) -> None:
+        result = self.run_frontier()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertNotIn("HOLLOW_COVERAGE_AXIS", result.stdout)
+
+    def test_legacy_string_entries_warn_by_default(self) -> None:
+        self.set_author_continuations(["碳感知链：A → B → C"])
+        result = self.run_frontier()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("WARNING\tHOLLOW_COVERAGE_AXIS", result.stdout)
+        self.assertIn("legacy_string_entry_without_shared_authors", result.stdout)
+
+    def test_legacy_string_entries_invalid_in_strict(self) -> None:
+        self.set_author_continuations(["碳感知链：A → B → C"])
+        result = self.run_frontier("--strict-new-checks")
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        self.assertIn("INVALID\tHOLLOW_COVERAGE_AXIS", result.stdout)
+
+    def test_object_with_empty_shared_authors_is_hollow(self) -> None:
+        self.set_author_continuations([{"edge": "W-1 → W-2", "shared_authors": []}])
+        result = self.run_frontier()
+        self.assertIn("WARNING\tHOLLOW_COVERAGE_AXIS", result.stdout)
+        self.assertIn("shared_authors:[]", result.stdout)
+
+    def test_object_missing_shared_authors_is_hollow(self) -> None:
+        self.set_author_continuations([{"edge": "W-1 → W-2"}])
+        result = self.run_frontier()
+        self.assertIn("WARNING\tHOLLOW_COVERAGE_AXIS", result.stdout)
+        self.assertIn("shared_authors:missing", result.stdout)
+
+    def test_method_lineage_optional_axis(self) -> None:
+        coverage = load_json(self.project / "frontier_coverage.json")
+        coverage["axes"]["method_lineage"] = ["A → B → C（引用链）"]
+        write_json(self.project / "frontier_coverage.json", coverage)
+        result = self.run_frontier()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+        coverage["axes"]["method_lineage"] = {"not": "a list"}
+        write_json(self.project / "frontier_coverage.json", coverage)
+        result = self.run_frontier()
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        self.assertIn("FRONTIER_AXIS_INVALID\tmethod_lineage", result.stdout)
+
+    def test_incident_fixture_reports_three_hollow_edges(self) -> None:
+        incident = REPOSITORY_ROOT / "tests" / "fixtures" / "incident-2026-08"
+        result = run_script("validate_frontier_integrity.py", incident)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual(3, result.stdout.count("WARNING\tHOLLOW_COVERAGE_AXIS"))
+        strict = run_script(
+            "validate_frontier_integrity.py", incident, ("--strict-new-checks",)
+        )
+        self.assertEqual(1, strict.returncode, strict.stdout + strict.stderr)
 
 
 if __name__ == "__main__":
