@@ -161,6 +161,165 @@ class AdvanceTests(unittest.TestCase):
             self.assertEqual("NONE", state["active_contribution"])
 
 
+    def prepare_layer_decision(self, project) -> None:
+        """把 fixture 摆到合法的 LAYER_DECISION（gates/artifacts/决策记录齐全）。"""
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = "LAYER_DECISION"
+        state["resume_state"] = "LAYER_DECISION"
+        state["active_contribution"] = "NONE"
+        state["recent_window"] = {
+            "start_year": 2024,
+            "end_year": 2026,
+            "status": "COMPLETE",
+            "snapshot_mode": "NEW_SEARCH",
+        }
+        for gate in (
+            "scope_locked",
+            "prior_claims_drained",
+            "recent_frontier_complete",
+            "literature_registry_valid",
+            "l1_frozen",
+            "k_set_selected",
+        ):
+            state["gates"][gate] = True
+        state["artifacts"] = {
+            "scope_lock": "scope_lock.md",
+            "hierarchy_status": "hierarchy_status.md",
+            "literature_registry": "near_neighbor_registry.json",
+            "claim_registry": "literature_claim_registry.json",
+            "l1_card": "l1-card.md",
+            "k_triage": "l2-triage.md",
+            "l2_card": "l2-card.md",
+            "contribution_architecture": "contribution_architecture.md",
+        }
+        state["decision_log"] = [
+            {"at": f"2026-08-10T0{index}:00:00Z", "state": name, "action": "done"}
+            for index, name in enumerate(
+                [
+                    "SCOPE_LOCK",
+                    "PRIOR_CLAIM_DRAIN",
+                    "RECENT_FRONTIER",
+                    "LITERATURE_REGISTER",
+                    "L1_FREEZE",
+                    "L2_TRIAGE",
+                ]
+            )
+        ]
+        write_json(project / "workflow_state.json", state)
+        for name in (
+            "scope_lock.md",
+            "hierarchy_status.md",
+            "l1-card.md",
+            "l2-card.md",
+            "contribution_architecture.md",
+        ):
+            (project / name).write_text(f"# {name}\n", encoding="utf-8")
+        write_json(
+            project / "near_neighbor_registry.json",
+            {
+                "records": [],
+                "peer_reviewed_published_count": 0,
+                "search_mode": "SEARCH_OPEN",
+                "synthesis_lock_threshold": 100,
+            },
+        )
+        write_json(project / "literature_claim_registry.json", {"records": []})
+
+    def test_advance_strict_l2_to_l3_with_atomic_contribution(self) -> None:
+        # 真实缺口场景：严格模式（前+后校验）跨越 L2/L3 边界
+        temporary_directory, project = make_valid_project(validity_level="V0")
+        with temporary_directory:
+            self.prepare_layer_decision(project)
+            completed = run_iph(
+                project,
+                "advance",
+                "--to",
+                "K_FULLTEXT",
+                "--note",
+                "L2 frozen, enter K fulltext",
+                "--set-gate",
+                "l2_frozen=true",
+                "--set-gate",
+                "architecture_frozen=true",
+            )
+            self.assertEqual(0, completed.returncode, completed.stdout)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("K_FULLTEXT", state["active_state"])
+            self.assertEqual("M", state["active_contribution"])
+
+    def test_advance_rejects_explicit_invalid_contribution_for_journal(self) -> None:
+        # 显式指定非法贡献必须拒绝，不得静默改写为 M
+        temporary_directory, project = make_valid_project(validity_level="V0")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "LAYER_DECISION"
+            state["resume_state"] = "LAYER_DECISION"
+            state["active_contribution"] = "NONE"
+            write_json(project / "workflow_state.json", state)
+            completed = run_iph(
+                project,
+                "advance",
+                "--to",
+                "K_FULLTEXT",
+                "--note",
+                "wrong contribution",
+                "--contribution",
+                "A",
+                "--no-validate",
+            )
+            self.assertNotEqual(0, completed.returncode, completed.stdout)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("LAYER_DECISION", state["active_state"])
+            self.assertEqual("NONE", state["active_contribution"])
+
+    def test_advance_dissertation_requires_explicit_contribution(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V0")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["output_type"] = "DOCTORAL_DISSERTATION"
+            state["contribution_contract"] = "THREE_ORGANIC_A_B_C"
+            state["active_state"] = "LAYER_DECISION"
+            state["resume_state"] = "LAYER_DECISION"
+            state["active_contribution"] = "NONE"
+            write_json(project / "workflow_state.json", state)
+            completed = run_iph(
+                project,
+                "advance",
+                "--to",
+                "K_FULLTEXT",
+                "--note",
+                "missing contribution",
+                "--no-validate",
+            )
+            self.assertNotEqual(0, completed.returncode, completed.stdout)
+
+    def test_advance_dissertation_accepts_explicit_contribution(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V0")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["output_type"] = "DOCTORAL_DISSERTATION"
+            state["contribution_contract"] = "THREE_ORGANIC_A_B_C"
+            state["active_state"] = "LAYER_DECISION"
+            state["resume_state"] = "LAYER_DECISION"
+            state["active_contribution"] = "NONE"
+            write_json(project / "workflow_state.json", state)
+            completed = run_iph(
+                project,
+                "advance",
+                "--to",
+                "K_FULLTEXT",
+                "--note",
+                "enter L3 with contribution A",
+                "--contribution",
+                "A",
+                "--no-validate",
+            )
+            self.assertEqual(0, completed.returncode, completed.stdout)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("K_FULLTEXT", state["active_state"])
+            self.assertEqual("A", state["active_contribution"])
+
+
 class RegisterExplorationTests(unittest.TestCase):
     def test_register_and_update(self) -> None:
         temporary_directory, project = make_valid_project()

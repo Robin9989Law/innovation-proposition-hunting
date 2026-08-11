@@ -150,11 +150,9 @@ def cmd_advance(args: argparse.Namespace) -> int:
     state = json.loads(state_path.read_text(encoding="utf-8"))
     previous_state = state.get("active_state")
 
-    # schema 3.0 derives the evidence tier from active_state.  A strict
-    # LAYER_DECISION -> K_FULLTEXT transition therefore has to change the
-    # contribution in the same atomic write: pre-validation requires NONE at
-    # L2, while post-validation requires M (journal) or A/B/C (dissertation)
-    # at L3.  Re-entry to L1/L2 symmetrically clears the active contribution.
+    # schema 3.0 起证据层级由 active_state 派生：LAYER_DECISION -> K_FULLTEXT
+    # 的严格推进必须在同一次原子写入中切换贡献——前校验要求 L2 为 NONE，
+    # 后校验要求 L3 为 M（期刊）或 A/B/C（博士）。返回 L1/L2 时对称清回 NONE。
     requested_contribution = args.contribution
     if target not in {"BLOCKED", "COMPLETE"}:
         target_tier = evidence_tier(target)
@@ -174,7 +172,12 @@ def cmd_advance(args: argparse.Namespace) -> int:
                 else set()
             )
             contribution = requested_contribution or state.get("active_contribution")
-            if contribution not in allowed and output_type == "JOURNAL_ARTICLE":
+            # 期刊未显式指定时默认 M；显式指定的非法选择必须拒绝，不得静默改写。
+            if (
+                requested_contribution is None
+                and contribution not in allowed
+                and output_type == "JOURNAL_ARTICLE"
+            ):
                 contribution = "M"
             if contribution not in allowed:
                 raise SystemExit(
