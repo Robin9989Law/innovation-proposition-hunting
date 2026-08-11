@@ -588,3 +588,9 @@ Markdown、claim 相关 JSON、manuscript）中，即使注明"探索"也不行�
 缺少该 artifact 时，校验器为防止静默放宽，继续按全注册表计数。复用已有研究
 目录或开启新碰撞时，应在进入 `RECENT_FRONTIER` 前创建当前轮次的 scope，并在
 state `artifacts.current_evidence_scope` 中登记。
+
+scope 文件可按阶段演进：新碰撞以空 scope 开始；K 全文门后换入列有本轮全文的
+scope，K 观点门后再换入完整 scope——通过重指 `artifacts.current_evidence_scope`
+实现（如 `current_evidence_scope_k_fulltext.json` → `_k_claims.json`）。历史
+scope 文件保留不删，作为本轮取证轨迹的审计证据；每个被指向的 scope 仍须通过
+全部一致性校验（轮次匹配、ID 存在、全文已归档）。

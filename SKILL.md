@@ -131,6 +131,12 @@ L1/L2 阶段就批量下载全文、批量注册原子观点，等于在不知�
 
 预印本只能形成威胁并保持开放，不能单独产生终局 N0-1/N0-2。
 
+N0-1/N0-2 是**合法终局**，不是失败状态：裁决落定后项目停留在 `N0_AUDIT`，
+decision_log 记录裁决、占据/可推导证据与处置（关闭、吸收或降级去向），负结果
+产物（碰撞综合、机械推导审计、改写后的管理推论）保留在册，
+`next_required_action` 写明终局去向。不得为抵达 `COMPLETE` 而硬撑候选、补做
+无关计算或把 N0-2 包装成 N0-4C——`COMPLETE` 只属于 FINAL_LOCK 路径。
+
 ### 3.2 有效性轴
 
 ```text
@@ -330,6 +336,7 @@ INVALID（§9）。
 | R-BASELINE-12 | ALGORITHM 类 claim 存在即必须有 baseline_budget；comparator.claim_ids 与 algorithm claims 求交，无触发词门控 | §4、templates §5 |
 | R-LAYER-13 | 主线是 L1→L2→L3 逐层构建，证据深度按层供给；全局注册表保留历史，本轮预算由 `current_evidence_scope.json` 计费；原子观点机器只服务 L3 候选集（K 集合），超层取证报 `EVIDENCE_DEPTH_EXCEEDS_LAYER` | §3.1 |
 | R-SKILL-14 | 项目 agent 修改技能仓库后必须提交、测试全绿、文档同步且风格一致；留未提交半成品或红测试即流程违规 | §12 |
+| R-CLOSE-15 | N0-1/N0-2 是合法终局：停留 `N0_AUDIT`、decision_log 记录裁决与处置、负结果产物保留在册；不得为抵达 COMPLETE 硬撑候选或包装等级 | §3.1 |
 
 ## 12. 修改技能仓库的自律规则
 
