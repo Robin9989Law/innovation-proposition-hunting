@@ -546,8 +546,8 @@ decision_log 记明。
 
 ### 7.9 K 集合全文归档（`K_FULLTEXT`）
 
-只对 K 集合中的文献（LAYER_DECISION 冻结 K 集合之后运行，不是全部
-CRITICAL/IMPORTANT）：
+只对 K 集合中的文献（L2_TRIAGE 选拔、LAYER_DECISION 冻结 L2 与架构之后
+运行，不是全部 CRITICAL/IMPORTANT）：
 
 1. 合法下载 PDF 或官方 HTML；
 2. 核对文件内题名、作者和版本；
