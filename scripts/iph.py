@@ -3,8 +3,9 @@
 
 状态推进的标准入口：先校验，再由工具记账（真实 UTC 时间戳 + 本状态产物
 SHA-256 登记 + validation.log），最后原子写回 workflow_state.json。
-agent 不得再手工编辑 gates / decision_log / validation.log —— 手改会触发
-validate_workflow_state 的 STALE_DECISION_ARTIFACT / 时间完整性检查。
+agent 不得再手工编辑 gates / decision_log / validation.log / active_track ——
+手改会触发 validate_workflow_state 的 STALE_DECISION_ARTIFACT /
+时间完整性 / TRACK_STATE_MISMATCH 检查。
 
 子命令：
   validate                运行完整校验套件（当前转发 validate_all.py）
@@ -35,9 +36,19 @@ from validation_common import (  # noqa: E402
     file_sha256,
     nonempty_string,
 )
-from validate_workflow_state import GATE_KEYS, STATES  # noqa: E402
+from validate_workflow_state import (  # noqa: E402
+    GATE_KEYS,
+    STATES,
+    TRACK_STATES,
+)
 
 GATE_BOOL = {"true": True, "false": False}
+
+# 目标状态 -> 所属轴。TRACK_STATES 是分区；BLOCKED/COMPLETE 不属于任何轴，
+# 推进到它们时保持 active_track 不变（BLOCKED 需记住原轴以便 resume）。
+STATE_TO_TRACK = {
+    state: track for track, states in TRACK_STATES.items() for state in states
+}
 
 
 def utc_now() -> str:
@@ -150,6 +161,11 @@ def cmd_advance(args: argparse.Namespace) -> int:
     if previous_state != target and previous_state in STATES:
         state["last_completed_state"] = previous_state
     state["active_state"] = target
+    # active_track 与目标状态同轴（TRACK_STATE_MISMATCH 的预防侧）：
+    # 目标状态唯一属于某一轴时工具直接记账，agent 不再手工维护该字段。
+    track = STATE_TO_TRACK.get(target)
+    if track is not None:
+        state["active_track"] = track
     state["updated_at"] = now
     gates = state.setdefault("gates", {})
     for key, value in gate_updates.items():

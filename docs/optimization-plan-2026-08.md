@@ -184,3 +184,54 @@ v1 的 P1–P8 与上述 A–F 高度同根，合并为六个工作流（W1–W6
 `active_track` 可从 `active_state` 经 `TRACK_STATES` 逆映射推导；两者本质是派生
 数据，3.0 时改为校验器内派生、state 不再持久化。2.x 内删除会破坏 schema 必填
 枚举检查与 `iph handover` 输出，故保留。
+
+## 第六部分：事故项目完整运行的复盘（2026-08-11，旧技能全流程跑完后）
+
+算电协同项目用**重构前**的技能跑完了全流程（BOOT → FINAL_LOCK，约 13 小时，
+epoch 1→3）。用重构后的校验套件复跑其最终状态，实命中 6 类错误码，
+每一条都对应一次已发生的真实失守——重构的靶心全部命中：
+
+| 实命中错误码 | 事故项目里的原形 | 重构后的处置 |
+| --- | --- | --- |
+| `EVIDENCE_DEPTH_EXCEEDS_LAYER` ×2 | 38 篇全文归档、128 条原子观点全部在 L2 冻结**之前**完成 | R-LAYER-13 分层预算（检测）；状态机重排才能根治（见下） |
+| `DECISION_LOG_NON_MONOTONIC` ×3 | 事后补录的 LITERATURE_REGISTER/EVIDENCE_VALIDATE/epoch-2 条目乱序插回 | `iph advance` 实时记账（预防）+ 时间完整性检查（检测） |
+| `DECISION_LOG_AFTER_STATE_WRITE` ×1 | 条目时间戳晚于 state 文件 mtime（补录铁证） | 同上 |
+| `TRACK_STATE_MISMATCH` | COMPUTE 结束后 `active_track` 滞留 COMPUTE 到 FINAL_LOCK | `iph advance` 按 `TRACK_STATES` 逆映射自动同步（2026-08-11 补，预防） |
+| `HOLLOW_COVERAGE_AXIS` ×3 | `author_continuations` 还是 legacy 字符串条目，无共享作者证据 | 检查已在；项目数据需按新格式重做作者延续核验 |
+
+量化证据（支撑主次重排）：
+
+- 128 条提取的原子观点中，output_claim_support 实际引用 **34 条（27%）**；
+  其余 ~73% 的提取算力（6 个并行代理 × 28 篇全文）是纯浪费。
+- 用户手动机构下载 28 篇付费全文；若按分层预算，L1 阶段 0 篇、L2 ≤12 篇，
+  手动下载量可减半以上，且 IMPORTANT_FULLTEXT 阻塞（16:05–18:40）根本不会发生在 L1。
+- epoch-2 重建（CLAIM_FREEZE→INDEPENDENT_REVIEW 整轮）的诱因是
+  baseline_budget comparator 未覆盖算法 claim、直到 COMPUTE 门才暴露；
+  重构后 `validate_baseline_budget` 在 VALIDITY_AUDIT 即强制覆盖检查，
+  该轮重建可直接避免。
+
+运行同时**证明做对了的部分**（不要动）：epoch 失效协议两次正确触发
+（material change → epoch+1 → 重审）；规律 4 被 S3 证伪后修正为鲁棒性陈述
+并升 epoch 3（可证伪机制实战有效）；独立复核真实 REJECT 过一次
+（过期 sha256）后修复复验 PASS；终审逐字节复算了计算证据链。
+
+### 遗留的结构性冲突（唯一需要决策的项）
+
+状态机顺序未动（向后兼容），但 R-LAYER-13 预算与之存在硬冲突：
+`important_fulltext_complete` 门要求**全部** IMPORTANT 全文归档后才允许
+`source_claims_complete`，而这两个状态都在 LAYER_DECISION（L2 冻结）**之前**。
+也就是说，只要 IMPORTANT 文献 >12 篇，遵守状态机就必然违反 L2 预算——
+事故项目 36 篇 CRITICAL/IMPORTANT，两个要求不可能同时满足。当前靠
+`EVIDENCE_DEPTH_EXCEEDS_LAYER` 默认 WARNING 级别容忍，strict 模式下
+每个合规项目都会误报。
+
+候选解（schema 3.0 议题，待用户拍板后实施）：
+
+1. **门改层感知**（小改）：`important_fulltext_complete` 重新定义为
+   "K 集合（碰撞综合实际引用的近邻）全文完成"，校验器核对 K 集合与注册表
+   计数一致；NOVELTY 轴各状态只要求元数据注册，全文/观点提取推迟到
+   LAYER_DECISION 之后的 L3 证据阶段。
+2. **状态机重排**（大改）：L1_SCOUT / L2_TRIAGE / L3_EVIDENCE 三段式，
+   原 IMPORTANT_FULLTEXT/SOURCE_CLAIM_REGISTER 降级为 L3_EVIDENCE 的子活动。
+
+两者都需 schema 3.0 与迁移脚本；本方案不擅自实施。
