@@ -422,6 +422,12 @@ protocol `chronology_test` 与 trace 绑定测试做静态核验：模块级
 `HOLLOW_COVERAGE_AXIS`。引用链（A → B → C 的引文传递，无作者交集）不是
 作者续作，放入可选轴 `method_lineage`。
 
+旧项目的 legacy 字符串条目用 `scripts/migrate_frontier_coverage.py` 半自动迁移：
+逐段在近邻注册表核验姓氏与年份，相邻 work 作者交集全部非空才改写为实名边；
+核验不了的字符串原样降级到 `method_lineage`，绝不编造交集。先 `--dry-run`
+审阅计划再落盘；迁移自动生成排他备份。迁移后若本轴为空，须人工补真实
+核验过的续作边（脚本不伪造）。
+
 ## 8. `audit_manifest.json`
 
 profile 决定 entry roles：THEORY 至少含 `CLAIM_INVENTORY, MANUSCRIPT,

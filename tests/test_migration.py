@@ -546,3 +546,195 @@ class MigrateV2ToV3Tests(unittest.TestCase):
             )
             self.assertNotIn("MIGRATION_REQUIRED", schema_check.stdout)
             self.assertNotIn("LEGACY_FIELD_REMOVED", schema_check.stdout)
+
+
+def load_frontier_migration_module():
+    module_path = REPOSITORY_ROOT / "scripts" / "migrate_frontier_coverage.py"
+    spec = importlib.util.spec_from_file_location(
+        "frontier_migration_under_test", module_path
+    )
+    if spec is None or spec.loader is None:
+        raise AssertionError(f"cannot load migration module: {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+FRONTIER_WORKS = [
+    {
+        "registry_id": "W-A",
+        "authors": ["Alice Smith", "Bob Jones"],
+        "year": 2023,
+    },
+    {
+        "registry_id": "W-B",
+        "authors": ["Carol Smith", "Bob Jones"],
+        "year": 2024,
+    },
+    {
+        "registry_id": "W-C",
+        "authors": ["Dave Lee", "Eve Wang"],
+        "year": 2025,
+    },
+]
+
+
+def frontier_coverage(entries):
+    return {
+        "schema_version": "1.0",
+        "axes": {
+            "author_continuations": entries,
+            "backward_citations": ["route"],
+            "forward_citations": ["route"],
+        },
+        "routes": [],
+    }
+
+
+class FrontierCoverageMigrationTests(unittest.TestCase):
+    module = load_frontier_migration_module()
+
+    def migrate(self, coverage, works=FRONTIER_WORKS):
+        return self.module.migrate_payload(coverage, works)
+
+    def test_verifiable_chain_converts_to_named_edges(self) -> None:
+        coverage = frontier_coverage(["Smith TPWRS 2023 → Smith MASCOTS 2024"])
+        migrated, summary, changed = self.migrate(coverage)
+        self.assertTrue(changed)
+        entries = migrated["axes"]["author_continuations"]
+        self.assertEqual(1, len(entries))
+        self.assertEqual("W-A → W-B", entries[0]["edge"])
+        self.assertEqual(["Bob Jones"], entries[0]["shared_authors"])
+        self.assertNotIn("method_lineage", migrated["axes"])
+        self.assertTrue(any(line.startswith("converted:") for line in summary))
+
+    def test_empty_intersection_demotes_to_method_lineage(self) -> None:
+        coverage = frontier_coverage(["Smith TPWRS 2023 → Lee Energy 2025"])
+        migrated, summary, changed = self.migrate(coverage)
+        self.assertTrue(changed)
+        self.assertEqual([], migrated["axes"]["author_continuations"])
+        self.assertEqual(
+            ["Smith TPWRS 2023 → Lee Energy 2025"],
+            migrated["axes"]["method_lineage"],
+        )
+        self.assertTrue(any("author_continuations 为空" in line for line in summary))
+
+    def test_ambiguous_segment_demotes(self) -> None:
+        works = FRONTIER_WORKS + [
+            {"registry_id": "W-D", "authors": ["Frank Smith"], "year": 2023}
+        ]
+        coverage = frontier_coverage(["Smith TPWRS 2023 → Smith MASCOTS 2024"])
+        migrated, _, changed = self.migrate(coverage, works)
+        self.assertTrue(changed)
+        self.assertEqual([], migrated["axes"]["author_continuations"])
+        self.assertEqual(
+            ["Smith TPWRS 2023 → Smith MASCOTS 2024"],
+            migrated["axes"]["method_lineage"],
+        )
+
+    def test_dict_entries_kept_and_strings_dedup_into_lineage(self) -> None:
+        coverage = frontier_coverage(
+            [
+                {"edge": "W-A → W-B", "shared_authors": ["Bob Jones"]},
+                "Smith TPWRS 2023 → Lee Energy 2025",
+            ]
+        )
+        coverage["axes"]["method_lineage"] = ["Smith TPWRS 2023 → Lee Energy 2025"]
+        migrated, _, changed = self.migrate(coverage)
+        self.assertTrue(changed)
+        self.assertEqual(
+            [{"edge": "W-A → W-B", "shared_authors": ["Bob Jones"]}],
+            migrated["axes"]["author_continuations"],
+        )
+        self.assertEqual(
+            ["Smith TPWRS 2023 → Lee Energy 2025"],
+            migrated["axes"]["method_lineage"],
+        )
+
+    def test_no_legacy_strings_is_noop(self) -> None:
+        coverage = frontier_coverage(
+            [{"edge": "W-A → W-B", "shared_authors": ["Bob Jones"]}]
+        )
+        _, summary, changed = self.migrate(coverage)
+        self.assertFalse(changed)
+        self.assertEqual(["无 legacy 字符串条目：无需迁移"], summary)
+
+    def test_cli_in_place_writes_backup_and_result(self) -> None:
+        with TemporaryDirectory(prefix="frontier-migration-") as directory:
+            project = Path(directory)
+            write_json(
+                project / "frontier_coverage.json",
+                frontier_coverage(["Smith TPWRS 2023 → Smith MASCOTS 2024"]),
+            )
+            write_json(
+                project / "near_neighbor_registry.json",
+                {"works": FRONTIER_WORKS},
+            )
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(REPOSITORY_ROOT / "scripts" / "migrate_frontier_coverage.py"),
+                    "--root",
+                    str(project),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+            migrated = load_json(project / "frontier_coverage.json")
+            self.assertEqual(
+                "W-A → W-B",
+                migrated["axes"]["author_continuations"][0]["edge"],
+            )
+            backups = list(project.glob("frontier_coverage.json.legacy-backup-*"))
+            self.assertEqual(1, len(backups))
+            # 再跑一次：无 legacy 条目，保持幂等、不产生第二个备份
+            completed2 = subprocess.run(
+                [
+                    sys.executable,
+                    str(REPOSITORY_ROOT / "scripts" / "migrate_frontier_coverage.py"),
+                    "--root",
+                    str(project),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(0, completed2.returncode)
+            self.assertIn("无需迁移", completed2.stdout)
+            self.assertEqual(
+                1, len(list(project.glob("frontier_coverage.json.legacy-backup-*")))
+            )
+
+    def test_cli_dry_run_does_not_write(self) -> None:
+        with TemporaryDirectory(prefix="frontier-migration-dry-") as directory:
+            project = Path(directory)
+            coverage_path = project / "frontier_coverage.json"
+            write_json(
+                coverage_path,
+                frontier_coverage(["Smith TPWRS 2023 → Smith MASCOTS 2024"]),
+            )
+            write_json(
+                project / "near_neighbor_registry.json",
+                {"works": FRONTIER_WORKS},
+            )
+            before = coverage_path.read_bytes()
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(REPOSITORY_ROOT / "scripts" / "migrate_frontier_coverage.py"),
+                    "--root",
+                    str(project),
+                    "--dry-run",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(0, completed.returncode, completed.stdout)
+            self.assertIn("dry-run", completed.stdout)
+            self.assertEqual(before, coverage_path.read_bytes())
+            self.assertEqual(
+                [], list(project.glob("frontier_coverage.json.legacy-backup-*"))
+            )
