@@ -323,3 +323,21 @@ INVALID（§9）。
 | R-FRONTIER-11 | 前沿七轴缺一不可；作者续作边须真实 `shared_authors`（`HOLLOW_COVERAGE_AXIS`），引用链放 `method_lineage` | §7、templates §7 |
 | R-BASELINE-12 | ALGORITHM 类 claim 存在即必须有 baseline_budget；comparator.claim_ids 与 algorithm claims 求交，无触发词门控 | §4、templates §5 |
 | R-LAYER-13 | 主线是 L1→L2→L3 逐层构建，证据深度按层供给；全局注册表保留历史，本轮预算由 `current_evidence_scope.json` 计费；原子观点机器只服务 L3 候选集（K 集合），超层取证报 `EVIDENCE_DEPTH_EXCEEDS_LAYER` | §3.1 |
+| R-SKILL-14 | 项目 agent 修改技能仓库后必须提交、测试全绿、文档同步且风格一致；留未提交半成品或红测试即流程违规 | §12 |
+
+## 12. 修改技能仓库的自律规则
+
+项目 agent 在实战中允许修改本技能仓库（修 bug、补检查、加迁移助手），但修改
+按技能自身的工程纪律执行（2026-08 三项目实战复盘的教训：某 agent 留下未提交
+的功能半成品与风格不一的英文 docstring，靠人工评审兜底才收敛）：
+
+- **不留未提交改动**：修改完成后必须 commit 并推送（或明确移交用户处理）；
+  工作区残留半成品即流程违规，下一个续跑者不得在此基础上继续。
+- **测试全绿是提交门槛**：`python3 -m pytest tests/ -q` 全过才可提交；红测试
+  不得进入 main。
+- **文档同步同 commit**：行为变更必须在同一提交内更新 SKILL.md、templates.md
+  及相关资源文件；实现、测试、文档不齐视为未完成。
+- **风格跟随所在文件**：docstring、注释、段落的语言与格式跟既有内容一致
+  （本仓库正文为中文），不引入新风格。
+- **动机留痕**：commit message 写明是哪个项目实战暴露的问题、修复策略与
+  已知残余风险，便于后续审计。
