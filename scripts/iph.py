@@ -150,6 +150,39 @@ def cmd_advance(args: argparse.Namespace) -> int:
     state = json.loads(state_path.read_text(encoding="utf-8"))
     previous_state = state.get("active_state")
 
+    # schema 3.0 derives the evidence tier from active_state.  A strict
+    # LAYER_DECISION -> K_FULLTEXT transition therefore has to change the
+    # contribution in the same atomic write: pre-validation requires NONE at
+    # L2, while post-validation requires M (journal) or A/B/C (dissertation)
+    # at L3.  Re-entry to L1/L2 symmetrically clears the active contribution.
+    requested_contribution = args.contribution
+    if target not in {"BLOCKED", "COMPLETE"}:
+        target_tier = evidence_tier(target)
+        if target_tier in {"L1", "L2"}:
+            if requested_contribution not in {None, "NONE"}:
+                raise SystemExit(
+                    f"{target} 属于 {target_tier}，active_contribution 必须为 NONE"
+                )
+            state["active_contribution"] = "NONE"
+        else:
+            output_type = state.get("output_type")
+            allowed = (
+                {"M"}
+                if output_type == "JOURNAL_ARTICLE"
+                else {"A", "B", "C"}
+                if output_type == "DOCTORAL_DISSERTATION"
+                else set()
+            )
+            contribution = requested_contribution or state.get("active_contribution")
+            if contribution not in allowed and output_type == "JOURNAL_ARTICLE":
+                contribution = "M"
+            if contribution not in allowed:
+                raise SystemExit(
+                    "进入 L3 必须用 --contribution 选择合法贡献；"
+                    f"output_type={output_type}, allowed={sorted(allowed)}"
+                )
+            state["active_contribution"] = contribution
+
     # 2. 状态迁移
     if target == "BLOCKED":
         reasons = [r for r in (args.blocked_reason or []) if r.strip()]
@@ -375,6 +408,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--note", required=True)
     p.add_argument("--set-gate", action="append", metavar="key=true|false")
     p.add_argument("--artifact", action="append", metavar="PATH")
+    p.add_argument(
+        "--contribution",
+        choices=["NONE", "M", "A", "B", "C"],
+        help="与状态推进原子切换 active_contribution；期刊首次进入 L3 默认 M",
+    )
     p.add_argument("--blocked-reason", action="append")
     p.add_argument("--no-validate", action="store_true")
     p.set_defaults(func=cmd_advance)

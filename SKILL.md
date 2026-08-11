@@ -154,6 +154,11 @@ gate 置真以 `decision_log` 中对应状态的完成记录（含本状态产�
 为准，不得仅凭口头声明置真；跳过状态再补 gate 判自报置真。`novelty_level` /
 `validity_level` 必须与对应 gate 和登记互证，不得手填 N0-4C。
 
+`LAYER_DECISION → K_FULLTEXT` 跨越 L2/L3 边界时，必须由 `iph advance` 在同一
+原子状态写入中激活贡献：期刊自动设为 `M`；博士用 `--contribution A|B|C` 指定。
+返回 L1/L2 时工具自动清为 `NONE`。不得为满足前后两个互斥校验而手改 state 或
+使用 `--no-validate` 绕过严格推进。
+
 ## 4. 强制 claim inventory 与 form router
 
 扫描所有声明的 Markdown/TeX 稿件源。任何 exact、universal、bounded、guaranteed、

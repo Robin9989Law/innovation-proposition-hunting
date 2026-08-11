@@ -121,6 +121,45 @@ class AdvanceTests(unittest.TestCase):
             )
             self.assertNotEqual(0, bad_state.returncode)
 
+    def test_advance_activates_journal_contribution_at_l3_boundary(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V0")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "LAYER_DECISION"
+            state["resume_state"] = "LAYER_DECISION"
+            state["active_contribution"] = "NONE"
+            write_json(project / "workflow_state.json", state)
+            completed = run_iph(
+                project,
+                "advance",
+                "--to",
+                "K_FULLTEXT",
+                "--note",
+                "enter L3 evidence",
+                "--no-validate",
+            )
+            self.assertEqual(0, completed.returncode, completed.stdout)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("K_FULLTEXT", state["active_state"])
+            self.assertEqual("M", state["active_contribution"])
+
+    def test_advance_resets_contribution_when_reentering_l2(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V0")
+        with temporary_directory:
+            completed = run_iph(
+                project,
+                "advance",
+                "--to",
+                "L2_TRIAGE",
+                "--note",
+                "reopen L2",
+                "--no-validate",
+            )
+            self.assertEqual(0, completed.returncode, completed.stdout)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("L2_TRIAGE", state["active_state"])
+            self.assertEqual("NONE", state["active_contribution"])
+
 
 class RegisterExplorationTests(unittest.TestCase):
     def test_register_and_update(self) -> None:
