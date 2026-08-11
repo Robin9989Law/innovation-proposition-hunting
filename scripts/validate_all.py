@@ -538,22 +538,26 @@ def main() -> int:
             print("=== artifact_hashes ===")
             print("SKIP\tno_existing_manifest_and_reviewer_capability_unavailable")
         else:
+            artifact_command = [
+                sys.executable,
+                str(script_dir / "validate_artifact_hashes.py"),
+                "--root",
+                str(root),
+                "--state",
+                str(state_path),
+                "--manifest",
+                str(audit_manifest),
+            ]
+            if args.strict_new_checks:
+                artifact_command.append("--strict-new-checks")
             artifact_exit = execute(
                 "artifact_hashes",
-                [
-                    sys.executable,
-                    str(script_dir / "validate_artifact_hashes.py"),
-                    "--root",
-                    str(root),
-                    "--state",
-                    str(state_path),
-                    "--manifest",
-                    str(audit_manifest),
-                ],
+                artifact_command,
                 ctx=ctx,
                 module="validate_artifact_hashes",
                 ctx_kwargs={
-                    "manifest_path": relative_cli_path(root, audit_manifest)
+                    "manifest_path": relative_cli_path(root, audit_manifest),
+                    "strict_new_checks": args.strict_new_checks,
                 },
             )
             artifact_issue = issue_for_exit("artifact_hashes", artifact_exit)

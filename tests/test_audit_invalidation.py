@@ -318,5 +318,39 @@ class AuditInvalidationTests(unittest.TestCase):
         self.assertEqual(before, self.snapshot_files(project))
 
 
+class AuditManifestRoleSetTests(unittest.TestCase):
+    """templates.md §8 的 profile→必需 role 集合校验（AUDIT_MANIFEST_ROLE_MISSING）。"""
+
+    def make_algorithm_project_with_theory_manifest(self) -> Path:
+        temporary_directory, project = make_valid_project(claim_profile="THEORY")
+        self.addCleanup(temporary_directory.cleanup)
+        state = load_json(project / "workflow_state.json")
+        state["claim_profile"] = "ALGORITHM"
+        write_json(project / "workflow_state.json", state)
+        return project
+
+    def test_missing_roles_warn_by_default(self) -> None:
+        project = self.make_algorithm_project_with_theory_manifest()
+        result = run_script("validate_artifact_hashes.py", project)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("WARNING\tAUDIT_MANIFEST_ROLE_MISSING", result.stdout)
+        self.assertIn("missing_role:BASELINE_CONTRACT", result.stdout)
+        self.assertIn("missing_role:PROTOCOL_CONTRACT", result.stdout)
+
+    def test_missing_roles_invalid_in_strict(self) -> None:
+        project = self.make_algorithm_project_with_theory_manifest()
+        result = run_script(
+            "validate_artifact_hashes.py", project, ("--strict-new-checks",)
+        )
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        self.assertIn("INVALID\tAUDIT_MANIFEST_ROLE_MISSING", result.stdout)
+
+    def test_theory_profile_manifest_is_clean(self) -> None:
+        temporary_directory, project = make_valid_project(claim_profile="THEORY")
+        self.addCleanup(temporary_directory.cleanup)
+        result = run_script("validate_artifact_hashes.py", project)
+        self.assertNotIn("AUDIT_MANIFEST_ROLE_MISSING", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

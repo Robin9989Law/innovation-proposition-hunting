@@ -28,6 +28,34 @@ from validation_common import (
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z", re.ASCII)
 ROLE_PATTERN = re.compile(r"[A-Z][A-Z0-9_]*\Z", re.ASCII)
 
+# 新增检查码：默认 WARNING（不计入退出码），--strict-new-checks 升为 INVALID。
+NEW_CHECK_CODES = frozenset({"AUDIT_MANIFEST_ROLE_MISSING"})
+
+# profile 决定的必需 entry role 集合（templates.md §8）；baseline 已去门控，
+# ALGORITHM/MIXED 一律要求 BASELINE_CONTRACT。
+_REQUIRED_THEORY_ROLES = {"CLAIM_INVENTORY", "MANUSCRIPT", "THEORY_OBLIGATIONS"}
+_REQUIRED_ALGORITHM_ROLES = {
+    "CLAIM_INVENTORY",
+    "MANUSCRIPT",
+    "PROTOCOL_CONTRACT",
+    "CLAIM_CODE_TRACE",
+    "IMPLEMENTATION",
+    "EXECUTABLE_TEST",
+    "TEST_OUTPUT",
+    "BASELINE_CONTRACT",
+}
+REQUIRED_ROLES = {
+    "THEORY": _REQUIRED_THEORY_ROLES,
+    "ALGORITHM": _REQUIRED_ALGORITHM_ROLES,
+    "MIXED": _REQUIRED_THEORY_ROLES | _REQUIRED_ALGORITHM_ROLES,
+}
+
+
+def issue_severity(code: str, strict_new_checks: bool) -> str:
+    if code in NEW_CHECK_CODES and not strict_new_checks:
+        return "WARNING"
+    return "INVALID"
+
 
 def valid_sha256(value: Any) -> bool:
     return isinstance(value, str) and SHA256_PATTERN.fullmatch(value) is not None
@@ -51,6 +79,7 @@ def _validate_bundle(
     read: Callable[[str], SafeFileSnapshot],
     state: dict[str, Any],
     manifest: dict[str, Any],
+    strict_new_checks: bool = False,
 ) -> list[Issue]:
     # read：按 manifest 相对路径取当前文件快照（哈希）；库入口传
     # ctx.snapshot 以复用缓存，CLI 包装传 read_regular_file_at。
@@ -96,6 +125,24 @@ def _validate_bundle(
             )
         )
         entries = []
+
+    # profile 必需 role 集合（templates.md §8）：缺失逐 role 上报。
+    profile = state.get("claim_profile")
+    required_roles = REQUIRED_ROLES.get(profile if isinstance(profile, str) else "")
+    if required_roles:
+        present_roles = {
+            entry.get("role") for entry in entries if isinstance(entry, dict)
+        }
+        severity = issue_severity("AUDIT_MANIFEST_ROLE_MISSING", strict_new_checks)
+        for role in sorted(required_roles - present_roles):
+            issues.append(
+                Issue(
+                    "AUDIT_MANIFEST_ROLE_MISSING",
+                    severity,
+                    "audit_manifest",
+                    f"profile:{profile};missing_role:{role}",
+                )
+            )
 
     current_entries: list[dict[str, str]] = []
     seen_paths: set[str] = set()
@@ -258,16 +305,23 @@ def validate(
     root_fd: int,
     state: dict[str, Any],
     manifest: dict[str, Any],
+    strict_new_checks: bool = False,
 ) -> list[Issue]:
     """兼容包装：逐条目现场哈希（无缓存），保持原模块 API。"""
 
     return _validate_bundle(
-        lambda raw_path: read_regular_file_at(root_fd, raw_path), state, manifest
+        lambda raw_path: read_regular_file_at(root_fd, raw_path),
+        state,
+        manifest,
+        strict_new_checks,
     )
 
 
 def validate_with_context(
-    ctx: ProjectContext, *, manifest_path: str | None = None
+    ctx: ProjectContext,
+    *,
+    manifest_path: str | None = None,
+    strict_new_checks: bool = False,
 ) -> list[Issue]:
     """库入口：state 复用 ctx.state，manifest 经 ctx.load_json 缓存解析，
     条目哈希核验走 ctx.snapshot 缓存。manifest_path 为相对路径覆盖
@@ -275,7 +329,7 @@ def validate_with_context(
 
     relative = manifest_path or ctx.artifact_relative_path("audit_manifest")
     manifest = ctx.load_json(relative, "audit_manifest")
-    return _validate_bundle(ctx.snapshot, ctx.state, manifest)
+    return _validate_bundle(ctx.snapshot, ctx.state, manifest, strict_new_checks)
 
 
 def main() -> int:
@@ -283,6 +337,7 @@ def main() -> int:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--state", type=Path, required=True)
     parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--strict-new-checks", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -292,7 +347,11 @@ def main() -> int:
             manifest_relative = lexical_relative_cli_path(
                 root, args.manifest or root / "audit_manifest.json", "manifest"
             )
-            issues = validate_with_context(ctx, manifest_path=manifest_relative)
+            issues = validate_with_context(
+                ctx,
+                manifest_path=manifest_relative,
+                strict_new_checks=args.strict_new_checks,
+            )
     except Exception as error:
         # ctx.load_json 的 os.stat 用绝对路径，OSError 文本需剥掉 root 前缀；
         # ctx 内部以 label "state" 抛 TypeError，历史输出用 "workflow_state"。
