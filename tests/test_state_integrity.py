@@ -203,5 +203,83 @@ class EvidenceDispatchTests(unittest.TestCase):
             self.assertNotIn("EVIDENCE_REQUIRED", completed.stdout)
             self.assertEqual(0, completed.returncode, completed.stdout)
 
+class EvidenceDepthBudgetTests(unittest.TestCase):
+    """R-LAYER-13：证据深度按层供给，超层超量报 EVIDENCE_DEPTH_EXCEEDS_LAYER。"""
+
+    def setUp(self) -> None:
+        self.tmp, self.project = make_valid_project()
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def run_state(self, *extra: str):
+        return run_script("validate_workflow_state.py", self.project, extra)
+
+    def set_layer(self, layer: str) -> None:
+        state = load_json(self.project / "workflow_state.json")
+        state["active_layer"] = layer
+        write_json(self.project / "workflow_state.json", state)
+
+    def write_registries(self, fulltext: int, claims: int) -> None:
+        write_json(
+            self.project / "near_neighbor_registry.json",
+            {
+                "records": [
+                    {
+                        "registry_id": f"W-{index:04d}",
+                        "download": {"status": "FULLTEXT_ARCHIVED"},
+                    }
+                    for index in range(fulltext)
+                ]
+            },
+        )
+        write_json(
+            self.project / "literature_claim_registry.json",
+            {"records": [{"claim_id": f"LC-{index:04d}"} for index in range(claims)]},
+        )
+
+    def test_l1_allows_zero_deep_evidence(self) -> None:
+        self.set_layer("L1")
+        result = self.run_state("--current-year", "2026")
+        self.assertNotIn("EVIDENCE_DEPTH_EXCEEDS_LAYER", result.stdout)
+
+    def test_l1_fulltext_is_over_depth(self) -> None:
+        self.set_layer("L1")
+        self.write_registries(fulltext=1, claims=0)
+        result = self.run_state("--current-year", "2026")
+        self.assertIn("WARNING\tEVIDENCE_DEPTH_EXCEEDS_LAYER", result.stdout)
+        self.assertIn("layer:L1;fulltext:1>budget:0", result.stdout)
+        strict = self.run_state("--current-year", "2026", "--strict-new-checks")
+        self.assertEqual(1, strict.returncode, strict.stdout + strict.stderr)
+
+    def test_l2_atomic_claims_are_over_depth(self) -> None:
+        self.set_layer("L2")
+        self.write_registries(fulltext=3, claims=5)
+        result = self.run_state("--current-year", "2026")
+        self.assertIn("atomic_claims:5>budget:0", result.stdout)
+        self.assertNotIn("fulltext:3>budget", result.stdout)
+
+    def test_l3_within_budget_is_clean(self) -> None:
+        self.set_layer("L3")
+        self.write_registries(fulltext=8, claims=40)
+        result = self.run_state("--current-year", "2026")
+        self.assertNotIn("EVIDENCE_DEPTH_EXCEEDS_LAYER", result.stdout)
+
+    def test_missing_registries_do_not_crash(self) -> None:
+        self.set_layer("L1")
+        result = self.run_state("--current-year", "2026")
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_incident_fixture_reports_both_dimensions(self) -> None:
+        incident_tmp = TemporaryDirectory(prefix="incident-depth-")
+        self.addCleanup(incident_tmp.cleanup)
+        project = copy_incident_project(incident_tmp)
+        result = run_script(
+            "validate_workflow_state.py", project, ("--current-year", "2026")
+        )
+        self.assertIn("layer:L3;fulltext:38>budget:20", result.stdout)
+        self.assertIn("layer:L3;atomic_claims:128>budget:60", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

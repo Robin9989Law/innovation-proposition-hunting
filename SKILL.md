@@ -92,6 +92,22 @@ BOOT → SCOPE_LOCK → PRIOR_CLAIM_DRAIN → RECENT_FRONTIER
 连续研究链中的 `K → U → Δ`，并对齐 O/I/A/T/C/R/B。改变 L3、目标链、关键基线
 或任一实质对齐项即开新碰撞轮次，并先耗尽 prior-round 观点。
 
+**主线是 L1→L2→L3 的逐层构建；文献管线是辅线，证据深度按层供给。**
+每个层级决策只取该层所需的证据深度，禁止提前做更深的取证
+（`EVIDENCE_DEPTH_EXCEEDS_LAYER`，默认 WARNING，strict 升 INVALID）：
+
+| 当前层 | 本层裁决 | 需要的证据深度 | 默认预算（超出报 WARNING） |
+|---|---|---|---|
+| L1（研究工作） | 领域边界、连续簇、谁在做 | 文献元数据 + 摘要浏览；**零全文、零原子观点** | 全文 0、原子观点 0 |
+| L2（可行创新域） | 近邻直接性、可创新域划分 | 重要性分级 + 摘要级观点（E1）；少量全文确认直接性 | 全文 ≤12、原子观点 0 |
+| 贡献架构 | A/B/C 或 M 的划分与合同 | 同 L2；直接近邻全文 | 全文 ≤12、原子观点 0 |
+| L3（具体命题） | K→U→Δ、碰撞、N0 裁决 | 全重机器：E2/E4 全文原子观点、碰撞综合、输出绑定，**只对 K 集合与必要反例运行** | 全文 ≤20、原子观点 ≤60 |
+
+原子观点机器不是文献的读后感工厂：它只服务于"即将被裁决的命题候选集"。
+L1/L2 阶段就批量下载全文、批量注册原子观点，等于在不知道问题是什么之前
+先写答案的脚注——主次颠倒，且这些证据大多数在层级决策后作废。默认预算
+可被课题规模证伪：确需超出时在 decision_log 逐条登记理由，而不是悄悄突破。
+
 | 等级 | 含义 | 动作 |
 |---|---|---|
 | `N0-1` | 正式出版近邻直接占据 | 关闭或吸收 |
@@ -292,3 +308,4 @@ INVALID（§9）。
 | R-WITNESS-10 | 见证咬合力：PREMISE_REMOVAL 附非恒真 `mechanism`、NONZERO_NUISANCE 附 `sensitivity_control`、子规律须 `addresses_subclaim` 认领；RANDOM_PROPERTY 豁免两阶段闭合 | §4、templates §3 |
 | R-FRONTIER-11 | 前沿七轴缺一不可；作者续作边须真实 `shared_authors`（`HOLLOW_COVERAGE_AXIS`），引用链放 `method_lineage` | §7、templates §7 |
 | R-BASELINE-12 | ALGORITHM 类 claim 存在即必须有 baseline_budget；comparator.claim_ids 与 algorithm claims 求交，无触发词门控 | §4、templates §5 |
+| R-LAYER-13 | 主线是 L1→L2→L3 逐层构建，证据深度按层供给；原子观点机器只服务 L3 候选集（K 集合），超层取证报 `EVIDENCE_DEPTH_EXCEEDS_LAYER` | §3.1 |

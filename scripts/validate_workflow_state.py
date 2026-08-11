@@ -218,8 +218,53 @@ NEW_CHECK_CODES = frozenset(
         "LAST_COMPLETED_NOT_LOGGED",
         "COMPLETE_REQUIRES_FINAL_LOCK_CONDITIONS",
         "UNREGISTERED_COMPUTE_ARTIFACT",
+        "EVIDENCE_DEPTH_EXCEEDS_LAYER",
     }
 )
+
+
+# 主线是 L1→L2→L3 逐层构建；证据深度按层供给（SKILL.md §3.1、R-LAYER-13）。
+# active_layer -> (全文预算, 原子观点预算)；超出即报 EVIDENCE_DEPTH_EXCEEDS_LAYER。
+EVIDENCE_DEPTH_BUDGETS = {
+    "UNRESOLVED": (0, 0),
+    "L1": (0, 0),
+    "L2": (12, 0),
+    "ARCHITECTURE": (12, 0),
+    "L3": (20, 60),
+}
+
+
+def count_registered_evidence(root: Path, state: dict[str, Any]) -> tuple[int, int]:
+    """统计已注册的全文数与原子观点数；注册表缺失或损坏按 0 计（软检查）。"""
+
+    def registry_path(key: str, default: str) -> Path:
+        artifacts = state.get("artifacts")
+        raw = artifacts.get(key) if isinstance(artifacts, dict) else None
+        return root / (raw if isinstance(raw, str) else default)
+
+    fulltext = 0
+    try:
+        literature_path = registry_path("literature_registry", "near_neighbor_registry.json")
+        if literature_path.is_file():
+            payload = json.loads(literature_path.read_text(encoding="utf-8"))
+            records = payload.get("works") or payload.get("records") or []
+            for record in records:
+                if isinstance(record, dict) and (
+                    record.get("download") or {}
+                ).get("status") == "FULLTEXT_ARCHIVED":
+                    fulltext += 1
+    except (OSError, ValueError):
+        pass
+    atomic_claims = 0
+    try:
+        claims_path = registry_path("claim_registry", "literature_claim_registry.json")
+        if claims_path.is_file():
+            payload = json.loads(claims_path.read_text(encoding="utf-8"))
+            records = payload.get("claims") or payload.get("records") or []
+            atomic_claims = sum(isinstance(record, dict) for record in records)
+    except (OSError, ValueError):
+        pass
+    return fulltext, atomic_claims
 
 
 # compute_authorized=false 时视为"未授权计算产物"的路径模式（根相对 glob）。
@@ -708,6 +753,27 @@ def validate(
     if not compute_authorized:
         for artifact in find_unregistered_compute_artifacts(root, state):
             add(errors, "UNREGISTERED_COMPUTE_ARTIFACT", f"path:{artifact}")
+
+    # R-LAYER-13：证据深度按层供给；超层超量取证即主次颠倒（软检查）。
+    active_layer = state.get("active_layer")
+    budget = EVIDENCE_DEPTH_BUDGETS.get(
+        active_layer if isinstance(active_layer, str) else ""
+    )
+    if budget is not None:
+        fulltext_count, claim_count = count_registered_evidence(root, state)
+        fulltext_budget, claim_budget = budget
+        if fulltext_count > fulltext_budget:
+            add(
+                errors,
+                "EVIDENCE_DEPTH_EXCEEDS_LAYER",
+                f"layer:{active_layer};fulltext:{fulltext_count}>budget:{fulltext_budget}",
+            )
+        if claim_count > claim_budget:
+            add(
+                errors,
+                "EVIDENCE_DEPTH_EXCEEDS_LAYER",
+                f"layer:{active_layer};atomic_claims:{claim_count}>budget:{claim_budget}",
+            )
 
     if effective_state == "CLAIM_FREEZE" and novelty_level != "N0-4C":
         add(
