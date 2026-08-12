@@ -327,6 +327,7 @@ def cmd_start_collision_round(args: argparse.Namespace) -> int:
         "claim_registry": "literature_claim_registry.json",
         "output_support": "output_claim_support.json",
         "current_evidence_scope": "current_evidence_scope.json",
+        "frontier_coverage": "frontier_coverage.json",
     }
     paths: dict[str, Path] = {}
     for key, fallback in required.items():
@@ -385,6 +386,7 @@ def cmd_start_collision_round(args: argparse.Namespace) -> int:
         "claim_registry": f"{round_directory_relative}/literature_claim_registry.json",
         "output_support": f"{round_directory_relative}/output_claim_support.json",
         "current_evidence_scope": f"{round_directory_relative}/current_evidence_scope.json",
+        "frontier_coverage": f"{round_directory_relative}/frontier_coverage.json",
     }
     literature["current_collision_round"] = new_round
     claims["current_collision_round"] = new_round
@@ -405,6 +407,9 @@ def cmd_start_collision_round(args: argparse.Namespace) -> int:
     _atomic_write_json(new_paths["claim_registry"], claims)
     _atomic_write_json(new_paths["output_support"], outputs)
     _atomic_write_json(new_paths["current_evidence_scope"], new_scope)
+    # 前沿覆盖表与注册表一样会随新轮搜索增长；保留旧轮字节锚定，避免其
+    # 决策日志哈希被后续 P1 追加破坏。
+    _atomic_write_json(new_paths["frontier_coverage"], _load_json_object(paths["frontier_coverage"], "frontier coverage"))
 
     state["collision_round"] = new_round
     state["active_state"] = "PRIOR_CLAIM_DRAIN"
@@ -487,6 +492,19 @@ def cmd_repair_collision_round(args: argparse.Namespace) -> int:
     registry = _load_json_object(registry_path, "literature registry")
     _preserve_registry_aliases(registry)
     _atomic_write_json(registry_path, registry)
+
+    raw_coverage = artifacts.get("frontier_coverage", "frontier_coverage.json")
+    if not isinstance(raw_coverage, str) or not canonical_relative_path(raw_coverage):
+        raise SystemExit("frontier_coverage 路径无效")
+    round_coverage = f"rounds/round-{state.get('collision_round')}/frontier_coverage.json"
+    if raw_coverage == "frontier_coverage.json":
+        source_coverage = root / raw_coverage
+        target_coverage = root / round_coverage
+        if not source_coverage.is_file():
+            raise SystemExit("缺少 frontier_coverage.json，无法修复当前轮次快照")
+        if not target_coverage.exists():
+            _atomic_write_json(target_coverage, _load_json_object(source_coverage, "frontier coverage"))
+        artifacts["frontier_coverage"] = round_coverage
 
     gates = state.setdefault("gates", {})
     for key in (

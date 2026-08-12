@@ -58,6 +58,20 @@ OUTPUT_KINDS = {
 }
 INFERENCE_TYPES = {"DIRECT", "SYNTHESIS", "CONTRAST", "INFERENCE"}
 
+# L1/L2 的分段证据约束：此时注册表负责保存身份与风险分级，不能反过来要求
+# 尚未被选入 K 集合的高风险条目已经完成全文归档和原子观点。无 state 的独立
+# 校验入口保留历史严格行为；L3（含 K_FULLTEXT）恢复完整硬约束。
+PRE_K_STATES = {
+    "BOOT",
+    "SCOPE_LOCK",
+    "PRIOR_CLAIM_DRAIN",
+    "RECENT_FRONTIER",
+    "LITERATURE_REGISTER",
+    "L1_FREEZE",
+    "L2_TRIAGE",
+    "LAYER_DECISION",
+}
+
 
 class RootOnlyContext:
     """无 workflow_state 时的独立运行兜底上下文（无跨校验器缓存）。
@@ -128,6 +142,18 @@ def valid_http_url(value: Any) -> bool:
     return parts.scheme in {"http", "https"} and bool(parts.netloc)
 
 
+def requires_fulltext_claims(ctx: ProjectContext) -> bool:
+    """仅在 L3 才要求重要文献完成归档和原子观点。
+
+    这与状态机的 L1 元数据、L2 试读、L3 K 集合重证据分工一致。直接调用
+    校验器而没有 workflow_state 时，采取保守的严格校验。
+    """
+
+    if not ctx.state:
+        return True
+    return ctx.effective_state() not in PRE_K_STATES
+
+
 def validate(
     ctx: ProjectContext,
     literature: dict[str, Any],
@@ -136,6 +162,7 @@ def validate(
     current_year: int,
 ) -> list[Issue]:
     issues: list[Issue] = []
+    enforce_fulltext_claims = requires_fulltext_claims(ctx)
     works = records(literature, issues)
     claim_records = records(claims, issues)
     output_records = records(outputs, issues, field="output_claims", item_id="__output__")
@@ -220,7 +247,7 @@ def validate(
         if not isinstance(download, dict):
             add(issues, "DOWNLOAD", str(work_id), "missing_download_object")
             download = {}
-        if importance in {"CRITICAL", "IMPORTANT"}:
+        if importance in {"CRITICAL", "IMPORTANT"} and enforce_fulltext_claims:
             status = download.get("status")
             if status not in ARCHIVED:
                 add(issues, "DOWNLOAD", str(work_id), f"important_not_archived:{status}")
@@ -325,7 +352,11 @@ def validate(
             add(issues, "USAGE", claim_id, "excluded_without_reason")
 
     for work_id, work in work_by_id.items():
-        if work.get("importance") in {"CRITICAL", "IMPORTANT"} and not claims_by_work.get(work_id):
+        if (
+            enforce_fulltext_claims
+            and work.get("importance") in {"CRITICAL", "IMPORTANT"}
+            and not claims_by_work.get(work_id)
+        ):
             add(issues, "CLAIM_EXTRACTION", work_id, "important_work_without_claims")
 
     output_by_id: dict[str, dict[str, Any]] = {}

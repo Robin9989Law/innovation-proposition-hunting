@@ -266,6 +266,44 @@ class EvidenceChainTests(unittest.TestCase):
         self.assertIn("unsafe_local_path", result.stdout)
         self.assertNotIn("Traceback", result.stderr)
 
+    def test_pre_k_states_defer_unselected_fulltext_and_claim_requirements(self) -> None:
+        project = self.make_project()
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = "PRIOR_CLAIM_DRAIN"
+        state["resume_state"] = "PRIOR_CLAIM_DRAIN"
+        write_json(project / "workflow_state.json", state)
+        registry = load_json(project / "near_neighbor_registry.json")
+        work = registry["records"][0]
+        work["download"] = {"status": "NOT_ATTEMPTED"}
+        work["claim_extraction_status"] = "NOT_STARTED"
+        write_json(project / "near_neighbor_registry.json", registry)
+        claims = load_json(project / "literature_claim_registry.json")
+        claims["records"] = []
+        write_json(project / "literature_claim_registry.json", claims)
+        outputs = load_json(project / "output_claim_support.json")
+        outputs["output_claims"] = []
+        write_json(project / "output_claim_support.json", outputs)
+
+        result = self.run_evidence(project)
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("evidence_chain_status=READY", result.stdout)
+
+    def test_k_fulltext_still_requires_archived_important_work(self) -> None:
+        project = self.make_project()
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = "K_FULLTEXT"
+        state["resume_state"] = "K_FULLTEXT"
+        write_json(project / "workflow_state.json", state)
+        registry = load_json(project / "near_neighbor_registry.json")
+        registry["records"][0]["download"]["status"] = "DOWNLOAD_BLOCKED"
+        write_json(project / "near_neighbor_registry.json", registry)
+
+        result = self.run_evidence(project)
+
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        self.assertIn("important_not_archived:DOWNLOAD_BLOCKED", result.stdout)
+
     def test_claim_with_unknown_source(self) -> None:
         project = self.make_project()
         claims = load_json(project / "literature_claim_registry.json")
