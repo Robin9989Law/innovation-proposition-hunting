@@ -11,6 +11,7 @@ schema 3.0 起 active_track / active_layer / last_completed_state 不再持久�
 子命令：
   validate                运行完整校验套件（当前转发 validate_all.py）
   advance                 校验通过后推进状态并记账
+  start-collision-round   从 N0-3 审计合规开启下一碰撞轮次
   clear-lock              完成恢复动作后解除 STOP 锁
   register-exploration    把探索性数据/产物登记为永久探索级证据
   handover                按 SKILL.md §10 生成交接报告
@@ -26,6 +27,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
@@ -234,8 +236,284 @@ def cmd_advance(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
-# clear-lock / register-exploration / handover
+# start-collision-round
 # ---------------------------------------------------------------------------
+
+
+def _load_json_object(path: Path, label: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise SystemExit(f"{label} 不可读取：{error}") from error
+    if not isinstance(payload, dict):
+        raise SystemExit(f"{label} 顶层必须是对象")
+    return payload
+
+
+def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    tmp_path = path.with_name(path.name + ".tmp")
+    tmp_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    os.replace(tmp_path, path)
+
+
+def _academic_urls(value: Any) -> set[str]:
+    """收集记录内的学术 URL，供跨轮快照保留全部可追溯入口。"""
+
+    urls: set[str] = set()
+    if isinstance(value, dict):
+        for child in value.values():
+            urls.update(_academic_urls(child))
+    elif isinstance(value, list):
+        for child in value:
+            urls.update(_academic_urls(child))
+    elif isinstance(value, str):
+        host = urlsplit(value).netloc.lower()
+        if any(
+            marker in host
+            for marker in (
+                "arxiv.org", "doi.org", "ieeexplore.ieee.org", "sciencedirect.com",
+                "springer.com", "link.springer.com", "dl.acm.org", "nature.com",
+            )
+        ):
+            urls.add(value)
+    return urls
+
+
+def _preserve_registry_aliases(payload: dict[str, Any]) -> None:
+    records = payload.get("records")
+    if not isinstance(records, list):
+        return
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        aliases = record.get("alternate_urls")
+        existing = {item for item in aliases if isinstance(item, str)} if isinstance(aliases, list) else set()
+        canonical = record.get("canonical_url") or record.get("url")
+        if isinstance(canonical, str):
+            existing.discard(canonical)
+        existing.update(_academic_urls(record))
+        if isinstance(canonical, str):
+            existing.discard(canonical)
+        record["alternate_urls"] = sorted(existing)
+
+
+def cmd_start_collision_round(args: argparse.Namespace) -> int:
+    """从 N0-3 HOLD 原子开启下一轮 P0，并保留跨轮全局账本。"""
+
+    root = Path(args.root).resolve()
+    state_path = Path(args.state).resolve()
+    if not nonempty_string(args.note):
+        raise SystemExit("start-collision-round 需要 --note 记录重开原因")
+    exit_code = run_validate_all(root, state_path, args.strict_new_checks, [])
+    if exit_code != int(ExitCode.READY):
+        print(f"start-collision-round aborted: validation exit={exit_code}")
+        return exit_code
+
+    state = _load_json_object(state_path, "workflow_state.json")
+    if state.get("active_state") != "N0_AUDIT":
+        raise SystemExit("只能从 N0_AUDIT 开启新碰撞轮次")
+    if state.get("novelty_level") != "N0-3":
+        raise SystemExit("只能从 N0-3 HOLD 开启新碰撞轮次")
+    if state.get("validity_level") != "V0":
+        raise SystemExit("新碰撞只能在有效性冻结前（V0）开启")
+
+    artifacts = state.get("artifacts")
+    if not isinstance(artifacts, dict):
+        raise SystemExit("workflow_state.artifacts 必须是对象")
+    required = {
+        "literature_registry": "near_neighbor_registry.json",
+        "claim_registry": "literature_claim_registry.json",
+        "output_support": "output_claim_support.json",
+        "current_evidence_scope": "current_evidence_scope.json",
+    }
+    paths: dict[str, Path] = {}
+    for key, fallback in required.items():
+        raw = artifacts.get(key, fallback)
+        if not isinstance(raw, str) or not canonical_relative_path(raw):
+            raise SystemExit(f"artifacts.{key} 必须是根内规范相对路径")
+        candidate = root / raw
+        if not candidate.is_file():
+            raise SystemExit(f"缺少新碰撞所需工件：{raw}")
+        paths[key] = candidate
+
+    old_round = state.get("collision_round")
+    if not isinstance(old_round, int) or old_round < 1:
+        raise SystemExit("workflow_state.collision_round 必须是正整数")
+    new_round = old_round + 1
+    literature = _load_json_object(paths["literature_registry"], "literature registry")
+    claims = _load_json_object(paths["claim_registry"], "claim registry")
+    outputs = _load_json_object(paths["output_support"], "output support")
+    for label, payload in (
+        ("literature registry", literature),
+        ("claim registry", claims),
+        ("output support", outputs),
+    ):
+        if payload.get("current_collision_round") != old_round:
+            raise SystemExit(
+                f"{label} 当前轮次与 state 不一致："
+                f"{payload.get('current_collision_round')} != {old_round}"
+            )
+
+    _preserve_registry_aliases(literature)
+
+    records = claims.get("records")
+    if not isinstance(records, list):
+        raise SystemExit("claim registry.records 必须是列表")
+    unfinished = [
+        str(record.get("claim_id", "(missing)"))
+        for record in records
+        if isinstance(record, dict)
+        and isinstance(record.get("discovered_round"), int)
+        and record["discovered_round"] < new_round
+        and record.get("use_status") == "UNUSED"
+    ]
+    if unfinished:
+        raise SystemExit(
+            "旧观点尚未耗尽，不能开启新碰撞：" + ",".join(sorted(unfinished))
+        )
+
+    now = utc_now()
+    # 已完成状态的 decision_log 可能锚定本轮账本；不得覆写旧文件而令历史
+    # 哈希失效。新轮使用完整的追加式账本快照，state 从此指向新快照。
+    round_directory_relative = f"rounds/round-{new_round}"
+    round_directory = root / round_directory_relative
+    round_directory.mkdir(parents=True, exist_ok=False)
+    round_artifacts = {
+        "literature_registry": f"{round_directory_relative}/near_neighbor_registry.json",
+        "claim_registry": f"{round_directory_relative}/literature_claim_registry.json",
+        "output_support": f"{round_directory_relative}/output_claim_support.json",
+        "current_evidence_scope": f"{round_directory_relative}/current_evidence_scope.json",
+    }
+    literature["current_collision_round"] = new_round
+    claims["current_collision_round"] = new_round
+    outputs["current_collision_round"] = new_round
+    outputs["collision_gate"] = {
+        "prior_round_claims_drained": True,
+        "unused_prior_claim_ids": [],
+        "checked_at": now[:10],
+    }
+    new_scope = {
+        "schema_version": "2.0",
+        "collision_round": new_round,
+        "fulltext_registry_ids": [],
+        "atomic_claim_ids": [],
+    }
+    new_paths = {key: root / relative for key, relative in round_artifacts.items()}
+    _atomic_write_json(new_paths["literature_registry"], literature)
+    _atomic_write_json(new_paths["claim_registry"], claims)
+    _atomic_write_json(new_paths["output_support"], outputs)
+    _atomic_write_json(new_paths["current_evidence_scope"], new_scope)
+
+    state["collision_round"] = new_round
+    state["active_state"] = "PRIOR_CLAIM_DRAIN"
+    state["resume_state"] = "PRIOR_CLAIM_DRAIN"
+    state["updated_at"] = now
+    state_artifacts = state.setdefault("artifacts", {})
+    state_artifacts.update(round_artifacts)
+    state["next_required_action"] = (
+        "Perform P1 recent-frontier search for collision round "
+        f"{new_round}; register every material hit before fulltext triage."
+    )
+    gates = state.setdefault("gates", {})
+    for key in (
+        "l1_frozen",
+        "k_set_selected",
+        "l2_frozen",
+        "architecture_frozen",
+        "recent_frontier_complete",
+        "literature_registry_valid",
+        "k_fulltext_complete",
+        "k_claims_complete",
+        "output_claims_traced",
+        "evidence_validated",
+        "n0_4_locked",
+    ):
+        gates[key] = False
+    gates["prior_claims_drained"] = True
+    state["active_contribution"] = "NONE"
+    entry = {
+        "at": now,
+        "state": "PRIOR_CLAIM_DRAIN",
+        "action": (
+            f"Opened collision round {new_round} from N0-3 HOLD; all prior-round "
+            f"claims were drained before P1. {args.note.strip()}"
+        ),
+        "artifacts": [
+            {
+                "path": round_artifacts["current_evidence_scope"],
+                "sha256": file_sha256(new_paths["current_evidence_scope"]),
+            }
+        ],
+    }
+    state.setdefault("decision_log", []).append(entry)
+    atomic_write_state(state_path, state)
+    append_validation_log(
+        root,
+        f"START_COLLISION_ROUND {old_round} -> {new_round} "
+        f"scope={round_artifacts['current_evidence_scope']} note={args.note.strip()}",
+    )
+    print(f"started collision round {old_round} -> {new_round}")
+    exit_code = run_validate_all(root, state_path, args.strict_new_checks, [])
+    if exit_code != int(ExitCode.READY):
+        print(f"post-start validation exit={exit_code}")
+    return exit_code
+
+
+# ---------------------------------------------------------------------------
+# repair-collision-round / clear-lock / register-exploration / handover
+# ---------------------------------------------------------------------------
+
+
+def cmd_repair_collision_round(args: argparse.Namespace) -> int:
+    """仅修复 start-collision-round 后、STOP 锁内的未完成轮次快照。"""
+
+    root = Path(args.root).resolve()
+    state_path = Path(args.state).resolve()
+    lock_path = root / ".workflow_stop.lock"
+    if not lock_path.is_file():
+        raise SystemExit("repair-collision-round 只能在 STOP 锁存在时使用")
+    state = _load_json_object(state_path, "workflow_state.json")
+    if state.get("active_state") != "PRIOR_CLAIM_DRAIN":
+        raise SystemExit("只能修复 PRIOR_CLAIM_DRAIN 中断的新碰撞")
+    artifacts = state.get("artifacts")
+    if not isinstance(artifacts, dict):
+        raise SystemExit("workflow_state.artifacts 必须是对象")
+    raw_registry = artifacts.get("literature_registry")
+    if not isinstance(raw_registry, str) or not canonical_relative_path(raw_registry):
+        raise SystemExit("literature_registry 路径无效")
+    registry_path = root / raw_registry
+    registry = _load_json_object(registry_path, "literature registry")
+    _preserve_registry_aliases(registry)
+    _atomic_write_json(registry_path, registry)
+
+    gates = state.setdefault("gates", {})
+    for key in (
+        "l1_frozen",
+        "k_set_selected",
+        "l2_frozen",
+        "architecture_frozen",
+        "recent_frontier_complete",
+        "literature_registry_valid",
+        "k_fulltext_complete",
+        "k_claims_complete",
+        "output_claims_traced",
+        "evidence_validated",
+        "n0_4_locked",
+    ):
+        gates[key] = False
+    gates["prior_claims_drained"] = True
+    state["active_contribution"] = "NONE"
+    state["updated_at"] = utc_now()
+    atomic_write_state(state_path, state)
+    append_validation_log(
+        root,
+        "REPAIR_COLLISION_ROUND repaired current snapshot URL aliases and reset "
+        "new-round L1/L2/L3 gates before STOP-lock recovery",
+    )
+    print("repaired collision-round snapshot; run clear-lock to validate recovery")
+    return int(ExitCode.READY)
 
 
 def cmd_clear_lock(args: argparse.Namespace) -> int:
@@ -419,6 +697,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--blocked-reason", action="append")
     p.add_argument("--no-validate", action="store_true")
     p.set_defaults(func=cmd_advance)
+
+    p = sub.add_parser(
+        "start-collision-round", help="从 N0-3 审计合规开启下一碰撞轮次"
+    )
+    add_root_state(p)
+    p.add_argument("--note", required=True)
+    p.set_defaults(func=cmd_start_collision_round)
+
+    p = sub.add_parser(
+        "repair-collision-round", help="仅修复 STOP 锁中的新碰撞轮次快照"
+    )
+    add_root_state(p)
+    p.set_defaults(func=cmd_repair_collision_round)
 
     p = sub.add_parser("clear-lock", help="完成恢复动作后解除 STOP 锁")
     add_root_state(p)

@@ -37,6 +37,24 @@ P0 读取 workflow_state.json；耗尽所有 prior-round 旧观点
   → 若开启下一轮，collision_round +1 并返回 P0
 ```
 
+当上一轮在 `N0_AUDIT` 裁决为 `N0-3`、且实质改变的 L3 命题必须重新碰撞时，使用唯一
+原子入口：
+
+```bash
+python3 <skill>/scripts/iph.py start-collision-round \
+  --root <研究目录> --state <研究目录>/workflow_state.json \
+  --strict-new-checks --note "<本轮重开原因>"
+```
+
+该命令仅接受 `N0_AUDIT / N0-3 / V0`。它先严格验证、确认所有旧观点已耗尽，再将
+`collision_round` 与三本全局账本的 current 指针对齐，创建空的
+`current_evidence_scope.json`，重置仅属于 L3 当前轮的门，并进入 `PRIOR_CLAIM_DRAIN`。
+不得手工编辑轮次、scope 或 decision_log，也不得将历史全文/观点留在新 scope 中。
+
+若该原子操作的后校验非零，校验器会写入 STOP 锁。此时只允许使用
+`repair-collision-round` 修复新轮快照的内部一致性，再通过 `clear-lock` 留痕重验；不得
+手工改写状态或继续检索。
+
 首轮没有更早观点时，P0 以 `prior_round_claims_drained=true` 通过。任何一步失败，
 停留在当前步。不得以“之后补录”进入下一轮碰撞，也不得先搜索新文献再回头处理
 旧观点。

@@ -59,6 +59,21 @@ class InProcessSuiteTests(unittest.TestCase):
 
 
 class AdvanceTests(unittest.TestCase):
+    def test_start_collision_round_rejects_non_n0_hold(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V0")
+        with temporary_directory:
+            completed = run_iph(
+                project,
+                "start-collision-round",
+                "--note",
+                "must not create a round from a validity-track fixture",
+            )
+            self.assertNotEqual(0, completed.returncode, completed.stdout)
+            self.assertIn("只能从 N0_AUDIT", completed.stderr)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("CLAIM_FREEZE", state["active_state"])
+            self.assertEqual(1, state["collision_round"])
+
     def test_advance_writes_real_bookkeeping(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V1")
         with temporary_directory:
