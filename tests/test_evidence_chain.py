@@ -304,6 +304,26 @@ class EvidenceChainTests(unittest.TestCase):
         self.assertEqual(1, result.returncode, result.stdout + result.stderr)
         self.assertIn("important_not_archived:DOWNLOAD_BLOCKED", result.stdout)
 
+    def test_k_fulltext_defers_atomic_claims_until_claim_registration(self) -> None:
+        project = self.make_project()
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = "K_FULLTEXT"
+        state["resume_state"] = "K_FULLTEXT"
+        write_json(project / "workflow_state.json", state)
+        registry = load_json(project / "near_neighbor_registry.json")
+        registry["records"][0]["claim_extraction_status"] = "NOT_STARTED"
+        write_json(project / "near_neighbor_registry.json", registry)
+        claims = load_json(project / "literature_claim_registry.json")
+        claims["records"] = []
+        write_json(project / "literature_claim_registry.json", claims)
+        outputs = load_json(project / "output_claim_support.json")
+        outputs["output_claims"] = []
+        write_json(project / "output_claim_support.json", outputs)
+
+        result = self.run_evidence(project)
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_l3_scope_does_not_require_unselected_important_work(self) -> None:
         project = self.make_project()
         state = load_json(project / "workflow_state.json")

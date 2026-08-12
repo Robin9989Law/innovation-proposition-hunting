@@ -154,6 +154,14 @@ def requires_fulltext_claims(ctx: ProjectContext) -> bool:
     return ctx.effective_state() not in PRE_K_STATES
 
 
+def requires_atomic_claims(ctx: ProjectContext) -> bool:
+    """K_FULLTEXT 只验归档；原子观点从 K_CLAIM_REGISTER 才成为硬约束。"""
+
+    if not ctx.state:
+        return True
+    return ctx.effective_state() not in (PRE_K_STATES | {"K_FULLTEXT"})
+
+
 def selected_k_work_ids(ctx: ProjectContext, issues: list[Issue]) -> set[str] | None:
     """L3 只对 current_evidence_scope 明列的 K 文献强制深证据。
 
@@ -190,6 +198,7 @@ def validate(
 ) -> list[Issue]:
     issues: list[Issue] = []
     enforce_fulltext_claims = requires_fulltext_claims(ctx)
+    enforce_atomic_claims = requires_atomic_claims(ctx)
     selected_work_ids = selected_k_work_ids(ctx, issues) if enforce_fulltext_claims else set()
     works = records(literature, issues)
     claim_records = records(claims, issues)
@@ -310,7 +319,7 @@ def validate(
                     declared_hash = str(download.get("sha256") or "").lower()
                     if declared_hash != snapshot.sha256:
                         add(issues, "DOWNLOAD", str(work_id), "sha256_mismatch")
-            if work.get("claim_extraction_status") != "COMPLETE":
+            if enforce_atomic_claims and work.get("claim_extraction_status") != "COMPLETE":
                 add(issues, "CLAIM_EXTRACTION", str(work_id), "important_claims_not_complete")
 
     claim_by_id: dict[str, dict[str, Any]] = {}
@@ -386,7 +395,7 @@ def validate(
 
     for work_id, work in work_by_id.items():
         if (
-            enforce_fulltext_claims
+            enforce_atomic_claims
             and work.get("importance") in {"CRITICAL", "IMPORTANT"}
             and (selected_work_ids is None or work_id in selected_work_ids)
             and not claims_by_work.get(work_id)

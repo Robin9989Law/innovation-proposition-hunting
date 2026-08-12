@@ -122,7 +122,7 @@ L1/L2 阶段就批量下载全文、批量注册原子观点，等于在不知�
 `current_evidence_scope.json` 明列本轮计费的全文 work ID 与原子 claim ID。预算只
 统计该 scope；未提供 scope 时保持旧行为、统计全注册表，禁止借缺字段静默放宽。
 `CRITICAL`/`IMPORTANT` 的全文归档、哈希核验与原子观点完整性由证据链校验器在
-L3（自 `K_FULLTEXT` 起）强制；L1/L2 只登记已核验身份、风险和获取状态，不能因
+L3 强制：全文归档自 `K_FULLTEXT` 起、原子观点自 `K_CLAIM_REGISTER` 起；L1/L2 只登记已核验身份、风险和获取状态，不能因
 尚未选入 K 集合而提前触发 STOP 锁。
 在 L3 已声明 `current_evidence_scope.json` 时，该完整性要求只适用于其中明列的 K
 work ID；其他近邻仍留在全局账本中以保证发现完整性，但不得被用于碰撞或输出主张。
