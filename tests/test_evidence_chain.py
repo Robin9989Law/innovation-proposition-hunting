@@ -304,6 +304,36 @@ class EvidenceChainTests(unittest.TestCase):
         self.assertEqual(1, result.returncode, result.stdout + result.stderr)
         self.assertIn("important_not_archived:DOWNLOAD_BLOCKED", result.stdout)
 
+    def test_l3_scope_does_not_require_unselected_important_work(self) -> None:
+        project = self.make_project()
+        state = load_json(project / "workflow_state.json")
+        state.update(
+            {
+                "active_state": "K_FULLTEXT",
+                "resume_state": "K_FULLTEXT",
+                "artifacts": {"current_evidence_scope": "current_evidence_scope.json"},
+            }
+        )
+        write_json(project / "workflow_state.json", state)
+        write_json(
+            project / "current_evidence_scope.json",
+            {"fulltext_registry_ids": ["W-0001"]},
+        )
+        registry = load_json(project / "near_neighbor_registry.json")
+        registry["records"].append(
+            {
+                **registry["records"][0],
+                "registry_id": "W-UNSELECTED",
+                "download": {"status": "NOT_ATTEMPTED"},
+                "claim_extraction_status": "NOT_STARTED",
+            }
+        )
+        write_json(project / "near_neighbor_registry.json", registry)
+
+        result = self.run_evidence(project)
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_claim_with_unknown_source(self) -> None:
         project = self.make_project()
         claims = load_json(project / "literature_claim_registry.json")

@@ -154,6 +154,33 @@ def requires_fulltext_claims(ctx: ProjectContext) -> bool:
     return ctx.effective_state() not in PRE_K_STATES
 
 
+def selected_k_work_ids(ctx: ProjectContext, issues: list[Issue]) -> set[str] | None:
+    """L3 只对 current_evidence_scope 明列的 K 文献强制深证据。
+
+    ``None`` 表示旧项目或独立调用未提供 scope，保持全部重要文献的保守历史行为。
+    损坏的 scope 不能静默放宽，直接记为 INVALID。
+    """
+
+    if not ctx.state:
+        return None
+    artifacts = ctx.state.get("artifacts")
+    raw_scope = artifacts.get("current_evidence_scope") if isinstance(artifacts, dict) else None
+    if not isinstance(raw_scope, str) or not canonical_relative_path(raw_scope):
+        return None
+    try:
+        scope = ctx.load_json(raw_scope, "current_evidence_scope")
+    except Exception as error:
+        add(issues, "CURRENT_EVIDENCE_SCOPE", "__scope__", f"unreadable:{error}")
+        return set()
+    selected = scope.get("fulltext_registry_ids")
+    if not isinstance(selected, list) or not all(nonempty(item) for item in selected):
+        add(issues, "CURRENT_EVIDENCE_SCOPE", "__scope__", "fulltext_registry_ids:invalid")
+        return set()
+    if len(selected) != len(set(selected)):
+        add(issues, "CURRENT_EVIDENCE_SCOPE", "__scope__", "fulltext_registry_ids:duplicate")
+    return {str(item) for item in selected}
+
+
 def validate(
     ctx: ProjectContext,
     literature: dict[str, Any],
@@ -163,6 +190,7 @@ def validate(
 ) -> list[Issue]:
     issues: list[Issue] = []
     enforce_fulltext_claims = requires_fulltext_claims(ctx)
+    selected_work_ids = selected_k_work_ids(ctx, issues) if enforce_fulltext_claims else set()
     works = records(literature, issues)
     claim_records = records(claims, issues)
     output_records = records(outputs, issues, field="output_claims", item_id="__output__")
@@ -247,7 +275,12 @@ def validate(
         if not isinstance(download, dict):
             add(issues, "DOWNLOAD", str(work_id), "missing_download_object")
             download = {}
-        if importance in {"CRITICAL", "IMPORTANT"} and enforce_fulltext_claims:
+        selected_for_deep_check = (
+            importance in {"CRITICAL", "IMPORTANT"}
+            and enforce_fulltext_claims
+            and (selected_work_ids is None or str(work_id) in selected_work_ids)
+        )
+        if selected_for_deep_check:
             status = download.get("status")
             if status not in ARCHIVED:
                 add(issues, "DOWNLOAD", str(work_id), f"important_not_archived:{status}")
@@ -355,6 +388,7 @@ def validate(
         if (
             enforce_fulltext_claims
             and work.get("importance") in {"CRITICAL", "IMPORTANT"}
+            and (selected_work_ids is None or work_id in selected_work_ids)
             and not claims_by_work.get(work_id)
         ):
             add(issues, "CLAIM_EXTRACTION", work_id, "important_work_without_claims")

@@ -445,12 +445,6 @@ def cmd_start_collision_round(args: argparse.Namespace) -> int:
             f"Opened collision round {new_round} from N0-3 HOLD; all prior-round "
             f"claims were drained before P1. {args.note.strip()}"
         ),
-        "artifacts": [
-            {
-                "path": round_artifacts["current_evidence_scope"],
-                "sha256": file_sha256(new_paths["current_evidence_scope"]),
-            }
-        ],
     }
     state.setdefault("decision_log", []).append(entry)
     atomic_write_state(state_path, state)
