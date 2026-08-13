@@ -452,23 +452,12 @@ def validate_coverage(
 
     routes = payload.get("routes")
     valid_independent: list[dict[str, Any]] = []
-    blocked_route = False
+    unavailable_routes: list[tuple[int, str]] = []
     if not isinstance(routes, list):
         add(issues, "FRONTIER_ROUTES_INVALID", "routes", "routes_must_be_list")
         routes = []
     seen_route_ids: set[str] = set()
     for index, route in enumerate(routes):
-        unavailable, detail = unavailable_capability(route)
-        if unavailable:
-            blocked_route = True
-            add(
-                issues,
-                "FRONTIER_CAPABILITY_UNAVAILABLE",
-                f"routes[{index}]",
-                detail,
-                "BLOCKED",
-            )
-            continue
         if not isinstance(route, dict):
             add(issues, "FRONTIER_ROUTE_INVALID", f"routes[{index}]", "must_be_object")
             continue
@@ -488,15 +477,47 @@ def validate_coverage(
             )
             continue
         seen_route_ids.add(route_id)
+        if route.get("status") == "BLOCKED":
+            unavailable, detail = unavailable_capability(route)
+            if unavailable:
+                unavailable_routes.append((index, detail))
+            else:
+                add(
+                    issues,
+                    "FRONTIER_ROUTE_INVALID",
+                    f"routes[{index}]",
+                    detail or "blocked_route_requires_valid_capability",
+                )
+            continue
         valid_independent.append(route)
     route_types = {route["route_type"] for route in valid_independent}
-    if (len(valid_independent) < 2 or len(route_types) < 2) and not blocked_route:
-        add(
-            issues,
-            "FRONTIER_ROUTES_INSUFFICIENT",
-            "routes",
-            f"independent_routes:{len(valid_independent)};route_types:{len(route_types)}",
-        )
+    quorum_met = len(valid_independent) >= 2 and len(route_types) >= 2
+    if not quorum_met:
+        if unavailable_routes:
+            for index, detail in unavailable_routes:
+                add(
+                    issues,
+                    "FRONTIER_CAPABILITY_UNAVAILABLE",
+                    f"routes[{index}]",
+                    detail,
+                    "BLOCKED",
+                )
+        else:
+            add(
+                issues,
+                "FRONTIER_ROUTES_INSUFFICIENT",
+                "routes",
+                f"independent_routes:{len(valid_independent)};route_types:{len(route_types)}",
+            )
+    else:
+        for index, detail in unavailable_routes:
+            add(
+                issues,
+                "FRONTIER_OPTIONAL_ROUTE_UNAVAILABLE",
+                f"routes[{index}]",
+                detail,
+                "WARNING",
+            )
     return issues
 
 

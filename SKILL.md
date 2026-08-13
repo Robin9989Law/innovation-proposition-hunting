@@ -303,6 +303,11 @@ bundle 内，旧 audit 仍会因哈希变化失效。不得手工把旧 hash 复
 不是作者续作，放 `method_lineage` 轴。缺轴为 INVALID；仅当具体能力被声明为
 `available=false` 且给出原因时才可 BLOCKED。
 
+route quorum 是至少两条可用 independent route 且至少两种 route type。quorum 未满足
+且具体 route 能力不可用时返回 BLOCKED；quorum 已满足后，额外尝试但不可用的 route
+必须继续如实记录为 coverage gap/WARNING，不计入成功 route，也不阻塞推进。必需覆盖轴
+不适用此降级规则，能力不可用时始终 BLOCKED。
+
 文献 `importance_history` 是追加式历史；current importance 必须等于末事件。任何
 CRITICAL/IMPORTANT → CONTEXT 的降级都要有全文 E2/E4、独立 reviewer/thread 和
 被审 artifact hash 的 reclassification。`DOWNLOAD_BLOCKED` 绝不能成为降级理由。

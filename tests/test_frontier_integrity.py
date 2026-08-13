@@ -260,6 +260,57 @@ class FrontierIntegrityTests(unittest.TestCase):
         self.assertEqual(1, result.returncode, result.stdout + result.stderr)
         self.assertIn("FRONTIER_ROUTES_INSUFFICIENT", result.stdout)
 
+    def test_unavailable_extra_route_is_warning_after_quorum(self) -> None:
+        project = self.make_frontier_project()
+        coverage = load_json(project / "frontier_coverage.json")
+        coverage["routes"].append(
+            {
+                "route_id": "optional-provider",
+                "route_type": "DISCOVERY",
+                "independent": True,
+                "status": "BLOCKED",
+                "details": "Provider rejected the bounded query.",
+                "capability": {
+                    "name": "OPTIONAL_PROVIDER",
+                    "available": False,
+                    "reason": "Provider unavailable in this runtime.",
+                },
+            }
+        )
+        write_json(project / "frontier_coverage.json", coverage)
+
+        result = self.run_frontier(project)
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("FRONTIER_OPTIONAL_ROUTE_UNAVAILABLE", result.stdout)
+        self.assertIn("frontier_integrity_status=READY", result.stdout)
+
+    def test_unavailable_route_blocks_when_quorum_is_not_met(self) -> None:
+        project = self.make_frontier_project()
+        coverage = load_json(project / "frontier_coverage.json")
+        coverage["routes"] = [
+            coverage["routes"][0],
+            {
+                "route_id": "required-second-route",
+                "route_type": "CITATION_GRAPH",
+                "independent": True,
+                "status": "BLOCKED",
+                "details": "The only second route type is unavailable.",
+                "capability": {
+                    "name": "CITATION_GRAPH_PROVIDER",
+                    "available": False,
+                    "reason": "No citation graph is available in this runtime.",
+                },
+            },
+        ]
+        write_json(project / "frontier_coverage.json", coverage)
+
+        result = self.run_frontier(project)
+
+        self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+        self.assertIn("FRONTIER_CAPABILITY_UNAVAILABLE", result.stdout)
+        self.assertIn("frontier_integrity_status=BLOCKED", result.stdout)
+
     def test_duplicate_json_keys_are_rejected_without_traceback(self) -> None:
         project = self.make_frontier_project()
         (project / "frontier_coverage.json").write_text(

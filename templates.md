@@ -442,6 +442,10 @@ protocol `chronology_test` 与 trace 绑定测试做静态核验：模块级
 {"status":"BLOCKED","capability":{"name":"<capability>","available":false,"reason":"<reason>"}}
 ```
 
+route 同样可以用 `status=BLOCKED` 和完整 capability 对象诚实记录失败尝试。若不足
+两条可用 independent route 或不足两种 route type，这类能力缺失会使校验 BLOCKED；
+已满足 quorum 时，额外不可用 route 只作为 WARNING/coverage gap 保留，不计入成功覆盖。
+
 `author_continuations` 只收**作者续作边**：每条边必须给出 `shared_authors`
 （两端 work 的真实作者交集，非空）。空交集或 legacy 字符串条目报
 `HOLLOW_COVERAGE_AXIS`。引用链（A → B → C 的引文传递，无作者交集）不是
