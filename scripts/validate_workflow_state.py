@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -208,6 +209,9 @@ NEW_CHECK_CODES = frozenset(
         "COMPLETE_REQUIRES_FINAL_LOCK_CONDITIONS",
         "UNREGISTERED_COMPUTE_ARTIFACT",
         "REGISTRY_POINTER_MISSING",
+        "FALSIFICATION_LEDGER_MISSING",
+        "OCCUPATION_EVIDENCE_MISSING",
+        "REDUCTION_EVIDENCE_MISSING",
     }
 )
 
@@ -468,6 +472,71 @@ def resolve_artifact(root: Path, raw_path: Any) -> Path | None:
     except ValueError:
         return None
     return path
+
+
+# 新颖性裁决证据识别——正面与负面终局同价（R-N0-17）。
+# 证伪书（falsification ledger）：N0-4C 候选存活，须列杀死候选的尝试及失败原因。
+# 占据证据（occupation evidence）：N0-1 直接占据，须列占据者及覆盖内容。
+# 归约证据（reduction evidence）：N0-2 机械可推出，须列可归约近邻及归约路径。
+FALSIFICATION_HEADING = re.compile(r"证伪书|falsification\s*ledger", re.IGNORECASE)
+FALSIFICATION_ENTRY = re.compile(
+    r"^\s*[-*]\s*\[(?:证伪路径|falsification)", re.IGNORECASE
+)
+OCCUPATION_HEADING = re.compile(r"占据证据|occupation\s*evidence", re.IGNORECASE)
+OCCUPATION_ENTRY = re.compile(r"^\s*[-*]\s*\[(?:占据|occupation)", re.IGNORECASE)
+REDUCTION_HEADING = re.compile(r"归约证据|reduction\s*evidence", re.IGNORECASE)
+REDUCTION_ENTRY = re.compile(r"^\s*[-*]\s*\[(?:归约|reduction)", re.IGNORECASE)
+
+
+def section_present(text: str, heading: re.Pattern[str], entry: re.Pattern[str]) -> bool:
+    """文档是否含指定标题且其后至少一条条目。"""
+    lines = text.splitlines()
+    saw_heading = False
+    for line in lines:
+        if not saw_heading and heading.search(line):
+            saw_heading = True
+            continue
+        if saw_heading and entry.search(line):
+            return True
+    return False
+
+
+# novelty_level -> (所需证据节, 缺失错误码)。
+# N0-3 是 HOLD（未裁决），不要求终局证据。
+NOVELTY_VERDICT_EVIDENCE = {
+    "N0-4C": (FALSIFICATION_HEADING, FALSIFICATION_ENTRY, "FALSIFICATION_LEDGER_MISSING"),
+    "N0-1": (OCCUPATION_HEADING, OCCUPATION_ENTRY, "OCCUPATION_EVIDENCE_MISSING"),
+    "N0-2": (REDUCTION_HEADING, REDUCTION_ENTRY, "REDUCTION_EVIDENCE_MISSING"),
+}
+
+
+def validate_novelty_verdict_evidence(
+    root: Path, state: dict[str, Any], errors: list[str]
+) -> None:
+    """novelty-audit.md 必须含与 novelty_level 对应的裁决证据（R-N0-17）。"""
+    novelty_level = state.get("novelty_level")
+    spec = NOVELTY_VERDICT_EVIDENCE.get(novelty_level)
+    if spec is None:
+        return
+    heading, entry, code = spec
+    artifacts = state.get("artifacts")
+    if not isinstance(artifacts, dict):
+        return
+    path = resolve_artifact(root, artifacts.get("hierarchy_novelty_audit"))
+    if path is None or not path.is_file():
+        return
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return
+    if not section_present(text, heading, entry):
+        add(
+            errors,
+            code,
+            f"novelty-audit 缺少 {novelty_level} 所需的裁决证据节",
+        )
+
+
 
 
 def validate_compute_evidence(
@@ -1070,6 +1139,9 @@ def validate(
             "SELF_DECLARED_LEVEL",
             f"novelty_level:{novelty_level};n0_4_locked:{gates.get('n0_4_locked')}",
         )
+
+    # R-N0-17：novelty-audit 必须含与 novelty_level 对应的裁决证据（正面/负面同价）。
+    validate_novelty_verdict_evidence(root, state, errors)
 
     # COMPLETE 是终态，必须满足与 FINAL_LOCK 等价的条件。
     if effective_state == "COMPLETE":

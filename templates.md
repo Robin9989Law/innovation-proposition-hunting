@@ -475,12 +475,23 @@ V3/V4 使用；同样的对象还要镜像到 `workflow_state.independent_audit`
   "audited_bundle_sha256": "<same state/manifest bundle sha256>",
   "verdict": "PASS",
   "findings": [],
+  "review_answers": {
+    "data_authenticity": "<manuscript 声称的数据集 vs compute 实际数据源，是否一致>",
+    "baseline_execution": "<每个 comparator 是否有非空执行证据；空壳是否被计入结论>",
+    "claim_strength": "<claim 措辞是否超过 claim_profile，THEORY 词是否出现在 ALGORITHM>",
+    "falsification_attempt": "<我尝试推翻但失败的证据，不是『我确认它通过』>"
+  },
   "audited_at": "<ISO-8601>"
 }
 ```
 
 reviewer 不能在 author list 中。能力不可用时写 `capability_available=false` 并返回
 BLOCKED；不得伪造 reviewer、thread、PASS 或 bundle。
+
+`verdict=PASS` 且 `capability_available=true` 时，`review_answers` 四个键
+（`data_authenticity` / `baseline_execution` / `claim_strength` /
+`falsification_attempt`）必须全部非空，缺一即 `REVIEW_ANSWERS_INCOMPLETE`。这四问
+是实质复核，不是形式核对；写"已确认通过""8/8 通过"等空话等于未答。
 
 ## 10. `compute_evidence.json` 与 state pointer
 
@@ -603,3 +614,52 @@ scope，K 观点门后再换入完整 scope——通过重指 `artifacts.current
 实现（如 `current_evidence_scope_k_fulltext.json` → `_k_claims.json`）。历史
 scope 文件保留不删，作为本轮取证轨迹的审计证据；每个被指向的 scope 仍须通过
 全部一致性校验（轮次匹配、ID 存在、全文已归档）。
+
+## 15. `novelty-audit.md`
+
+N0_AUDIT 阶段的权威裁决产物。裁决一个候选是否为 N0-4C 之前，必须先完成
+**证伪书（falsification ledger）**——逐条列出"我尝试杀死这个候选的方式，以及
+每种方式为何失败"。证伪优先：候选存活是"证伪失败后的残留"，不是"未被注意的
+空缺"。
+
+```markdown
+# Novelty Audit — <candidate-id>
+
+## 证伪书（falsification ledger）
+
+> 进入 N0-4C 前必填。逐条列出你尝试杀死该候选的方式及失败原因，至少一条。
+> 每条点明证伪路径 + 目标近邻 + 失败原因。
+
+- [证伪路径] 直接占据：<近邻 W-XXXX 为何没有直接占据候选>
+- [证伪路径] 机械归约：<候选为何不能由近邻结果加约束/换分母推出>
+- [证伪路径] 换名检测：<候选为何不是近邻的术语换名>
+
+## N0 评估综合
+
+| 近邻 ID | 距离 | N0 | 关键观察 |
+|---|---|---|---|
+
+## N0 裁决
+
+- novelty_level = N0-4C / N0-1 / N0-2 / N0-3
+- 证伪书完成度：<N 条证伪尝试，全部失败>
+```
+
+负面终局（N0-1 / N0-2）与正面终局同严：裁决为 N0-1 时，`证伪书` 节替换为
+`占据证据（occupation evidence）`；裁决为 N0-2 时替换为
+`归约证据（reduction evidence）`。二者同样要求标题 + 至少一条条目：
+
+```markdown
+## 占据证据（occupation evidence）
+
+- [占据] <近邻 W-XXXX> 已在 <年份> 直接提出并验证同一候选，覆盖了 <主张>
+
+## 归约证据（reduction evidence）
+
+- [归约] 候选 = <近邻结果 W-XXXX> + <约束/换分母/拼接>，机械可推出
+```
+
+validator 识别标记：`证伪书`/`falsification`、`占据证据`/`occupation evidence`、
+`归约证据`/`reduction evidence` 三类标题，且各自标题后至少一条对应条目。
+缺对应节分别报 `FALSIFICATION_LEDGER_MISSING` / `OCCUPATION_EVIDENCE_MISSING` /
+`REDUCTION_EVIDENCE_MISSING`（默认 WARNING，`--strict-new-checks` 升 INVALID）。

@@ -193,6 +193,37 @@ def validate(
             )
         )
 
+    # R-N0-17 / review 实质四问：PASS 且能力可用时必须全部非空。
+    if verdict == "PASS" and not capability_unavailable:
+        review_answers = audit.get("review_answers")
+        required_keys = (
+            "data_authenticity",
+            "baseline_execution",
+            "claim_strength",
+            "falsification_attempt",
+        )
+        if not isinstance(review_answers, dict):
+            issues.append(
+                Issue(
+                    "REVIEW_ANSWERS_INCOMPLETE",
+                    "INVALID",
+                    "independent_audit",
+                    "review_answers:missing_object",
+                )
+            )
+        else:
+            for key in required_keys:
+                value = review_answers.get(key)
+                if not nonempty_string(value):
+                    issues.append(
+                        Issue(
+                            "REVIEW_ANSWERS_INCOMPLETE",
+                            "INVALID",
+                            "independent_audit",
+                            f"review_answers.{key}:missing_or_empty",
+                        )
+                    )
+
     state_epoch = state.get("validation_epoch")
     manifest_epoch = manifest.get("validation_epoch")
     artifact_epoch = audit.get("validation_epoch")

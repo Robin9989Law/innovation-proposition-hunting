@@ -196,6 +196,49 @@ class AuditInvalidationTests(unittest.TestCase):
                 )
                 self.assertIn(code, result.stdout)
 
+    def test_pass_audit_requires_complete_review_answers(self) -> None:
+        """review 实质四问：PASS 且能力可用时四键必须全部非空（R-N0-17）。"""
+        cases = (
+            ("missing_object", None, "review_answers:missing_object"),
+            ("missing_key", {"data_authenticity": "ok"}, "review_answers.baseline_execution:missing_or_empty"),
+            ("empty_value", {
+                "data_authenticity": "ok",
+                "baseline_execution": "ok",
+                "claim_strength": "ok",
+                "falsification_attempt": "  ",
+            }, "review_answers.falsification_attempt:missing_or_empty"),
+        )
+        for label, value, detail in cases:
+            with self.subTest(label=label):
+                project = self.make_project()
+                audit = load_json(project / AUDIT)
+                if value is None:
+                    audit.pop("review_answers", None)
+                else:
+                    audit["review_answers"] = value
+                write_json(project / AUDIT, audit)
+
+                result = run_script("validate_audit_provenance.py", project)
+
+                self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+                self.assertIn("REVIEW_ANSWERS_INCOMPLETE", result.stdout)
+                self.assertIn(detail, result.stdout)
+
+    def test_complete_review_answers_pass(self) -> None:
+        """四问齐全且非空时 audit provenance READY。"""
+        project = self.make_project()
+        audit = load_json(project / AUDIT)
+        audit["review_answers"] = {
+            "data_authenticity": "real",
+            "baseline_execution": "real",
+            "claim_strength": "real",
+            "falsification_attempt": "real",
+        }
+        write_json(project / AUDIT, audit)
+        result = run_script("validate_audit_provenance.py", project)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertNotIn("REVIEW_ANSWERS_INCOMPLETE", result.stdout)
+
     def test_capability_unavailable_is_blocked_without_false_invalidity(self) -> None:
         project = self.make_project()
         state = load_json(project / "workflow_state.json")

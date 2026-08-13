@@ -10,5 +10,11 @@
   "audited_bundle_sha256": "84dc23ac301194dd34dbdebafe8a67ba82fcdc885b81bec5da8d9eb6218dc052",
   "verdict": "PASS",
   "findings": [],
-  "audited_at": "2026-08-10T00:00:00Z"
+  "audited_at": "2026-08-10T00:00:00Z",
+  "review_answers": {
+    "data_authenticity": "fixture: synthetic data declared as synthetic, manuscript matches.",
+    "baseline_execution": "fixture: all comparators have non-empty per_run.",
+    "claim_strength": "fixture: claim wording matches ALGORITHM profile.",
+    "falsification_attempt": "fixture: attempted to falsify via occupation check, failed."
+  }
 }

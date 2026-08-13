@@ -95,6 +95,102 @@ class NewCheckSemanticsTests(unittest.TestCase):
             self.assertEqual(1, strict.returncode, strict.stdout)
             self.assertIn("INVALID\tSELF_DECLARED_LEVEL", strict.stdout)
 
+    def test_falsification_ledger_required_when_n0_4c_locked(self) -> None:
+        """R-N0-17：n0_4_locked=true 时 novelty-audit 必须含证伪书（标题+条目）。"""
+        temporary_directory, project = make_valid_project()
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["gates"]["n0_4_locked"] = True
+            state["novelty_level"] = "N0-4C"
+            state["artifacts"]["hierarchy_novelty_audit"] = "novelty-audit.md"
+            write_json(project / "workflow_state.json", state)
+            (project / "novelty-audit.md").write_text(
+                "# Novelty audit\n\nNo falsification ledger here.\n",
+                encoding="utf-8",
+            )
+
+            default = run_script(
+                "validate_workflow_state.py", project, ["--current-year", "2026"]
+            )
+            self.assertIn("WARNING\tFALSIFICATION_LEDGER_MISSING", default.stdout)
+
+            strict = run_script(
+                "validate_workflow_state.py",
+                project,
+                ["--current-year", "2026", "--strict-new-checks"],
+            )
+            self.assertIn("INVALID\tFALSIFICATION_LEDGER_MISSING", strict.stdout)
+
+    def test_falsification_ledger_present_passes(self) -> None:
+        """R-N0-17：证伪书含标题 + 至少一条证伪路径时不报 FALSIFICATION。"""
+        temporary_directory, project = make_valid_project()
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["gates"]["n0_4_locked"] = True
+            state["novelty_level"] = "N0-4C"
+            state["artifacts"]["hierarchy_novelty_audit"] = "novelty-audit.md"
+            write_json(project / "workflow_state.json", state)
+            (project / "novelty-audit.md").write_text(
+                "# Novelty audit\n\n"
+                "## 证伪书（falsification ledger）\n\n"
+                "- [证伪路径] 直接占据：近邻 W-0001 未直接占据候选。\n",
+                encoding="utf-8",
+            )
+
+            completed = run_script(
+                "validate_workflow_state.py",
+                project,
+                ["--current-year", "2026", "--strict-new-checks"],
+            )
+            self.assertNotIn("FALSIFICATION_LEDGER_MISSING", completed.stdout)
+
+    def test_negative_terminal_requires_occupation_or_reduction_evidence(self) -> None:
+        """R-N0-17：N0-1/N0-2 负面终局与 N0-4C 同价，须有占据/归约证据。"""
+        for novelty_level, code in (
+            ("N0-1", "OCCUPATION_EVIDENCE_MISSING"),
+            ("N0-2", "REDUCTION_EVIDENCE_MISSING"),
+        ):
+            with self.subTest(novelty_level=novelty_level):
+                temporary_directory, project = make_valid_project()
+                with temporary_directory:
+                    state = load_json(project / "workflow_state.json")
+                    state["novelty_level"] = novelty_level
+                    state["gates"]["n0_4_locked"] = False
+                    state["artifacts"]["hierarchy_novelty_audit"] = "novelty-audit.md"
+                    write_json(project / "workflow_state.json", state)
+                    (project / "novelty-audit.md").write_text(
+                        "# Novelty audit\n\nNo terminal evidence.\n",
+                        encoding="utf-8",
+                    )
+                    completed = run_script(
+                        "validate_workflow_state.py",
+                        project,
+                        ["--current-year", "2026", "--strict-new-checks"],
+                    )
+                    self.assertIn(f"INVALID\t{code}", completed.stdout)
+
+    def test_negative_terminal_evidence_present_passes(self) -> None:
+        """R-N0-17：占据/归约证据节存在时不报缺失。"""
+        temporary_directory, project = make_valid_project()
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["novelty_level"] = "N0-1"
+            state["gates"]["n0_4_locked"] = False
+            state["artifacts"]["hierarchy_novelty_audit"] = "novelty-audit.md"
+            write_json(project / "workflow_state.json", state)
+            (project / "novelty-audit.md").write_text(
+                "# Novelty audit\n\n"
+                "## 占据证据（occupation evidence）\n\n"
+                "- [占据] 近邻 W-0001 已直接占据候选。\n",
+                encoding="utf-8",
+            )
+            completed = run_script(
+                "validate_workflow_state.py",
+                project,
+                ["--current-year", "2026", "--strict-new-checks"],
+            )
+            self.assertNotIn("OCCUPATION_EVIDENCE_MISSING", completed.stdout)
+
     def test_derived_tier_drives_contribution_check(self) -> None:
         """active_layer 已删除：证据层级由 active_state 派生并驱动 CONTRIBUTION 检查。"""
         temporary_directory, project = make_valid_project()

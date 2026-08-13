@@ -127,6 +127,17 @@ L3 强制：全文归档自 `K_FULLTEXT` 起、原子观点自 `K_CLAIM_REGISTER
 在 L3 已声明 `current_evidence_scope.json` 时，该完整性要求只适用于其中明列的 K
 work ID；其他近邻仍留在全局账本中以保证发现完整性，但不得被用于碰撞或输出主张。
 
+**危险近邻表是 L2 的唯一硬产出**（R-L2-18）：`l2-card.md` 必须对每个严肃近邻记
+三列——实际覆盖什么 → 被关闭的浅层主张 → 吸收后打开的深层问题。L2_TRIAGE 的
+裁决凭据是这张表，不是"下载了 N 篇全文、提取了 M 条观点"的数字。表写不出、
+或三列里有空列，视为 L2 未完成。全文数量是这张表的副产物，不是交付目标。
+
+**原子观点的质量门槛**（R-ATOMIC-19）：一条观点只有能改变候选存活判断才配登记
+为原子观点——它能让某候选从"存活"变"被占/可机械推出"，暴露一个近邻自己没回答
+的内生问题，或是候选 K→U→Δ 里 Δ 的最小非机械证据。不能改变判断的，是读后感，
+不是原子观点，不登记。登记前先问：这条观点删除后，我的 N0 裁决会变吗？不变就
+不登记。
+
 | 等级 | 含义 | 动作 |
 |---|---|---|
 | `N0-1` | 正式出版近邻直接占据 | 关闭或吸收 |
@@ -141,6 +152,20 @@ decision_log 记录裁决、占据/可推导证据与处置（关闭、吸收或
 产物（碰撞综合、机械推导审计、改写后的管理推论）保留在册，
 `next_required_action` 写明终局去向。不得为抵达 `COMPLETE` 而硬撑候选、补做
 无关计算或把 N0-2 包装成 N0-4C——`COMPLETE` 只属于 FINAL_LOCK 路径。
+
+**证伪优先（falsification-first）**：任何候选被裁决为 N0-4C 之前，`novelty-audit.md`
+必须先完成证伪书（falsification ledger）——逐条列出"我尝试杀死这个候选的方式
+以及每种方式为何失败"（直接占据、机械归约、换名检测至少各一条；确无某类路径时
+逐条登记理由）。候选存活是证伪失败后的残留，不是未被注意的空缺。证伪书写不出、
+或写出的"失败原因"站不住（被独立复核或人审一眼看穿）时，候选不得前进。缺证伪书
+即 `FALSIFICATION_LEDGER_MISSING`。
+
+负面终局与正面终局**同价且同严**：裁决为 N0-1 时 `novelty-audit.md` 必须有
+占据证据（occupation evidence，列占据者与覆盖内容，缺即
+`OCCUPATION_EVIDENCE_MISSING`）；裁决为 N0-2 时必须有归约证据（reduction
+evidence，列可归约近邻与机械归约路径，缺即 `REDUCTION_EVIDENCE_MISSING`）。
+成功证伪一个候选（找到直接占据或机械归约）与锁定一个 N0-4C 命题是同一等级的
+研究结论，都写完整交接报告，不因是负结果而降格或轻省。
 
 ### 3.2 有效性轴
 
@@ -218,6 +243,16 @@ V3/V4 必须由不同 agent 完成。`reviewer_agent_id` 不得出现在
 或只审自然语言摘要均为 INVALID。若独立 reviewer 能力明确不可用，记录
 `capability_available=false` 并返回 `BLOCKED_CAPABILITY`；不得把能力缺失伪装成
 PASS，也不得因此跳过对已经存在产物的矛盾检查。
+
+**单 agent 环境下的 subagent review 是合法独立复核形式**：主 agent 派 subagent
+做 review 时，subagent 产物独立成文件，主 agent 只读不写；主 agent 需要补字段
+只能重新派 subagent，不得自己改写 review 产物。review 产物被主 agent 事后改动
+即 `REVIEW_ARTIFACT_TAMPERED`。
+
+**review 是实质复核，不是形式盖章**：`verdict=PASS` 时 `review_answers` 四问必须
+全部非空（`REVIEW_ANSWERS_INCOMPLETE`）——数据真实性、baseline 执行、措辞强度、
+证伪尝试。写"已确认通过""8/8 通过"等空话等于未答，判 INVALID。review 的价值在
+于发现问题，不在于签第二张 PASS 表。
 
 ## 6. 哈希、epoch 与失效
 
@@ -331,7 +366,7 @@ INVALID（§9）。
 | R-COMPUTE-02 | COMPUTE 门前禁止任何数值输出实验；S0-SCREEN 数值预实验必须当天登记 `exploration_registry.json`，其数字不得进入冻结工件（`UNREGISTERED_COMPUTE_ARTIFACT` / `EXPLORATION_LEAK`） | §8、compute-funnel §2、templates §12 |
 | R-BLOCKED-03 | BLOCKED 期间仅允许：验证已有产物、记录唯一恢复动作、登记用户直接提供的解阻材料 | §9 |
 | R-LOG-04 | 每次状态完成必须追加 decision_log 条目（真实 UTC 时间、单调、gate 置真有对应条目）；标准动作是 `iph advance`，禁止手工回填 | §2、templates §1 |
-| R-SEARCH-05 | `search_mode` 三态：`SEARCH_OPEN` → `SYNTHESIS_LOCK`（100 篇自动综合锁）→ `EXCEPTION_REOPEN`（例外重开须登记） | templates §1、reference §5.1 |
+| R-N0-17 | 证伪优先且正负同严：候选裁决为 N0-4C 前必须在 novelty-audit.md 完成证伪书（falsification ledger），逐条列出杀死候选的尝试及失败原因；裁决为 N0-1/N0-2 时必须分别有占据证据/归约证据（`FALSIFICATION_LEDGER_MISSING`/`OCCUPATION_EVIDENCE_MISSING`/`REDUCTION_EVIDENCE_MISSING`）；负面终局与正面终局同价同严 | §3.1、templates §15 |
 | R-SELFTEST-06 | 禁自证：测试必须静态声明 `TARGET_CLAIM_IDS` 且 AST 可证 import 被绑定实现；只断言自身硬编码期望的脚本不计入证据（`SELF_ATTESTING_TEST`） | §4、templates §6 |
 | R-EMPIRICAL-07 | empirical 不得升格为 theorem：实证结果不能改写成全称命题，命题强度以实际支持的最弱形式重建 epoch | §6、compute-funnel §2 |
 | R-PERSIST-08 | 先落盘再升级：每次阶段/状态升级先保存产物与哈希，再改 `compute_stage`/`active_state`（`iph advance` 内置此顺序） | compute-funnel §1、§2 |
@@ -343,6 +378,10 @@ INVALID（§9）。
 | R-SKILL-14 | 项目 agent 修改技能仓库后必须提交、测试全绿、文档同步且风格一致；留未提交半成品或红测试即流程违规 | §12 |
 | R-CLOSE-15 | N0-1/N0-2 是合法终局：停留 `N0_AUDIT`、decision_log 记录裁决与处置、负结果产物保留在册；不得为抵达 COMPLETE 硬撑候选或包装等级 | §3.1 |
 | R-LOG-16 | decision_log 只锚定不可变产物（可变文件由 state 指针对账）；epoch 失效后重建日志须保留 `.superseded` 快照、条目标注 replay 标签、`at` 用重建时刻真实 UTC，不得回填虚构历史时刻 | templates §1 |
+| R-L2-18 | 危险近邻表是 L2 唯一硬产出：l2-card.md 对每个严肃近邻记三列（覆盖什么/关闭的浅层主张/打开的深层问题），L2_TRIAGE 凭此表裁决而非全文/观点计数 | §3.1、case-lessons §5 |
+| R-ATOMIC-19 | 原子观点质量门槛：只有能改变候选存活判断的观点才登记；删除后 N0 裁决不变的，是读后感不登记 | §3.1 |
+
+| R-REVIEW-20 | review 是实质复核不是形式盖章：verdict=PASS 时 review_answers 四问（数据真实性/baseline 执行/措辞强度/证伪尝试）必须全部非空（`REVIEW_ANSWERS_INCOMPLETE`）；单 agent 环境 subagent review 是合法独立形式，产物主 agent 只读不写，事后改动即 `REVIEW_ARTIFACT_TAMPERED` | §5、templates §9 |
 
 ## 12. 修改技能仓库的自律规则
 
