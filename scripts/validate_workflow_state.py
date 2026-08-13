@@ -219,6 +219,7 @@ NEW_CHECK_CODES = frozenset(
         "EVIDENCE_SCOPE_REGRESSED",
         "NEXT_ACTION_INCONSISTENT_WITH_STATE",
         "CAPABILITY_FLIPPED_WITHOUT_PROVENANCE",
+        "ATOMIC_CLAIM_NO_ANCHOR",
     }
 )
 
@@ -821,6 +822,55 @@ def validate_baseline_execution(
                 "BASELINE_NOT_EXECUTED",
                 f"comparator:{comparator_id} per_run 为空，未实际执行",
             )
+
+
+# 原子观点套壳信号：观点是"文献元描述"而非"文献可判断观点"（R-ATOMIC-19）。
+# 匹配任一模式即 ATOMIC_CLAIM_NO_ANCHOR：元描述不是观点，套壳填槽不算提炼。
+ATOMIC_SHELL_PATTERNS = (
+    re.compile(r"^(?:paper|the\s+paper|this\s+paper)\b", re.IGNORECASE),
+    re.compile(r"introduction/abstract", re.IGNORECASE),
+    re.compile(r"\bis\s+(?:远邻|近邻)\b", re.IGNORECASE),
+    re.compile(r"acknowledges?\s+limitations", re.IGNORECASE),
+)
+
+
+def validate_atomic_claim_quality(
+    root: Path, state: dict[str, Any], errors: list[str]
+) -> None:
+    """R-ATOMIC-19：原子观点不能是文献元描述套壳（"Paper W-XXXX proposes..."）。"""
+    artifacts = state.get("artifacts")
+    claim_rel = (
+        artifacts.get("claim_registry")
+        if isinstance(artifacts, dict) and artifacts.get("claim_registry")
+        else "literature_claim_registry.json"
+    )
+    if not canonical_relative_path(claim_rel):
+        return
+    path = resolve_artifact(root, claim_rel)
+    if path is None or not path.is_file():
+        return
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    if not isinstance(payload, dict):
+        return
+    records = payload.get("claims") or payload.get("records") or []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        statement = record.get("normalized_statement") or record.get("statement") or ""
+        if not nonempty_string(statement):
+            continue
+        claim_id = record.get("claim_id") or "?"
+        for pattern in ATOMIC_SHELL_PATTERNS:
+            if pattern.search(statement):
+                add(
+                    errors,
+                    "ATOMIC_CLAIM_NO_ANCHOR",
+                    f"{claim_id}: 套壳观点「{statement[:80]}」",
+                )
+                break
 
 
 
@@ -1455,6 +1505,7 @@ def validate(
     validate_evidence_scope_monotonic(root, state, errors)
     validate_next_action_consistent(state, errors)
     validate_capability_flip_provenance(state, errors)
+    validate_atomic_claim_quality(root, state, errors)
 
     return errors
 

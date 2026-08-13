@@ -203,6 +203,60 @@ class NewCheckSemanticsTests(unittest.TestCase):
             )
             self.assertIn("CAPABILITY_FLIPPED_WITHOUT_PROVENANCE", completed.stdout)
 
+    def test_atomic_claim_shell_flagged(self) -> None:
+        """R-ATOMIC-19：原子观点是"Paper W-XXXX proposes..."元描述即套壳。"""
+        temporary_directory, project = make_valid_project()
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["artifacts"]["claim_registry"] = "literature_claim_registry.json"
+            write_json(project / "workflow_state.json", state)
+            write_json(
+                project / "literature_claim_registry.json",
+                {
+                    "schema_version": "2.0",
+                    "current_collision_round": 1,
+                    "claims": [
+                        {
+                            "claim_id": "LC-0001",
+                            "normalized_statement": "Paper W-0001 proposes a method to detect anomalies.",
+                        }
+                    ],
+                },
+            )
+            completed = run_script(
+                "validate_workflow_state.py",
+                project,
+                ["--current-year", "2026", "--strict-new-checks"],
+            )
+            self.assertIn("ATOMIC_CLAIM_NO_ANCHOR", completed.stdout)
+
+    def test_atomic_claim_substantive_passes(self) -> None:
+        """R-ATOMIC-19：实质断言（五要素）不报套壳。"""
+        temporary_directory, project = make_valid_project()
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["artifacts"]["claim_registry"] = "literature_claim_registry.json"
+            write_json(project / "workflow_state.json", state)
+            write_json(
+                project / "literature_claim_registry.json",
+                {
+                    "schema_version": "2.0",
+                    "current_collision_round": 1,
+                    "claims": [
+                        {
+                            "claim_id": "LC-0001",
+                            "normalized_statement": "在 5-fold CV 下，双头模型相对单任务 BiLSTM 把 F1 从 0.42 提到 0.45。",
+                        }
+                    ],
+                },
+            )
+            completed = run_script(
+                "validate_workflow_state.py",
+                project,
+                ["--current-year", "2026", "--strict-new-checks"],
+            )
+            self.assertNotIn("ATOMIC_CLAIM_NO_ANCHOR", completed.stdout)
+
     def test_negative_terminal_requires_occupation_or_reduction_evidence(self) -> None:
         """R-N0-17：N0-1/N0-2 负面终局与 N0-4C 同价，须有占据/归约证据。"""
         for novelty_level, code in (

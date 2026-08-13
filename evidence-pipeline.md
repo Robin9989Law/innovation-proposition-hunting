@@ -217,6 +217,18 @@ artifact；reviewer 不得是 state 的 author。`DOWNLOAD_BLOCKED` 或能力不
 一条记录只承载一个可判断的原子观点。不要把整篇摘要复制成一个观点，也不要把
 多个条件和结论混成一条。
 
+**五要素模板（R-ATOMIC-19）**：`normalized_statement` 必须能填进下面的骨架，
+写不出五要素中的条件、基线、数值三样，就是"这篇论文讲了啥"的读后感，不是原子
+观点，不登记：
+
+```text
+在 [条件 C] 下，[方法/对象 A] 相对 [基线/分母 B]，
+把 [指标 T] 从 [数值 X] 改到 [数值 Y]（或：未改善 / 关系不显著）。
+```
+
+理论类观点（无基线数值）改用精确定位：locator 必须含 `theorem`/`lemma`/
+`corollary` 号，且 statement 是可证伪的单一断言，不是"该文提出了 X"的综述。
+
 ```json
 {
   "schema_version": "2.0",
@@ -264,6 +276,10 @@ artifact；reviewer 不得是 state 的 author。`DOWNLOAD_BLOCKED` 或能力不
 - 结论记录须保留条件、量词、分母和基线，不能把相关性扩大为因果；
 - `ABSTRACT_ONLY/UNVERIFIED` 只能发现碰撞，不能支持最终输出结论；
 - 原文短引只作定位，主要保存准确释义，避免大段复制。
+- **禁套壳**：`normalized_statement` 不得是"Paper W-XXXX proposes / concludes
+  / acknowledges limitations / introduction-abstract / is 远邻近邻"这类文献
+  元描述（`ATOMIC_CLAIM_NO_ANCHOR`）。观点写"论文主张的具体内容"，不是
+  "论文在做什么"。
 
 ## 6. `output_claim_support.json`
 
