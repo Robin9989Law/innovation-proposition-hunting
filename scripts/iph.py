@@ -172,6 +172,57 @@ def apply_state_repairs(
         state["next_required_action"] = next_action.strip()
 
 
+def sync_recent_window_from_registry(
+    state: dict[str, Any], root: Path, gate_updates: dict[str, bool]
+) -> None:
+    """完成最近前沿门时，从已登记文献账本同步权威时间窗。"""
+
+    if gate_updates.get("recent_frontier_complete") is not True:
+        return
+
+    artifacts = state.get("artifacts")
+    if not isinstance(artifacts, dict):
+        raise SystemExit("workflow_state.artifacts 必须是对象")
+    relative = artifacts.get("literature_registry")
+    if not isinstance(relative, str) or not canonical_relative_path(relative):
+        raise SystemExit(
+            "recent_frontier_complete=true 必须同时登记合法的 "
+            "artifacts.literature_registry"
+        )
+    registry_path = root / relative
+    if not registry_path.is_file() or registry_path.is_symlink():
+        raise SystemExit(f"literature_registry 不存在或不是安全实体：{relative}")
+
+    registry = _load_json_object(registry_path, "literature_registry")
+    window = registry.get("recent_window")
+    if not isinstance(window, dict):
+        raise SystemExit("literature_registry.recent_window 必须是对象")
+    current_year = state.get("current_year")
+    expected = {
+        "start_year": current_year - 2 if isinstance(current_year, int) else None,
+        "end_year": current_year,
+        "status": "COMPLETE",
+    }
+    for key, value in expected.items():
+        if window.get(key) != value:
+            raise SystemExit(
+                "literature_registry.recent_window 与当前状态不一致："
+                f"{key}={window.get(key)!r}; expected={value!r}"
+            )
+    snapshot_mode = window.get("snapshot_mode")
+    if snapshot_mode not in {"NEW_SEARCH", "REUSED_VERIFIED_SNAPSHOT"}:
+        raise SystemExit(
+            "literature_registry.recent_window.snapshot_mode 必须是 "
+            "NEW_SEARCH 或 REUSED_VERIFIED_SNAPSHOT"
+        )
+    state["recent_window"] = {
+        "start_year": window["start_year"],
+        "end_year": window["end_year"],
+        "status": window["status"],
+        "snapshot_mode": snapshot_mode,
+    }
+
+
 def cmd_advance(args: argparse.Namespace) -> int:
     root = Path(args.root).resolve()
     state_path = Path(args.state).resolve()
@@ -256,6 +307,7 @@ def cmd_advance(args: argparse.Namespace) -> int:
     gates = state.setdefault("gates", {})
     for key, value in gate_updates.items():
         gates[key] = value
+    sync_recent_window_from_registry(state, root, gate_updates)
 
     # 3. decision_log 记账：真实时间戳 + 本状态产物哈希
     artifacts: list[dict[str, str]] = []

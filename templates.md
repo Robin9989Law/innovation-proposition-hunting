@@ -92,6 +92,11 @@ POSIX path；所有 SHA-256 均为 64 位小写十六进制；`validation_epoch`
 `iph clear-lock --set-artifact key=path --next-action "..." --recovery-note "..."`
 受控修复后重验，不得直接编辑 `workflow_state.json`。
 
+`recent_frontier_complete=true` 是一个复合原子门：同一次 `iph advance` 必须用
+`--set-artifact literature_registry=<path>` 登记最近前沿账本。CLI 会从该账本的
+`recent_window` 校验并同步 `start_year`、`end_year`、`status` 与 `snapshot_mode`；
+协调 agent 不得手工猜测或直接改写这些字段。
+
 - `at`：UTC ISO-8601；条目时间单调不减，且不得晚于 state 文件自身写入时刻
   （校验器以 mtime 交叉核验，未来时间或晚于写入时间即判伪造）。
 - `state`：必须是状态机中的状态；BLOCKED 期间的条目用 `BLOCKED@<STATE>`。

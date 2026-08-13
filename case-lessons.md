@@ -4,6 +4,20 @@
 本文件不是执行规范；若案例叙述与 `SKILL.md` 的状态机或
 `evidence-pipeline.md` 的数据合同不同，以后两者为准。
 
+## 2026-08-14：最近前沿门置真但状态时间窗未同步
+
+- **症状**：`frontier-auditor` 已完成且三份 JSON 已落盘，`iph advance` 在设置
+  `recent_frontier_complete=true` 后却连续 post-validation 失败，M3 误入
+  “清锁—重试—再落锁”循环。
+- **根因**：旧版 `cmd_advance` 只更新 gate 和工件指针，没有在同一事务中更新
+  `workflow_state.recent_window`；validator 正确拒绝了 gate=true 但
+  `status=INCOMPLETE/snapshot_mode=NOT_SET` 的自相矛盾状态。
+- **修复合同**：完成最近前沿门时，CLI 必须从原子登记的 literature registry
+  读取、校验并同步权威时间窗；缺字段、年份错位或非法 snapshot mode 必须在写
+  state 前失败。
+- **执行纪律**：同一确定性校验错误重复出现时不得继续清锁重试。保留 STOP，先
+  修权威迁移器并增加回归测试，再执行一次有恢复说明的受控解锁。
+
 ---
 
 ## 目录

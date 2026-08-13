@@ -214,6 +214,84 @@ class AdvanceTests(unittest.TestCase):
             log_text = (project / "validation.log").read_text(encoding="utf-8")
             self.assertIn("ADVANCE CLAIM_FREEZE -> VALIDITY_AUDIT", log_text)
 
+    def test_recent_frontier_advance_syncs_window_from_registered_artifact(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V0")
+        with temporary_directory:
+            registry = project / "frontier-registry.json"
+            write_json(
+                registry,
+                {
+                    "recent_window": {
+                        "start_year": 2024,
+                        "end_year": 2026,
+                        "status": "COMPLETE",
+                        "snapshot_mode": "REUSED_VERIFIED_SNAPSHOT",
+                    },
+                    "records": [],
+                },
+            )
+            completed = run_iph(
+                project,
+                "advance",
+                "--to",
+                "RECENT_FRONTIER",
+                "--note",
+                "frontier audit completed",
+                "--set-gate",
+                "recent_frontier_complete=true",
+                "--set-artifact",
+                "literature_registry=frontier-registry.json",
+                "--no-validate",
+            )
+            self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual(
+                {
+                    "start_year": 2024,
+                    "end_year": 2026,
+                    "status": "COMPLETE",
+                    "snapshot_mode": "REUSED_VERIFIED_SNAPSHOT",
+                },
+                state["recent_window"],
+            )
+            self.assertTrue(state["gates"]["recent_frontier_complete"])
+            self.assertEqual(
+                "frontier-registry.json", state["artifacts"]["literature_registry"]
+            )
+
+    def test_recent_frontier_advance_rejects_invalid_registry_window_atomically(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V0")
+        with temporary_directory:
+            original = load_json(project / "workflow_state.json")
+            write_json(
+                project / "near_neighbor_registry.json",
+                {
+                    "recent_window": {
+                        "start_year": 2024,
+                        "end_year": 2026,
+                        "status": "COMPLETE",
+                        "snapshot_mode": "NOT_SET",
+                    },
+                    "records": [],
+                },
+            )
+            completed = run_iph(
+                project,
+                "advance",
+                "--to",
+                "RECENT_FRONTIER",
+                "--note",
+                "must reject incomplete provenance",
+                "--set-gate",
+                "recent_frontier_complete=true",
+                "--set-artifact",
+                "literature_registry=near_neighbor_registry.json",
+                "--no-validate",
+            )
+            self.assertNotEqual(0, completed.returncode)
+            self.assertIn("snapshot_mode", completed.stderr)
+            self.assertEqual(original, load_json(project / "workflow_state.json"))
+
     def test_advance_aborts_on_failed_validation(self) -> None:
         temporary_directory, project = make_valid_project()
         with temporary_directory:
