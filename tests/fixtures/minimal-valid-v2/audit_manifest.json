@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "validation_epoch": 1,
-  "claim_bundle_sha256": "84dc23ac301194dd34dbdebafe8a67ba82fcdc885b81bec5da8d9eb6218dc052",
+  "claim_bundle_sha256": "836459b43b5f95f0f2f8e2cc9b031c9b99b480a19439d2c9b5ea9458f18e094b",
   "entries": [
     {
       "path": "baseline_budget.json",
@@ -41,7 +41,7 @@
     {
       "path": "literature_claim_registry.json",
       "role": "LITERATURE_CLAIMS",
-      "sha256": "6f37506e0675073290f827e8b203ef702d349caa3e10b9cf1d2b53ae16d66a09"
+      "sha256": "da145fb1daf80bc82160449270b5a655c08400ef6318d4b00d6d2f9d49b79972"
     },
     {
       "path": "manuscript.md",

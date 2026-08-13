@@ -582,25 +582,23 @@ LC-0001
 
 不要复制整篇摘要。每条至少写：
 
-- 观点类型；
 - 准确释义；
 - 对象和研究范围（scope）；
 - 条件和量词；
 - 证据等级；
 - 页、节、段、定理、表、图或算法的原文定位符（locator）；
-- 支持、反驳、限定或方法角色；
+- 判断类型（对候选存活判断的关系）；
 - 发现轮次；
 - 使用状态。
 
-观点类型：
+观点判断类型（`claim_type`，已取代旧 `support_role`）：
 
 ```text
-VIEWPOINT
-CONCLUSION
-METHOD
-ASSUMPTION
-LIMITATION
-COUNTEREXAMPLE
+OCCUPIES    候选主张被近邻直接占据
+CONTRADICTS 近邻结论与候选冲突 / 证伪候选
+BOUNDS      近邻给候选划定边界 / 失效条件
+ENABLES     近邻提供候选可用的前提 / 方法 / 基线
+NEUTRAL     与候选无关（一般不登记）
 ```
 
 深读顺序建议：
@@ -1019,7 +1017,7 @@ scope、候选、声明角色、前沿证据、有效性审计和计算授权。
 {
   "claim_id": "LC-0001",
   "source_registry_id": "W-0001",
-  "claim_type": "CONCLUSION",
+  "claim_type": "ENABLES",
   "normalized_statement": "在条件 C 下，方法 A 相对基线 B 改善目标 T。",
   "locator": {
     "page": "7",
@@ -1029,7 +1027,6 @@ scope、候选、声明角色、前沿证据、有效性审计和计算授权。
   "conditions": ["C"],
   "evidence_level": "E2",
   "verification_status": "VERIFIED_FULLTEXT",
-  "support_role": "SUPPORTS",
   "use_status": "USED",
   "used_by_output_claim_ids": ["OC-0001"]
 }
@@ -1307,7 +1304,7 @@ python3 scripts/iph.py validate --root . --state workflow_state.json
 3. 复算可复算指标；
 4. 提取原子观点、结论、方法、假设、限制和反例；
 5. 每条写来源观点编号（LC ID）、条件（conditions）、研究范围（scope）、
-   原文定位符（locator）和支持角色（support_role）；
+   原文定位符（locator）和判断类型（claim_type：占据/使能/矛盾/边界/无关）；
 6. 不得把摘要宣传句当成完成度。
 ```
 

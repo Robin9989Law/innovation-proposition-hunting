@@ -394,7 +394,7 @@ INVALID（§9）。
 | R-CLOSE-15 | N0-1/N0-2 是合法终局：停留 `N0_AUDIT`、decision_log 记录裁决与处置、负结果产物保留在册；不得为抵达 COMPLETE 硬撑候选或包装等级 | §3.1 |
 | R-LOG-16 | decision_log 只锚定不可变产物（可变文件由 state 指针对账）；epoch 失效后重建日志须保留 `.superseded` 快照、条目标注 replay 标签、`at` 用重建时刻真实 UTC，不得回填虚构历史时刻 | templates §1 |
 | R-L2-18 | 危险近邻表是 L2 唯一硬产出：l2-card.md 对每个严肃近邻记三列（覆盖什么/关闭的浅层主张/打开的深层问题），L2_TRIAGE 凭此表裁决而非全文/观点计数 | §3.1、case-lessons §5 |
-| R-ATOMIC-19 | 原子观点质量门槛：只有能改变候选存活判断的观点才登记；删除后 N0 裁决不变的，是读后感不登记 | §3.1 |
+| R-ATOMIC-19 | 原子观点质量门槛：只有能改变候选存活判断的观点才登记；删除后 N0 裁决不变的，是读后感不登记。claim_type 是判断类型（OCCUPIES/ENABLES/CONTRADICTS/BOUNDS/NEUTRAL），表达"对候选存活的关系"而非"论文哪一章节"；负面判断只作 counter 不作 support | §3.1、evidence-pipeline §5 |
 
 | R-REVIEW-20 | review 是实质复核不是形式盖章：verdict=PASS 时 review_answers 四问（数据真实性/baseline 执行/措辞强度/证伪尝试）必须全部非空（`REVIEW_ANSWERS_INCOMPLETE`）；单 agent 环境 subagent review 是合法独立形式，产物主 agent 只读不写，事后改动即 `REVIEW_ARTIFACT_TAMPERED` | §5、templates §9 |
 

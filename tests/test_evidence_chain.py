@@ -66,7 +66,7 @@ def build_evidence_fixture(project: Path) -> None:
                 {
                     "claim_id": "LC-0001",
                     "source_registry_id": "W-0001",
-                    "claim_type": "METHOD",
+                    "claim_type": "ENABLES",
                     "normalized_statement": "The neighbor uses method M.",
                     "scope": "single-machine scheduling",
                     "conditions": [],
@@ -74,7 +74,6 @@ def build_evidence_fixture(project: Path) -> None:
                     "source_artifact_kind": "FULL_ARTICLE_PDF",
                     "verification_status": "VERIFIED_FULLTEXT",
                     "locator": {"page": "3"},
-                    "support_role": "SUPPORTS",
                     "importance": "IMPORTANT",
                     "discovered_round": 1,
                     "use_status": "USED",
@@ -403,13 +402,12 @@ class EvidenceChainTests(unittest.TestCase):
     def test_contradictory_claim_cannot_support_output(self) -> None:
         project = self.make_project()
         claims = load_json(project / "literature_claim_registry.json")
-        claims["records"][0]["support_role"] = "CONTRADICTS"
+        claims["records"][0]["claim_type"] = "CONTRADICTS"
         write_json(project / "literature_claim_registry.json", claims)
-
         result = self.run_evidence(project)
 
         self.assertEqual(1, result.returncode, result.stdout + result.stderr)
-        self.assertIn("contradictory_claim_used_as_support", result.stdout)
+        self.assertIn("negative_claim_used_as_support", result.stdout)
 
     def test_inconsistent_collision_rounds(self) -> None:
         project = self.make_project()

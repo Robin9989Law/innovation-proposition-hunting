@@ -30,13 +30,14 @@ IMPORTANCE = {"CRITICAL", "IMPORTANT", "CONTEXT"}
 ARCHIVED = {"FULLTEXT_ARCHIVED", "OFFICIAL_HTML_ARCHIVED"}
 SEARCH_PHASES = {"RECENT_FRONTIER_PASS", "FOUNDATIONAL_BACKFILL"}
 CLAIM_TYPES = {
-    "VIEWPOINT",
-    "CONCLUSION",
-    "METHOD",
-    "ASSUMPTION",
-    "LIMITATION",
-    "COUNTEREXAMPLE",
+    "OCCUPIES",
+    "ENABLES",
+    "CONTRADICTS",
+    "BOUNDS",
+    "NEUTRAL",
 }
+# 负面判断（反对/限定候选）：可作 counter，不可作 support。
+NEGATIVE_CLAIM_TYPES = {"OCCUPIES", "CONTRADICTS", "BOUNDS"}
 EVIDENCE_LEVELS = {"E0", "E1", "E2", "E3", "E4"}
 ARTIFACT_KINDS = {
     "OFFICIAL_METADATA",
@@ -47,7 +48,6 @@ ARTIFACT_KINDS = {
 }
 FULL_ARTICLE_KINDS = {"FULL_ARTICLE_HTML", "FULL_ARTICLE_PDF"}
 VERIFIED_CLAIM_STATUSES = {"VERIFIED_FULLTEXT", "VERIFIED_OFFICIAL_HTML"}
-SUPPORT_ROLES = {"SUPPORTS", "CONTRADICTS", "QUALIFIES", "METHOD_FOR"}
 USE_STATUSES = {"UNUSED", "USED", "EXCLUDED_WITH_REASON"}
 OUTPUT_KINDS = {
     "FACT",
@@ -377,8 +377,6 @@ def validate(
         locator = claim.get("locator")
         if not isinstance(locator, dict) or not any(nonempty(value) for value in locator.values()):
             add(issues, "TRACE", claim_id, "missing_locator")
-        if claim.get("support_role") not in SUPPORT_ROLES:
-            add(issues, "CLAIM", claim_id, f"invalid_support_role:{claim.get('support_role')}")
         if claim.get("importance") not in {"CRITICAL", "IMPORTANT"}:
             add(issues, "CLAIM", claim_id, f"invalid_importance:{claim.get('importance')}")
         discovered_round = claim.get("discovered_round")
@@ -459,10 +457,10 @@ def validate(
                 add(issues, "TRACE", output_id, f"claim_from_nonimportant_work:{claim_id}")
             if claim.get("verification_status") not in VERIFIED_CLAIM_STATUSES:
                 add(issues, "TRACE", output_id, f"unverified_claim:{claim_id}")
-            if claim_id in supporting and claim.get("support_role") == "CONTRADICTS":
-                add(issues, "TRACE", output_id, f"contradictory_claim_used_as_support:{claim_id}")
-            if claim_id in counters and claim.get("support_role") not in {"CONTRADICTS", "QUALIFIES"}:
-                add(issues, "TRACE", output_id, f"noncounter_claim_used_as_counter:{claim_id}")
+            if claim_id in supporting and claim.get("claim_type") in NEGATIVE_CLAIM_TYPES:
+                add(issues, "TRACE", output_id, f"negative_claim_used_as_support:{claim_id}")
+            if claim_id in counters and claim.get("claim_type") not in NEGATIVE_CLAIM_TYPES:
+                add(issues, "TRACE", output_id, f"nonnegative_claim_used_as_counter:{claim_id}")
             if claim.get("use_status") != "USED":
                 add(issues, "USAGE", str(claim_id), f"referenced_but_status:{claim.get('use_status')}")
             if output_id not in (claim.get("used_by_output_claim_ids") or []):

@@ -738,3 +738,103 @@ class FrontierCoverageMigrationTests(unittest.TestCase):
             self.assertEqual(
                 [], list(project.glob("frontier_coverage.json.legacy-backup-*"))
             )
+
+
+class ClaimTypeMigrationTests(unittest.TestCase):
+    """P4：claim_type 文体类型→判断类型，support_role 并入 claim_type 删除。"""
+
+    def run_migration(
+        self, project: Path, *extra_args: str
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(REPOSITORY_ROOT / "scripts" / "migrate_claim_types.py"),
+                "--root",
+                str(project),
+                "--registry",
+                str(project / "literature_claim_registry.json"),
+                *extra_args,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    def _registry(self, project: Path) -> dict:
+        return load_json(project / "literature_claim_registry.json")
+
+    def test_maps_support_role_to_judgment_type_and_drops_field(self) -> None:
+        with TemporaryDirectory(prefix="claim-type-migration-") as directory:
+            project = Path(directory)
+            write_json(
+                project / "literature_claim_registry.json",
+                {
+                    "current_collision_round": 1,
+                    "claims": [
+                        {
+                            "claim_id": "LC-1",
+                            "claim_type": "METHOD",
+                            "support_role": "SUPPORTS",
+                        },
+                        {
+                            "claim_id": "LC-2",
+                            "claim_type": "CONCLUSION",
+                            "support_role": "QUALIFIES",
+                        },
+                        {
+                            "claim_id": "LC-3",
+                            "claim_type": "COUNTEREXAMPLE",
+                            "support_role": "CONTRADICTS",
+                        },
+                    ],
+                },
+            )
+
+            completed = self.run_migration(project, "--in-place")
+            self.assertEqual(0, completed.returncode, completed.stdout)
+            migrated = self._registry(project)
+            claims = migrated["claims"]
+            self.assertEqual("ENABLES", claims[0]["claim_type"])
+            self.assertEqual("BOUNDS", claims[1]["claim_type"])
+            self.assertEqual("CONTRADICTS", claims[2]["claim_type"])
+            for claim in claims:
+                self.assertNotIn("support_role", claim)
+            # 迁移报告应提示 OCCUPIES 需人工复核
+            self.assertIn("OCCUPIES", completed.stdout)
+
+    def test_genre_type_fallback_when_support_role_missing(self) -> None:
+        with TemporaryDirectory(prefix="claim-type-fallback-") as directory:
+            project = Path(directory)
+            write_json(
+                project / "literature_claim_registry.json",
+                {
+                    "current_collision_round": 1,
+                    "claims": [
+                        {"claim_id": "LC-1", "claim_type": "VIEWPOINT"},
+                    ],
+                },
+            )
+            completed = self.run_migration(project, "--in-place")
+            self.assertEqual(0, completed.returncode, completed.stdout)
+            migrated = self._registry(project)
+            self.assertEqual("NEUTRAL", migrated["claims"][0]["claim_type"])
+
+    def test_dry_run_does_not_write(self) -> None:
+        with TemporaryDirectory(prefix="claim-type-dry-") as directory:
+            project = Path(directory)
+            registry_path = project / "literature_claim_registry.json"
+            write_json(
+                registry_path,
+                {
+                    "current_collision_round": 1,
+                    "claims": [
+                        {"claim_id": "LC-1", "claim_type": "METHOD", "support_role": "SUPPORTS"},
+                    ],
+                },
+            )
+            before = registry_path.read_bytes()
+            completed = self.run_migration(project)
+            self.assertEqual(0, completed.returncode, completed.stdout)
+            self.assertEqual(before, registry_path.read_bytes())
+            self.assertIn("literature_claim_registry.judgment.json", completed.stdout)

@@ -217,6 +217,21 @@ artifact；reviewer 不得是 state 的 author。`DOWNLOAD_BLOCKED` 或能力不
 一条记录只承载一个可判断的原子观点。不要把整篇摘要复制成一个观点，也不要把
 多个条件和结论混成一条。
 
+**判断类型（claim_type）**：表达"这条观点对候选存活判断的关系"，不再是"观点
+来自论文哪一章节"：
+
+```text
+OCCUPIES    候选主张被近邻直接占据（N0-1/N0-2 证据，最强负面）
+CONTRADICTS 近邻结论与候选冲突 / 证伪候选
+BOUNDS      近邻给候选划定边界 / 失效条件
+ENABLES     近邻提供候选可用的前提 / 方法 / 基线
+NEUTRAL     与候选无关（一般不登记）
+```
+
+负面判断（OCCUPIES/CONTRADICTS/BOUNDS）只能作 counter，不能作 support。
+旧 `support_role` 字段已并入 claim_type 删除；迁移见
+`scripts/migrate_claim_types.py`。
+
 **五要素模板（R-ATOMIC-19）**：`normalized_statement` 必须能填进下面的骨架，
 写不出五要素中的条件、基线、数值三样，就是"这篇论文讲了啥"的读后感，不是原子
 观点，不登记：
@@ -239,7 +254,7 @@ artifact；reviewer 不得是 state 的 author。`DOWNLOAD_BLOCKED` 或能力不
       "source_registry_id": "W-0001",
       "source_artifact_id": "ART-W-0001-FULLTEXT",
       "source_artifact_kind": "FULL_ARTICLE_PDF",
-      "claim_type": "VIEWPOINT | CONCLUSION | METHOD | ASSUMPTION | LIMITATION | COUNTEREXAMPLE",
+      "claim_type": "OCCUPIES | ENABLES | CONTRADICTS | BOUNDS | NEUTRAL",
       "normalized_statement": "在条件 C 下，方法 A 相对基线 B 改善目标 T。",
       "source_excerpt": "可选的短原文片段",
       "locator": {
@@ -256,7 +271,6 @@ artifact；reviewer 不得是 state 的 author。`DOWNLOAD_BLOCKED` 或能力不
       "evidence_level": "E2",
       "proof_locator": "",
       "verification_status": "VERIFIED_FULLTEXT | VERIFIED_OFFICIAL_HTML | ABSTRACT_ONLY | UNVERIFIED",
-      "support_role": "SUPPORTS | CONTRADICTS | QUALIFIES | METHOD_FOR",
       "importance": "CRITICAL | IMPORTANT",
       "discovered_round": 1,
       "use_status": "UNUSED | USED | EXCLUDED_WITH_REASON",
