@@ -361,6 +361,14 @@ LOCKED、CLOSED、启动新碰撞或计算。BLOCKED 时仍验证所有已有产
 `clear-lock --set-artifact key=path --next-action "<下一动作>"` 原子修复并重验；这不是
 手工编辑 state，也不得用于改变 gate、活动状态或研究裁决。
 
+若 `active_state=BLOCKED` 且 operator 已完成 `blocked_reasons` 记录的外部修复，唯一
+合法的状态恢复是
+`clear-lock --resume-blocked --next-action "<恢复后的唯一动作>" --recovery-note "<已完成修复>"`。
+CLI 必须在同一事务中把 `active_state`/`resume_state` 恢复到原 `resume_state`、清空
+`blocked_reasons`、追加真实恢复日志并重跑严格校验；任何校验失败都逐字节还原
+workflow state、STOP 锁和 validation log。该恢复只确认阻塞原因已修复，不得改变
+gate、N/V 裁决或研究结论。
+
 BLOCKED 期间仅允许三件事：验证所有已有产物、记录唯一恢复动作、登记用户直接
 提供的解阻材料。禁止撰写新综合、禁止任何计算、禁止新增冻结工件。
 
