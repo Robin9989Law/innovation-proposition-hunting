@@ -359,6 +359,7 @@ DEFAULT_ARTIFACT_PATHS = {
     "audit_manifest": "audit_manifest.json",
     "independent_audit": "independent_audit.json",
     "frontier_coverage": "frontier_coverage.json",
+    "url_ledger": "near_neighbor_url_ledger.csv",
     "exploration_registry": "exploration_registry.json",
     "manuscript": "manuscript.md",
     "validation_log": "validation.log",

@@ -78,6 +78,16 @@ PEER_REVIEW_STATUSES = {
     "NON_PEER_REVIEWED",
     "PEER_REVIEW_STATUS_UNVERIFIED",
 }
+PREPRINT_ONLY_HOSTS = {
+    "arxiv.org",
+    "www.arxiv.org",
+    "biorxiv.org",
+    "www.biorxiv.org",
+    "medrxiv.org",
+    "www.medrxiv.org",
+    "ssrn.com",
+    "www.ssrn.com",
+}
 
 SCAN_SUFFIXES = {".md", ".json", ".txt", ".tex", ".bib"}
 # 全树扫描防护上限：防止无界 rglob 卡死校验进程；超限报 INVALID 而非崩溃。
@@ -169,6 +179,14 @@ def is_academic_url(url: str) -> bool:
     return any(marker in host for marker in ACADEMIC_HOST_MARKERS)
 
 
+def is_preprint_only_url(value: Any) -> bool:
+    """Return true when a URL identifies a preprint host, not peer-review proof."""
+
+    if not isinstance(value, str) or not value:
+        return False
+    return urlsplit(value).netloc.lower() in PREPRINT_ONLY_HOSTS
+
+
 def parse_registry(payload: dict[str, Any]) -> RegistryFacts:
     """从已解析的注册表 payload 提取事实；结构缺陷记 issue 而非 KeyError。"""
 
@@ -257,6 +275,18 @@ def parse_registry(payload: dict[str, Any]) -> RegistryFacts:
         ):
             facts.publication_errors.append(
                 (record_id, "peer_reviewed_published_without_verification_url")
+            )
+        if (
+            peer_review_status
+            in {"PEER_REVIEWED_PUBLISHED", "PEER_REVIEWED_ACCEPTED_NOT_PUBLISHED"}
+            and is_preprint_only_url(peer_review_verification_url)
+        ):
+            facts.publication_errors.append(
+                (
+                    record_id,
+                    "preprint_cannot_verify_peer_review_status:"
+                    f"{peer_review_verification_url}",
+                )
             )
         urls = [
             record.get("canonical_url") or record.get("url"),
@@ -484,7 +514,7 @@ def validate_with_context(
     report = _run(
         ctx,
         registry_path or ctx.artifact_relative_path("literature_registry"),
-        ledger_path or DEFAULT_LEDGER_NAME,
+        ledger_path or ctx.artifact_relative_path("url_ledger"),
     )
     return report.issues
 

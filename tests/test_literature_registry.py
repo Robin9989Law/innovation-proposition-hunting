@@ -80,6 +80,23 @@ class LiteratureRegistryTests(unittest.TestCase):
 
         self.assertEqual([], issues)
 
+    def test_active_url_ledger_uses_state_pointer_and_preserves_old_version(self) -> None:
+        project = self.make_project(records=[make_record()])
+        old_ledger = project / "near_neighbor_url_ledger.csv"
+        old_ledger.write_text("historical invalid ledger\n", encoding="utf-8")
+        corrected = project / "near_neighbor_url_ledger.v2.csv"
+        corrected.write_text("corrected active ledger\n", encoding="utf-8")
+        state = load_json(project / "workflow_state.json")
+        state["artifacts"] = {"url_ledger": corrected.name}
+        write_json(project / "workflow_state.json", state)
+
+        with ProjectContext(project, project / "workflow_state.json") as ctx:
+            self.assertEqual(corrected.name, ctx.artifact_relative_path("url_ledger"))
+            issues = literature_registry.validate_with_context(ctx)
+
+        self.assertEqual([], issues)
+        self.assertEqual("historical invalid ledger\n", old_ledger.read_text(encoding="utf-8"))
+
     def test_malformed_registry_json_is_validator_error_not_traceback(self) -> None:
         project = self.make_project()
         (project / "near_neighbor_registry.json").write_text(
@@ -182,6 +199,27 @@ class LiteratureRegistryTests(unittest.TestCase):
         # declared=0、actual=1 均来自同一次解析（二次解析已消除）。
         self.assertIn("peer_reviewed_published_count:0;actual:1", result.stdout)
         self.assertIn("peer_reviewed_published_count=1", result.stdout)
+
+    def test_preprint_url_cannot_verify_peer_reviewed_publication(self) -> None:
+        project = self.make_project(
+            records=[
+                make_record(
+                    publication_status="PUBLISHED",
+                    terminal_rejection_eligibility="QUALIFIED",
+                    publication_verification_url="https://dl.acm.org/doi/10.1145/3672553",
+                    peer_review_status="PEER_REVIEWED_PUBLISHED",
+                    peer_review_verification_url="https://arxiv.org/abs/2203.02399",
+                )
+            ]
+        )
+        registry = load_json(project / "near_neighbor_registry.json")
+        registry["peer_reviewed_published_count"] = 1
+        write_json(project / "near_neighbor_registry.json", registry)
+
+        result = self.run_literature(project)
+
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        self.assertIn("preprint_cannot_verify_peer_review_status", result.stdout)
 
     def test_search_mode_must_match_peer_review_threshold(self) -> None:
         project = self.make_project()
