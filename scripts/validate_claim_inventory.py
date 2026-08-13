@@ -31,6 +31,14 @@ from validation_common import (
 AUDITED_VALIDITY_LEVELS = {"V3", "V4"}
 SUPPORTED_SOURCE_SUFFIXES = {".md", ".markdown", ".tex"}
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
+
+# 定理级措辞：经验/算法 claim 的 statement 用这些词即"实证升格为定理"
+# （R-EMPIRICAL-07）。ALGORITHM profile 下不跑 theory obligations，无人审查
+# 这些措辞，故直接报 CLAIM_STRENGTH_EXCEEDS_PROFILE。
+THEOREM_PHRASING = re.compile(
+    r"provably|formally|proof|prove|theorem|定理|可证|证明",
+    re.IGNORECASE,
+)
 ASCII_TOKEN_LEFT = r"(?<![A-Za-z0-9_])"
 ASCII_TOKEN_RIGHT = r"(?![A-Za-z0-9_])"
 
@@ -841,6 +849,24 @@ def _validate_inventory(
             claim_ids.append(claim_id)
         for identifier in occurrence_ids:
             bindings[identifier].append(binding_label)
+
+        # R-EMPIRICAL-07：ALGORITHM profile 下经验 claim 用定理级措辞即升格。
+        if (
+            state.get("claim_profile") == "ALGORITHM"
+            and isinstance(claim_value, dict)
+            and claim_value.get("claim_type")
+            in {"ALGORITHM", "METHOD", "EMPIRICAL", "BASELINE", "PROTOCOL"}
+            and nonempty_string(claim_value.get("statement"))
+            and THEOREM_PHRASING.search(claim_value.get("statement"))
+        ):
+            issues.append(
+                Issue(
+                    "CLAIM_STRENGTH_EXCEEDS_PROFILE",
+                    "INVALID",
+                    binding_label,
+                    f"claim_type:{claim_value.get('claim_type')};statement 含定理级措辞",
+                )
+            )
 
     for claim_id, count in sorted(Counter(claim_ids).items()):
         if count > 1:

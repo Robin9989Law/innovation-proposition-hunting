@@ -154,6 +154,41 @@ class ClaimInventoryTests(unittest.TestCase):
         self.assertEqual(1, completed.returncode)
         self.assertIn("INVALID_CLAIM_TYPE", completed.stdout)
 
+    def test_algorithm_profile_rejects_theorem_phrasing(self) -> None:
+        """R-EMPIRICAL-07：ALGORITHM profile 下经验 claim 用定理级措辞即升格。"""
+        temporary_directory, project = make_valid_project(claim_profile="ALGORITHM")
+        self.addCleanup(temporary_directory.cleanup)
+        inventory = load_json(project / "claim_inventory.json")
+        for claim in inventory["claims"]:
+            if claim.get("claim_type") == "ALGORITHM":
+                claim["statement"] = (
+                    claim.get("statement", "") + " This is provably optimal."
+                )
+                break
+        write_json(project / "claim_inventory.json", inventory)
+
+        completed = run_script("validate_claim_inventory.py", project)
+
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("CLAIM_STRENGTH_EXCEEDS_PROFILE", completed.stdout)
+
+    def test_theory_profile_allows_theorem_phrasing(self) -> None:
+        """THEORY profile 有 theory obligations 审查，不报措辞升格。"""
+        temporary_directory, project = make_valid_project(claim_profile="THEORY")
+        self.addCleanup(temporary_directory.cleanup)
+        inventory = load_json(project / "claim_inventory.json")
+        for claim in inventory["claims"]:
+            if claim.get("claim_type") == "THEOREM":
+                claim["statement"] = (
+                    claim.get("statement", "") + " This is provably optimal."
+                )
+                break
+        write_json(project / "claim_inventory.json", inventory)
+
+        completed = run_script("validate_claim_inventory.py", project)
+
+        self.assertNotIn("CLAIM_STRENGTH_EXCEEDS_PROFILE", completed.stdout)
+
     def test_documented_claim_type_enum_members_are_accepted(self) -> None:
         for claim_type in ALLOWED_CLAIM_TYPES:
             with self.subTest(claim_type=claim_type):
