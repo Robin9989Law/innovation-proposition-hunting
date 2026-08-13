@@ -501,9 +501,19 @@ S4 完成后的计算证据文件可采用：
 {
   "schema_version": "2.0",
   "compute_stage": "S4",
-  "verdict": "PASS"
+  "verdict": "PASS",
+  "data_sources": [
+    {"name": "UCI-AusCredit", "synthetic": false, "artifact_sha256": "<sha256 或省略>"},
+    {"name": "synthetic-dev", "synthetic": true, "provenance": "<生成方式，如 compute_funnel._make_dataset>"}
+  ]
 }
 ```
+
+`data_sources` 是**唯一权威**的数据来源声明：manuscript 出现的真实数据集名必须
+能在此找到对应的非合成条目。`synthetic: true` 的源不得使用真实数据集名
+（`SYNTHETIC_DATA_NAMED_AS_REAL`）。缺 `data_sources` 即
+`COMPUTE_DATA_SOURCE_UNSPECIFIED`。manuscript 声称了真实数据集名但
+`data_sources` 无对应非合成条目即 `MANUSCRIPT_DATASET_UNVERIFIED`。
 
 进入 `POSTCOMPUTE_CLAIM_FREEZE` 时，`workflow_state.json` 还必须增加 validator 实际
 读取的 pointer；artifact hash 必须是上面文件的当前 SHA-256：

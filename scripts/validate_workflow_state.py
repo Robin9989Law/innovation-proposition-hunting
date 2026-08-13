@@ -10,7 +10,6 @@ import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-
 from validation_common import (
     Issue,
     canonical_relative_path,
@@ -20,6 +19,7 @@ from validation_common import (
     positive_integer,
     read_regular_file_at,
     render,
+    strict_json_load_bytes,
 )
 from validate_artifact_hashes import valid_sha256
 from validate_schema_v2 import validate as validate_schema_v2
@@ -212,6 +212,10 @@ NEW_CHECK_CODES = frozenset(
         "FALSIFICATION_LEDGER_MISSING",
         "OCCUPATION_EVIDENCE_MISSING",
         "REDUCTION_EVIDENCE_MISSING",
+        "COMPUTE_DATA_SOURCE_UNSPECIFIED",
+        "SYNTHETIC_DATA_NAMED_AS_REAL",
+        "MANUSCRIPT_DATASET_UNVERIFIED",
+        "BASELINE_NOT_EXECUTED",
     }
 )
 
@@ -536,6 +540,194 @@ def validate_novelty_verdict_evidence(
             f"novelty-audit 缺少 {novelty_level} 所需的裁决证据节",
         )
 
+
+
+
+# 公开真实数据集名白名单：manuscript 声称用这些数据集时，compute_evidence 的
+# data_sources 必须有对应非合成条目（R-COMPUTE-02 数据真实性）。
+REAL_DATASET_MARKERS = (
+    "auscredit",
+    "german credit",
+    "ieee-cis",
+    "ieee cis",
+    "paysim",
+    "creditcard",
+    "mnist",
+    "cifar",
+    "imagenet",
+    "kaggle",
+    "uci",
+)
+
+
+def _data_sources_from_evidence(evidence_text: str) -> tuple[list[dict], list[str]]:
+    """解析 compute_evidence 内容，返回 (data_sources, issues)。"""
+    try:
+        payload = strict_json_load_bytes(evidence_text.encode("utf-8"))
+    except Exception:
+        return [], []
+    if not isinstance(payload, dict):
+        return [], []
+    data_sources = payload.get("data_sources")
+    if not isinstance(data_sources, list):
+        return [], []
+    return data_sources, []
+
+
+def validate_data_sources(
+    root: Path, state: dict[str, Any], errors: list[str]
+) -> None:
+    """数据真实性：compute_evidence.data_sources 与 manuscript 数据集名交叉验证。"""
+    evidence = state.get("compute_evidence")
+    if not isinstance(evidence, dict) or evidence.get("status") != "COMPLETED":
+        return
+    artifact_path = evidence.get("artifact_path")
+    if not canonical_relative_path(artifact_path):
+        return
+
+    # 读 compute_evidence 内容。
+    root_fd: int | None = None
+    try:
+        root_fd = open_root_fd(root)
+        snapshot = read_regular_file_at(root_fd, artifact_path, include_data=True)
+    except Exception:
+        return
+    finally:
+        if root_fd is not None:
+            os.close(root_fd)
+    if snapshot.data is None:
+        return
+
+    data_sources, _ = _data_sources_from_evidence(snapshot.data.decode("utf-8"))
+    if not data_sources:
+        add(errors, "COMPUTE_DATA_SOURCE_UNSPECIFIED", "compute_evidence.data_sources:missing_or_empty")
+        return
+
+    # synthetic=true 的源不得使用真实数据集名。
+    for source in data_sources:
+        if not isinstance(source, dict):
+            continue
+        name = source.get("name")
+        synthetic = source.get("synthetic") is True
+        if synthetic and nonempty_string(name):
+            lowered = name.casefold()
+            for marker in REAL_DATASET_MARKERS:
+                if marker in lowered:
+                    add(
+                        errors,
+                        "SYNTHETIC_DATA_NAMED_AS_REAL",
+                        f"data_sources.name:{name}",
+                    )
+                    break
+
+    # manuscript 声称的真实数据集名必须能在 data_sources 找到非合成条目。
+    non_synthetic_names = {
+        source.get("name", "").casefold()
+        for source in data_sources
+        if isinstance(source, dict) and source.get("synthetic") is not True
+    }
+    artifacts = state.get("artifacts")
+    manuscript_rel = (
+        artifacts.get("manuscript")
+        if isinstance(artifacts, dict) and artifacts.get("manuscript")
+        else "manuscript.md"
+    )
+    try:
+        root_fd = open_root_fd(root)
+        manuscript_snapshot = read_regular_file_at(
+            root_fd, manuscript_rel, include_data=True
+        )
+    except Exception:
+        return
+    finally:
+        if root_fd is not None:
+            os.close(root_fd)
+    if manuscript_snapshot.data is None:
+        return
+    manuscript_text = manuscript_snapshot.data.decode("utf-8").casefold()
+    for marker in REAL_DATASET_MARKERS:
+        if marker not in manuscript_text:
+            continue
+        if marker in non_synthetic_names or any(
+            marker in name for name in non_synthetic_names
+        ):
+            continue
+        add(
+            errors,
+            "MANUSCRIPT_DATASET_UNVERIFIED",
+            f"manuscript 声称数据集 {marker!r}，但 compute_evidence.data_sources 无对应非合成条目",
+        )
+
+
+def validate_baseline_execution(
+    root: Path, state: dict[str, Any], errors: list[str]
+) -> None:
+    """空壳 baseline 检测：baseline_budget 声明的 comparator 在 compute_evidence
+    里必须有非空执行证据（per_run 非空）。per_run 为空数组即 BASELINE_NOT_EXECUTED。"""
+    evidence = state.get("compute_evidence")
+    if not isinstance(evidence, dict) or evidence.get("status") != "COMPLETED":
+        return
+    artifact_path = evidence.get("artifact_path")
+    if not canonical_relative_path(artifact_path):
+        return
+
+    artifacts = state.get("artifacts")
+    baseline_rel = (
+        artifacts.get("baseline_budget")
+        if isinstance(artifacts, dict) and artifacts.get("baseline_budget")
+        else "baseline_budget.json"
+    )
+    if not canonical_relative_path(baseline_rel):
+        return
+
+    root_fd: int | None = None
+    try:
+        root_fd = open_root_fd(root)
+        evidence_snapshot = read_regular_file_at(
+            root_fd, artifact_path, include_data=True
+        )
+        baseline_snapshot = read_regular_file_at(
+            root_fd, baseline_rel, include_data=True
+        )
+    except Exception:
+        return
+    finally:
+        if root_fd is not None:
+            os.close(root_fd)
+    if evidence_snapshot.data is None or baseline_snapshot.data is None:
+        return
+
+    try:
+        evidence_payload = strict_json_load_bytes(evidence_snapshot.data)
+        baseline_payload = strict_json_load_bytes(baseline_snapshot.data)
+    except Exception:
+        return
+    if not isinstance(evidence_payload, dict) or not isinstance(baseline_payload, dict):
+        return
+    comparators = baseline_payload.get("comparators")
+    if not isinstance(comparators, list):
+        return
+
+    # baseline_budget 的 comparator_id 用连字符，compute_evidence 顶层键用下划线。
+    # 归一化后匹配；匹配不到即保守跳过（不误报主方法/命名不一致）。
+    evidence_keys = set(evidence_payload.keys())
+    for comparator in comparators:
+        if not isinstance(comparator, dict):
+            continue
+        comparator_id = comparator.get("comparator_id")
+        if not nonempty_string(comparator_id):
+            continue
+        normalized = comparator_id.replace("-", "_")
+        entry = evidence_payload.get(normalized)
+        if not isinstance(entry, dict):
+            continue
+        per_run = entry.get("per_run")
+        if isinstance(per_run, list) and not per_run:
+            add(
+                errors,
+                "BASELINE_NOT_EXECUTED",
+                f"comparator:{comparator_id} per_run 为空，未实际执行",
+            )
 
 
 
@@ -1027,6 +1219,8 @@ def validate(
             )
     if effective_state == "POSTCOMPUTE_CLAIM_FREEZE":
         evidence_current = validate_compute_evidence(root, state, errors)
+        validate_data_sources(root, state, errors)
+        validate_baseline_execution(root, state, errors)
         if (
             state.get("compute_stage") != "S4"
             or not compute_authorized

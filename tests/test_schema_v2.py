@@ -744,6 +744,144 @@ class SchemaV2ValidationTests(unittest.TestCase):
 
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
 
+    def test_compute_evidence_requires_data_sources(self) -> None:
+        """R-COMPUTE-02：compute_evidence 缺 data_sources 报 COMPUTE_DATA_SOURCE_UNSPECIFIED。"""
+        temporary_directory, project = make_valid_project()
+        self.addCleanup(temporary_directory.cleanup)
+        evidence_path = project / "compute_evidence.json"
+        # 清空 data_sources
+        evidence = load_json(evidence_path)
+        evidence.pop("data_sources", None)
+        write_json(evidence_path, evidence)
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = "POSTCOMPUTE_CLAIM_FREEZE"
+        state["resume_state"] = "POSTCOMPUTE_CLAIM_FREEZE"
+        state["compute_stage"] = "S4"
+        state["gates"]["compute_authorized"] = True
+        state["compute_evidence"] = {
+            "status": "COMPLETED",
+            "validation_epoch": state["validation_epoch"],
+            "artifact_path": "compute_evidence.json",
+            "artifact_sha256": hashlib.sha256(evidence_path.read_bytes()).hexdigest(),
+        }
+        write_json(project / "workflow_state.json", state)
+
+        completed = run_script(
+            "validate_workflow_state.py", project, ["--strict-new-checks"]
+        )
+        self.assertIn("COMPUTE_DATA_SOURCE_UNSPECIFIED", completed.stdout)
+
+    def test_synthetic_source_named_real_dataset_flagged(self) -> None:
+        """R-COMPUTE-02：synthetic=true 的源用真实数据集名报 SYNTHETIC_DATA_NAMED_AS_REAL。"""
+        temporary_directory, project = make_valid_project()
+        self.addCleanup(temporary_directory.cleanup)
+        evidence_path = project / "compute_evidence.json"
+        evidence = load_json(evidence_path)
+        evidence["data_sources"] = [
+            {"name": "UCI-AusCredit", "synthetic": True, "provenance": "fake"}
+        ]
+        write_json(evidence_path, evidence)
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = "POSTCOMPUTE_CLAIM_FREEZE"
+        state["resume_state"] = "POSTCOMPUTE_CLAIM_FREEZE"
+        state["compute_stage"] = "S4"
+        state["gates"]["compute_authorized"] = True
+        state["compute_evidence"] = {
+            "status": "COMPLETED",
+            "validation_epoch": state["validation_epoch"],
+            "artifact_path": "compute_evidence.json",
+            "artifact_sha256": hashlib.sha256(evidence_path.read_bytes()).hexdigest(),
+        }
+        write_json(project / "workflow_state.json", state)
+
+        completed = run_script(
+            "validate_workflow_state.py", project, ["--strict-new-checks"]
+        )
+        self.assertIn("SYNTHETIC_DATA_NAMED_AS_REAL", completed.stdout)
+
+    def test_manuscript_dataset_unverified_flagged(self) -> None:
+        """R-COMPUTE-02：manuscript 声称真实数据集但 data_sources 无对应非合成条目。"""
+        temporary_directory, project = make_valid_project()
+        self.addCleanup(temporary_directory.cleanup)
+        evidence_path = project / "compute_evidence.json"
+        evidence = load_json(evidence_path)
+        evidence["data_sources"] = [
+            {"name": "synthetic-dev", "synthetic": True, "provenance": "fake"}
+        ]
+        write_json(evidence_path, evidence)
+        # manuscript 声称用了 UCI AusCredit
+        manuscript_path = project / "manuscript.md"
+        manuscript_path.write_text(
+            manuscript_path.read_text(encoding="utf-8")
+            + "\nWe evaluate on the UCI AusCredit dataset.\n",
+            encoding="utf-8",
+        )
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = "POSTCOMPUTE_CLAIM_FREEZE"
+        state["resume_state"] = "POSTCOMPUTE_CLAIM_FREEZE"
+        state["compute_stage"] = "S4"
+        state["gates"]["compute_authorized"] = True
+        state["compute_evidence"] = {
+            "status": "COMPLETED",
+            "validation_epoch": state["validation_epoch"],
+            "artifact_path": "compute_evidence.json",
+            "artifact_sha256": hashlib.sha256(evidence_path.read_bytes()).hexdigest(),
+        }
+        write_json(project / "workflow_state.json", state)
+
+        completed = run_script(
+            "validate_workflow_state.py", project, ["--strict-new-checks"]
+        )
+        self.assertIn("MANUSCRIPT_DATASET_UNVERIFIED", completed.stdout)
+
+    def test_empty_per_run_baseline_flagged(self) -> None:
+        """R-COMPUTE-02：baseline_budget 声明的 comparator 在 compute_evidence 里
+        per_run 为空数组即 BASELINE_NOT_EXECUTED。"""
+        temporary_directory, project = make_valid_project(claim_profile="ALGORITHM")
+        self.addCleanup(temporary_directory.cleanup)
+        evidence_path = project / "compute_evidence.json"
+        evidence = load_json(evidence_path)
+        evidence["data_sources"] = [
+            {"name": "synthetic-dev", "synthetic": True, "provenance": "fixture"}
+        ]
+        # 一个 comparator 空壳：B-COMPARATOR-A 声明在 baseline_budget，per_run 空。
+        evidence["B_COMPARATOR_A"] = {"per_run": []}
+        write_json(evidence_path, evidence)
+        baseline_path = project / "baseline_budget.json"
+        baseline = load_json(baseline_path)
+        baseline["comparators"] = [
+            {
+                "comparator_id": "B-COMPARATOR-A",
+                "claim_ids": ["C-ALGORITHM-1"],
+                "width_or_parameter_budget": "x",
+                "seeds": [11, 23],
+                "regularization_search_space": [0.0],
+                "tuning_data": "TRAIN_ONLY",
+                "label_access": "TRAIN_ONLY",
+                "update_frequency": "NONE",
+                "compute_budget": "1h",
+                "stopping_rules": "early stop",
+            }
+        ]
+        write_json(baseline_path, baseline)
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = "POSTCOMPUTE_CLAIM_FREEZE"
+        state["resume_state"] = "POSTCOMPUTE_CLAIM_FREEZE"
+        state["compute_stage"] = "S4"
+        state["gates"]["compute_authorized"] = True
+        state["compute_evidence"] = {
+            "status": "COMPLETED",
+            "validation_epoch": state["validation_epoch"],
+            "artifact_path": "compute_evidence.json",
+            "artifact_sha256": hashlib.sha256(evidence_path.read_bytes()).hexdigest(),
+        }
+        write_json(project / "workflow_state.json", state)
+
+        completed = run_script(
+            "validate_workflow_state.py", project, ["--strict-new-checks"]
+        )
+        self.assertIn("BASELINE_NOT_EXECUTED", completed.stdout)
+
     def test_final_validity_audit_requires_a_new_epoch_claim_bundle(self) -> None:
         temporary_directory, project = make_valid_project()
         self.addCleanup(temporary_directory.cleanup)
