@@ -144,6 +144,65 @@ class NewCheckSemanticsTests(unittest.TestCase):
             )
             self.assertNotIn("FALSIFICATION_LEDGER_MISSING", completed.stdout)
 
+    def test_evidence_scope_regressed_flagged(self) -> None:
+        """R-LAYER-13：k_fulltext_complete=true 时 scope 清空即 EVIDENCE_SCOPE_REGRESSED。"""
+        temporary_directory, project = make_valid_project()
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["gates"]["k_fulltext_complete"] = True
+            state["artifacts"]["current_evidence_scope"] = "current_evidence_scope.json"
+            write_json(project / "workflow_state.json", state)
+            write_json(
+                project / "current_evidence_scope.json",
+                {
+                    "schema_version": "2.0",
+                    "collision_round": 1,
+                    "fulltext_registry_ids": [],
+                    "atomic_claim_ids": [],
+                },
+            )
+
+            completed = run_script(
+                "validate_workflow_state.py",
+                project,
+                ["--current-year", "2026", "--strict-new-checks"],
+            )
+            self.assertIn("EVIDENCE_SCOPE_REGRESSED", completed.stdout)
+
+    def test_next_action_inconsistent_flagged(self) -> None:
+        """R-LOG-04：FINAL_LOCK 下 next_required_action 含中间态提示即不一致。"""
+        temporary_directory, project = make_valid_project()
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "FINAL_LOCK"
+            state["resume_state"] = "FINAL_LOCK"
+            state["next_required_action"] = "推进 LAYER_DECISION 冻结贡献架构"
+            write_json(project / "workflow_state.json", state)
+
+            completed = run_script(
+                "validate_workflow_state.py",
+                project,
+                ["--current-year", "2026", "--strict-new-checks"],
+            )
+            self.assertIn("NEXT_ACTION_INCONSISTENT_WITH_STATE", completed.stdout)
+
+    def test_capability_flip_without_provenance_flagged(self) -> None:
+        """R-REVIEW-20：PASS 但无 review_artifact_sha256 登记即无 provenance。"""
+        temporary_directory, project = make_valid_project(validity_level="V3")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["independent_audit"]["capability_available"] = True
+            state["independent_audit"]["verdict"] = "PASS"
+            state.pop("review_artifact_sha256", None)
+            write_json(project / "workflow_state.json", state)
+
+            completed = run_script(
+                "validate_workflow_state.py",
+                project,
+                ["--current-year", "2026", "--strict-new-checks"],
+            )
+            self.assertIn("CAPABILITY_FLIPPED_WITHOUT_PROVENANCE", completed.stdout)
+
     def test_negative_terminal_requires_occupation_or_reduction_evidence(self) -> None:
         """R-N0-17：N0-1/N0-2 负面终局与 N0-4C 同价，须有占据/归约证据。"""
         for novelty_level, code in (

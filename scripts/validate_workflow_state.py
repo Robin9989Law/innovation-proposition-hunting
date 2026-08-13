@@ -216,6 +216,9 @@ NEW_CHECK_CODES = frozenset(
         "SYNTHETIC_DATA_NAMED_AS_REAL",
         "MANUSCRIPT_DATASET_UNVERIFIED",
         "BASELINE_NOT_EXECUTED",
+        "EVIDENCE_SCOPE_REGRESSED",
+        "NEXT_ACTION_INCONSISTENT_WITH_STATE",
+        "CAPABILITY_FLIPPED_WITHOUT_PROVENANCE",
     }
 )
 
@@ -541,6 +544,96 @@ def validate_novelty_verdict_evidence(
         )
 
 
+def validate_evidence_scope_monotonic(
+    root: Path, state: dict[str, Any], errors: list[str]
+) -> None:
+    """R-LAYER-13：scope 登记单调不减。K 全文门已过（k_fulltext_complete=true）
+    时，current_evidence_scope 的 fulltext_registry_ids 不得为空——清空 scope
+    以骗过预算门即 EVIDENCE_SCOPE_REGRESSED。"""
+    gates = state.get("gates")
+    if not isinstance(gates, dict) or gates.get("k_fulltext_complete") is not True:
+        return
+    artifacts = state.get("artifacts")
+    raw_scope = (
+        artifacts.get("current_evidence_scope")
+        if isinstance(artifacts, dict)
+        else None
+    )
+    if not isinstance(raw_scope, str) or not raw_scope.strip():
+        add(errors, "EVIDENCE_SCOPE_REGRESSED", "k_fulltext_complete=true 但未声明 current_evidence_scope")
+        return
+    scope_path = resolve_artifact(root, raw_scope)
+    if scope_path is None or not scope_path.is_file():
+        return
+    try:
+        payload = json.loads(scope_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    if not isinstance(payload, dict):
+        return
+    fulltext_ids = payload.get("fulltext_registry_ids")
+    if not isinstance(fulltext_ids, list) or not fulltext_ids:
+        add(errors, "EVIDENCE_SCOPE_REGRESSED", f"{raw_scope} 的 fulltext_registry_ids 为空")
+
+
+def validate_next_action_consistent(
+    state: dict[str, Any], errors: list[str]
+) -> None:
+    """R-LOG-04：终局状态下 next_required_action 不得出现前向状态推进提示。"""
+    effective = state.get("active_state")
+    if effective == "BLOCKED":
+        effective = state.get("resume_state")
+    if effective not in {"FINAL_LOCK", "COMPLETE"}:
+        return
+    next_action = state.get("next_required_action")
+    if not nonempty_string(next_action):
+        return
+    # 前向中间态名：终局状态下若提示里仍含这些词，说明 next_required_action 滞留旧态。
+    forward_markers = (
+        "LAYER_DECISION",
+        "L2_TRIAGE",
+        "L1_FREEZE",
+        "K_FULLTEXT",
+        "K_CLAIM_REGISTER",
+        "CLAIM_FREEZE",
+        "SYNTHESIZE_COLLISION",
+        "N0_AUDIT",
+        "VALIDITY_AUDIT",
+        "INDEPENDENT_REVIEW",
+        "DIRECTION_LOCK",
+        "COMPUTE",
+        "POSTCOMPUTE_CLAIM_FREEZE",
+        "FINAL_VALIDITY_AUDIT",
+    )
+    lowered = next_action.casefold()
+    for marker in forward_markers:
+        if marker.casefold() in lowered:
+            add(
+                errors,
+                "NEXT_ACTION_INCONSISTENT_WITH_STATE",
+                f"active_state:{effective};next_required_action 含中间态 {marker}",
+            )
+            return
+
+
+def validate_capability_flip_provenance(
+    state: dict[str, Any], errors: list[str]
+) -> None:
+    """R-REVIEW-20：capability_available=true 且 verdict=PASS 时，必须有
+    review_artifact_sha256 登记（走 iph review 命令），否则视为无 provenance 的翻转。"""
+    audit = state.get("independent_audit")
+    if not isinstance(audit, dict):
+        return
+    if audit.get("capability_available") is not True:
+        return
+    if audit.get("verdict") != "PASS":
+        return
+    if not nonempty_string(state.get("review_artifact_sha256")):
+        add(
+            errors,
+            "CAPABILITY_FLIPPED_WITHOUT_PROVENANCE",
+            "PASS 但无 review_artifact_sha256 登记（未走 iph review）",
+        )
 
 
 # 公开真实数据集名白名单：manuscript 声称用这些数据集时，compute_evidence 的
@@ -1357,6 +1450,11 @@ def validate(
                 "COMPLETE_REQUIRES_FINAL_LOCK_CONDITIONS",
                 ";".join(complete_problems),
             )
+
+    # gate 收口：scope 单调、next_required_action 一致性、capability 翻转 provenance。
+    validate_evidence_scope_monotonic(root, state, errors)
+    validate_next_action_consistent(state, errors)
+    validate_capability_flip_provenance(state, errors)
 
     return errors
 
