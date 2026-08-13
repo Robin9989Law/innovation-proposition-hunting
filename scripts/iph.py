@@ -736,6 +736,11 @@ def cmd_handover(args: argparse.Namespace) -> int:
     print(f"blocked reasons: {state.get('blocked_reasons') or []}")
     print(f"compute_authorized: {gates.get('compute_authorized')}")
     print(f"next_required_action: {state.get('next_required_action')}")
+    print("# 锚点抽查（R-REVIEW-20，交接前必须完成并留痕）")
+    print("1. 抽查 ≥5% 的原子观点 normalized_statement，回原文核对数值/locator 真实性")
+    print("2. 抽查 ≥1 条碰撞类结论的 evidence，回全文核对数值锚点是否真实（防 U-Sophistry 假证据）")
+    print("3. 记录抽查结果：checked=<N>  found_fabricated=<N>  抽查人=<agent-id>  时间=<UTC>")
+    print("   发现编造锚点 → 该观点降级/重抽，且旧独立审计失效（material change）")
     return int(ExitCode.READY)
 
 
