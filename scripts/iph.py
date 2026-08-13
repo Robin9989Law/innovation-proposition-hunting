@@ -12,6 +12,7 @@ schema 3.0 起 active_track / active_layer / last_completed_state 不再持久�
   validate                运行完整校验套件（当前转发 validate_all.py）
   advance                 校验通过后推进状态并记账
   start-collision-round   从 N0-3 审计合规开启下一碰撞轮次
+  review                  subagent 登记 review 产物 hash 到 state（主 agent 只读）
   clear-lock              完成恢复动作后解除 STOP 锁
   register-exploration    把探索性数据/产物登记为永久探索级证据
   handover                按 SKILL.md §10 生成交接报告
@@ -528,6 +529,68 @@ def cmd_repair_collision_round(args: argparse.Namespace) -> int:
     return int(ExitCode.READY)
 
 
+def cmd_review(args: argparse.Namespace) -> int:
+    """subagent 运行：登记 review 产物 hash 到 state，主 agent 此后只读不写。"""
+    root = Path(args.root).resolve()
+    state_path = Path(args.state).resolve()
+    if not nonempty_string(args.reviewer):
+        raise SystemExit("review 需要 --reviewer 记录 reviewer_agent_id")
+    if not nonempty_string(args.thread):
+        raise SystemExit("review 需要 --thread 记录 reviewer_thread_id")
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    artifacts = state.get("artifacts")
+    audit_relative = (
+        artifacts.get("independent_audit")
+        if isinstance(artifacts, dict) and artifacts.get("independent_audit")
+        else "independent_audit.json"
+    )
+    if not canonical_relative_path(audit_relative):
+        raise SystemExit(f"review 产物路径非法：{audit_relative!r}")
+    audit_path = root / audit_relative
+    if not audit_path.is_file():
+        raise SystemExit(f"review 产物不存在：{audit_relative}")
+
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    if not isinstance(audit, dict):
+        raise SystemExit("review 产物必须是 JSON 对象")
+    if audit.get("verdict") != args.verdict:
+        raise SystemExit(
+            f"--verdict {args.verdict} 与 review 产物 verdict {audit.get('verdict')} 不一致"
+        )
+    if args.verdict == "PASS":
+        review_answers = audit.get("review_answers")
+        required_keys = (
+            "data_authenticity",
+            "baseline_execution",
+            "claim_strength",
+            "falsification_attempt",
+        )
+        if not isinstance(review_answers, dict) or any(
+            not nonempty_string(review_answers.get(key)) for key in required_keys
+        ):
+            raise SystemExit(
+                "PASS 的 review 产物必须含非空 review_answers 四问"
+                "（data_authenticity/baseline_execution/claim_strength/falsification_attempt）"
+            )
+
+    digest = file_sha256(audit_path)
+    state["review_artifact_sha256"] = digest
+    state["updated_at"] = utc_now()
+    atomic_write_state(state_path, state)
+    append_validation_log(
+        root,
+        f"REVIEW {args.reviewer} thread={args.thread} verdict={args.verdict} "
+        f"artifact={audit_relative} sha256={digest[:12]}",
+    )
+    print(
+        f"review 产物已登记：{audit_relative} sha256={digest[:12]} "
+        f"reviewer={args.reviewer} verdict={args.verdict} —— 主 agent 此后只读不写"
+    )
+    return int(ExitCode.READY)
+
+
+
 def cmd_clear_lock(args: argparse.Namespace) -> int:
     if not nonempty_string(args.recovery_note):
         raise SystemExit("clear-lock 需要 --recovery-note 记录唯一恢复动作")
@@ -723,6 +786,12 @@ def build_parser() -> argparse.ArgumentParser:
     add_root_state(p)
     p.set_defaults(func=cmd_repair_collision_round)
 
+    p = sub.add_parser("review", help="subagent 登记 review 产物 hash 到 state")
+    add_root_state(p)
+    p.add_argument("--reviewer", required=True)
+    p.add_argument("--thread", required=True)
+    p.add_argument("--verdict", required=True, choices=["PASS", "FAIL"])
+    p.set_defaults(func=cmd_review)
     p = sub.add_parser("clear-lock", help="完成恢复动作后解除 STOP 锁")
     add_root_state(p)
     p.add_argument("--recovery-note", required=True)

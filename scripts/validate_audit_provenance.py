@@ -297,7 +297,26 @@ def validate_with_context(
         ):
             raise
         audit = {"schema_version": "2.0", "capability_available": False}
-    return validate(ctx.state, manifest, audit)
+    issues = validate(ctx.state, manifest, audit)
+
+    # R-REVIEW-20：review 产物主 agent 只读不写。state 里登记的 review 产物
+    # sha256 与磁盘文件实际 hash 不符，即主 agent 事后改写了 review 产物。
+    registered = ctx.state.get("review_artifact_sha256")
+    if nonempty_string(registered) and audit.get("capability_available") is not False:
+        try:
+            actual = ctx.snapshot(audit_relative).sha256
+        except Exception:
+            actual = None
+        if actual is not None and actual != registered:
+            issues.append(
+                Issue(
+                    "REVIEW_ARTIFACT_TAMPERED",
+                    "INVALID",
+                    "independent_audit",
+                    f"registered:{registered};actual:{actual}",
+                )
+            )
+    return issues
 
 
 def main() -> int:

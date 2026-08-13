@@ -370,6 +370,65 @@ class RegisterExplorationTests(unittest.TestCase):
             )
 
 
+class ReviewCommandTests(unittest.TestCase):
+    """iph review：subagent 登记 review 产物 hash，主 agent 只读不写。"""
+
+    def test_review_registers_hash_and_rejects_tamper(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V3")
+        with temporary_directory:
+            audit_path = project / "independent_audit.json"
+            audit = load_json(audit_path)
+            audit["review_answers"] = {
+                "data_authenticity": "real",
+                "baseline_execution": "real",
+                "claim_strength": "real",
+                "falsification_attempt": "real",
+            }
+            write_json(audit_path, audit)
+
+            review = run_iph(
+                project,
+                "review",
+                "--reviewer",
+                "agent-b",
+                "--thread",
+                "thread-b",
+                "--verdict",
+                "PASS",
+            )
+            self.assertEqual(0, review.returncode, review.stdout + review.stderr)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual(64, len(state["review_artifact_sha256"]))
+
+            # 主 agent 事后改 review 产物 → hash 变 → REVIEW_ARTIFACT_TAMPERED
+            audit = load_json(audit_path)
+            audit["review_answers"]["data_authenticity"] = "tampered"
+            write_json(audit_path, audit)
+            result = run_all_validator(project)
+            self.assertIn("REVIEW_ARTIFACT_TAMPERED", result.stdout)
+
+    def test_review_rejects_pass_without_answers(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V3")
+        with temporary_directory:
+            audit_path = project / "independent_audit.json"
+            audit = load_json(audit_path)
+            audit.pop("review_answers", None)
+            write_json(audit_path, audit)
+
+            review = run_iph(
+                project,
+                "review",
+                "--reviewer",
+                "agent-b",
+                "--thread",
+                "thread-b",
+                "--verdict",
+                "PASS",
+            )
+            self.assertNotEqual(0, review.returncode)
+            self.assertIn("review_answers", review.stderr)
+
+
 class HandoverTests(unittest.TestCase):
     def test_handover_reports_core_fields(self) -> None:
         temporary_directory, project = make_valid_project()
