@@ -232,6 +232,11 @@ NEUTRAL     与候选无关（一般不登记）
 旧 `support_role` 字段已并入 claim_type 删除；迁移见
 `scripts/migrate_claim_types.py`。
 
+数组位置不表达判断极性或执行优先级。falsification-first 要求先执行证伪审计并在
+N0 裁决前完成 falsification ledger，不要求把 registry 按 claim_type/relation 排序。
+审计者不得把 `ENABLES` 之前/之后的位置当成 PASS/FAIL 条件，也不得把最强负面类型
+`OCCUPIES` 误归为正面类型。
+
 **五要素模板（R-ATOMIC-19）**：`normalized_statement` 必须能填进下面的骨架，
 写不出五要素中的条件、基线、数值三样，就是"这篇论文讲了啥"的读后感，不是原子
 观点，不登记：

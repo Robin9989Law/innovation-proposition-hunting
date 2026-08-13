@@ -21,6 +21,18 @@
   `resume_state`，所以 validator 必然再次落锁。现行恢复必须显式
   `--resume-blocked --next-action ...`，并在验证失败时逐字节回滚 state、锁和日志。
 
+## 2026-08-14：强审计模型把 false-first 误读成数组排序
+
+- **症状**：frontier 工件通过结构校验且 route quorum 充足，强模型仍因一条
+  `ENABLES` 位于后续 `BOUNDS`/`CONTRADICTS` 之前而判 FAIL，并把最强负面关系
+  `OCCUPIES` 误列为正面。
+- **根因**：任务只写了 false-first，没有给出该术语的机器边界；模型把审计执行
+  优先级幻化成 registry 排序约束。
+- **修复合同**：任何 specialist FAIL 必须引用精确规则/validator issue；数组位置
+  不携带极性语义。false-first 是先证伪、后裁决，并在 N0 前完成 ledger。
+- **执行纪律**：强模型结论不是权威规则。语义审计与 deterministic validator 冲突时，
+  先回到规则文本核对，不得按模型临时创造的约束改写证据工件。
+
 ---
 
 ## 目录

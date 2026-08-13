@@ -166,6 +166,11 @@ decision_log 记录裁决、占据/可推导证据与处置（关闭、吸收或
 或写出的"失败原因"站不住（被独立复核或人审一眼看穿）时，候选不得前进。缺证伪书
 即 `FALSIFICATION_LEDGER_MISSING`。
 
+falsification-first 约束的是审计执行与 N0 裁决的先后，不是 JSON 数组排序。
+`literature_claim_registry.json` 中记录的数组位置不携带正负优先级语义；不得仅因
+`ENABLES` 出现在 `BOUNDS`/`CONTRADICTS` 之前而判 FAIL。`OCCUPIES` 是最强负面
+判断，与 `CONTRADICTS`、`BOUNDS` 一起属于 counter，不得误归为正面判断。
+
 负面终局与正面终局**同价且同严**：裁决为 N0-1 时 `novelty-audit.md` 必须有
 占据证据（occupation evidence，列占据者与覆盖内容，缺即
 `OCCUPATION_EVIDENCE_MISSING`）；裁决为 N0-2 时必须有归约证据（reduction
