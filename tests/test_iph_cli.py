@@ -171,6 +171,68 @@ class AdvanceTests(unittest.TestCase):
             self.assertIn("RECOVERY_STATE_REPAIR", log_text)
             self.assertIn("LOCK_CLEARED", log_text)
 
+    def test_clear_lock_resumes_blocked_state_after_operator_repair(self) -> None:
+        temporary_directory, project = self.make_boot_project()
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "BLOCKED"
+            state["resume_state"] = "BOOT"
+            state["blocked_reasons"] = ["operator repaired the external blocker"]
+            write_json(project / "workflow_state.json", state)
+            write_json(project / ".workflow_stop.lock", {"exit_code": 2})
+
+            recovered = run_iph(
+                project,
+                "clear-lock",
+                "--resume-blocked",
+                "--recovery-note",
+                "deployed the authoritative state-machine fix",
+                "--next-action",
+                "Create and freeze scope artifacts.",
+            )
+            self.assertEqual(0, recovered.returncode, recovered.stdout + recovered.stderr)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("BOOT", state["active_state"])
+            self.assertEqual("BOOT", state["resume_state"])
+            self.assertEqual([], state["blocked_reasons"])
+            self.assertEqual("Create and freeze scope artifacts.", state["next_required_action"])
+            self.assertIn("RECOVERY_RESUME from BLOCKED", state["decision_log"][-1]["action"])
+            self.assertFalse((project / ".workflow_stop.lock").exists())
+
+    def test_clear_lock_failed_resume_restores_state_lock_and_log_bytes(self) -> None:
+        temporary_directory, project = self.make_boot_project()
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "BLOCKED"
+            state["resume_state"] = "BOOT"
+            state["blocked_reasons"] = ["operator repair pending"]
+            state["current_year"] = 2025
+            write_json(project / "workflow_state.json", state)
+            write_json(project / ".workflow_stop.lock", {"exit_code": 2, "marker": "original"})
+            (project / "validation.log").write_text("original log\n", encoding="utf-8")
+            original = {
+                name: (project / name).read_bytes()
+                for name in (
+                    "workflow_state.json",
+                    ".workflow_stop.lock",
+                    "validation.log",
+                )
+            }
+
+            recovered = run_iph(
+                project,
+                "clear-lock",
+                "--resume-blocked",
+                "--recovery-note",
+                "this recovery must roll back",
+                "--next-action",
+                "Create and freeze scope artifacts.",
+            )
+            self.assertNotEqual(0, recovered.returncode)
+            self.assertIn("RECOVERY_ROLLBACK", recovered.stdout)
+            for name, expected in original.items():
+                self.assertEqual(expected, (project / name).read_bytes())
+
     def test_start_collision_round_rejects_non_n0_hold(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V0")
         with temporary_directory:

@@ -17,6 +17,9 @@
   state 前失败。
 - **执行纪律**：同一确定性校验错误重复出现时不得继续清锁重试。保留 STOP，先
   修权威迁移器并增加回归测试，再执行一次有恢复说明的受控解锁。
+- **恢复死锁**：旧 `clear-lock` 只移除物理锁、不把 `active_state=BLOCKED` 恢复到
+  `resume_state`，所以 validator 必然再次落锁。现行恢复必须显式
+  `--resume-blocked --next-action ...`，并在验证失败时逐字节回滚 state、锁和日志。
 
 ---
 

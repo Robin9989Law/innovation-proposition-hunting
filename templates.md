@@ -91,6 +91,9 @@ POSIX path；所有 SHA-256 均为 64 位小写十六进制；`validation_epoch`
 旧版推进若因此在 post-validation 进入 STOP，只能用
 `iph clear-lock --set-artifact key=path --next-action "..." --recovery-note "..."`
 受控修复后重验，不得直接编辑 `workflow_state.json`。
+若外部阻塞本身已经由 operator 修复且 `active_state=BLOCKED`，必须显式使用
+`iph clear-lock --resume-blocked --next-action "..." --recovery-note "..."` 原子恢复
+到 `resume_state`；恢复校验失败时 CLI 会逐字节还原 state、STOP 锁与 validation log。
 
 `recent_frontier_complete=true` 是一个复合原子门：同一次 `iph advance` 必须用
 `--set-artifact literature_registry=<path>` 登记最近前沿账本。CLI 会从该账本的

@@ -701,28 +701,76 @@ def cmd_clear_lock(args: argparse.Namespace) -> int:
         raise SystemExit("clear-lock 需要 --recovery-note 记录唯一恢复动作")
     root = Path(args.root).resolve()
     state_path = Path(args.state).resolve()
+    lock_path = root / ".workflow_stop.lock"
+    validation_log_path = root / "validation.log"
+    original_state = state_path.read_bytes()
+    original_lock = lock_path.read_bytes() if lock_path.is_file() else None
+    original_log = (
+        validation_log_path.read_bytes() if validation_log_path.is_file() else None
+    )
     artifact_updates = parse_state_artifact_updates(args.set_artifact or [], root)
-    if artifact_updates or args.next_action is not None:
-        if not (root / ".workflow_stop.lock").is_file():
+    if args.resume_blocked and args.next_action is None:
+        raise SystemExit("--resume-blocked 必须同时提供 --next-action")
+    if artifact_updates or args.next_action is not None or args.resume_blocked:
+        if not lock_path.is_file():
             raise SystemExit("只有 STOP 锁存在时才能通过 clear-lock 修复状态指针")
         state = json.loads(state_path.read_text(encoding="utf-8"))
         if not isinstance(state, dict):
             raise SystemExit("workflow_state.json 顶层必须是对象")
+        if args.resume_blocked:
+            if state.get("active_state") != "BLOCKED":
+                raise SystemExit("--resume-blocked 仅允许恢复 active_state=BLOCKED")
+            resume_state = state.get("resume_state")
+            if resume_state not in STATES - {"BLOCKED", "COMPLETE"}:
+                raise SystemExit(f"BLOCKED.resume_state 非法：{resume_state!r}")
+            reasons = state.get("blocked_reasons")
+            if not isinstance(reasons, list) or not any(
+                isinstance(reason, str) and reason.strip() for reason in reasons
+            ):
+                raise SystemExit("BLOCKED 恢复前必须保留非空 blocked_reasons")
+            state["active_state"] = resume_state
+            state["resume_state"] = resume_state
+            state["blocked_reasons"] = []
+            state.setdefault("decision_log", []).append(
+                {
+                    "at": utc_now(),
+                    "state": resume_state,
+                    "action": (
+                        "RECOVERY_RESUME from BLOCKED after operator repair: "
+                        f"{args.recovery_note.strip()}"
+                    ),
+                }
+            )
         apply_state_repairs(state, artifact_updates, args.next_action)
         state["updated_at"] = utc_now()
         atomic_write_state(state_path, state)
         append_validation_log(
             root,
             f"RECOVERY_STATE_REPAIR artifacts={artifact_updates or '-'} "
+            f"resume_blocked={args.resume_blocked} "
             f"next_action_updated={args.next_action is not None} "
             f"note={args.recovery_note.strip()}",
         )
-    return run_validate_all(
+    exit_code = run_validate_all(
         root,
         state_path,
         args.strict_new_checks,
         ["--clear-lock", "--recovery-note", args.recovery_note.strip()],
     )
+    if exit_code == int(ExitCode.READY):
+        return exit_code
+
+    state_path.write_bytes(original_state)
+    if original_lock is None:
+        lock_path.unlink(missing_ok=True)
+    else:
+        lock_path.write_bytes(original_lock)
+    if original_log is None:
+        validation_log_path.unlink(missing_ok=True)
+    else:
+        validation_log_path.write_bytes(original_log)
+    print("RECOVERY_ROLLBACK\trestored state, STOP lock, and validation log")
+    return exit_code
 
 
 def cmd_register_exploration(args: argparse.Namespace) -> int:
@@ -942,6 +990,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--next-action",
         help="STOP 恢复期受控修复唯一 next_required_action",
+    )
+    p.add_argument(
+        "--resume-blocked",
+        action="store_true",
+        help="operator 修复外部阻塞后，把 BLOCKED 原子恢复到 resume_state",
     )
     p.set_defaults(func=cmd_clear_lock)
 
