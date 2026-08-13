@@ -682,6 +682,13 @@ U = K 内部尚未闭合的推理、边界、识别或性能责任
 如果被理论 T 覆盖，执行上钻六问；不得用换场景逃避。
 ```
 
+**碰撞三段式 + 逐近邻强制证伪（R-REVIEW-20）**：碰撞结论不能只写"候选很新"。
+碰撞类结论（`NOVELTY_VERDICT`/`CLOSURE`/`METHOD_COMPARISON`）必须三段式——
+`evidence`（我读到了什么：数值锚点或 locator）→ `reasoning`（如何推出）→
+`statement`（结论），先证据后结论。逐近邻回答三条证伪（直接占据？机械推出？
+换名？），每条"不能"都要有可验证理由。写完碰撞结论后逐条追问"这条和原文
+一致吗？删掉它裁决会变吗？"——追问是产物的一部分。
+
 下一状态：`OUTPUT_CLAIM_BIND`。
 
 ### 7.12 输出结论绑定（`OUTPUT_CLAIM_BIND`）
@@ -715,6 +722,10 @@ OC-0001
 
 如果输出是综合、对照或推理，必须写 `reasoning`，明确哪些是来源事实、哪些是
 自己的推导。
+
+碰撞类结论（`NOVELTY_VERDICT`/`CLOSURE`/`METHOD_COMPARISON`）还必须写
+`evidence` 字段——数值锚点或 locator（如"N 的表 3 报告 AUPRC=0.288"）。缺
+evidence 或无数值锚点即 `ATOMIC_COLLISION_NO_ANCHOR`。
 
 下一状态：`EVIDENCE_VALIDATE`。
 
@@ -751,6 +762,13 @@ N0 只用于单个 L3：
 | N0-4C | 非机械性、证据、路径和形式门全部通过 | 锁定方向 |
 
 N0-4C 不自动授权实验。仍需用户明确授权并满足计算门。
+
+**证伪书（falsification ledger，R-N0-17）**：裁决任何候选为 N0-4C 之前，
+`novelty-audit.md` 必须先写证伪书——逐条列出"我尝试杀死这个候选的方式及为何
+失败"（直接占据、机械归约、换名检测至少各一条，确无某类路径时逐条登记理由）。
+候选存活是证伪失败后的残留，不是未被注意的空缺。证伪书写不出或站不住，候选
+不得前进。负面终局与正面终局同价同严：N0-1 须有占据证据（occupation
+evidence），N0-2 须有归约证据（reduction evidence）。
 
 ---
 
@@ -1046,6 +1064,20 @@ scope、候选、声明角色、前沿证据、有效性审计和计算授权。
 }
 ```
 
+碰撞类结论（如 N0 裁决、关闭、方法比较）额外写 `evidence` 数值锚点：
+
+```json
+{
+  "output_claim_id": "OC-0002",
+  "statement": "候选 M 的 risk 侧非机械推出。",
+  "claim_kind": "NOVELTY_VERDICT",
+  "evidence": "N 的表 3 报告 AUPRC=0.288（单任务），加 5pp 仍需联合实验",
+  "supporting_claim_ids": ["LC-0001"],
+  "inference_type": "INFERENCE",
+  "reasoning": "单任务基线 + 联合候选需要新实验，非变量替换可得。",
+  "trace_status": "VERIFIED"
+}
+```
 完整链：
 
 ```text
@@ -1280,6 +1312,42 @@ python3 scripts/iph.py validate --root . --state workflow_state.json
 - 如果确实需要改变主方向，说明代价并取得用户明确确认；
 - 确认后建立新一代路径并回到 `SCOPE_LOCK`，不得原地改标签或复用旧审计。
 
+### 诚实判断错误（证伪书 / 实质检查）
+
+本次技能强化后新增的检查码，默认 WARNING，`--strict-new-checks` 升 INVALID；
+评审与交接一律以 strict 结果为准：
+
+- `FALSIFICATION_LEDGER_MISSING` / `OCCUPATION_EVIDENCE_MISSING` /
+  `REDUCTION_EVIDENCE_MISSING`：`novelty-audit.md` 缺与 novelty_level 对应的
+  裁决证据（N0-4C 缺证伪书、N0-1 缺占据证据、N0-2 缺归约证据）。处理：先写
+  证据节再推进，正面负面同价同严。
+- `ATOMIC_CLAIM_NO_ANCHOR`：原子观点是"Paper W-XXXX proposes..."这类文献元
+  描述套壳。处理：重写为五要素（条件/方法/基线/指标/数值）的可证伪断言，或
+  理论类观点补 theorem/lemma locator。
+- `ATOMIC_COLLISION_NO_ANCHOR`：碰撞类结论缺 evidence 数值锚点。处理：补
+  `evidence` 字段（表号/定理号 + 可复算数值），先证据后结论。
+- `COMPUTE_DATA_SOURCE_UNSPECIFIED` / `SYNTHETIC_DATA_NAMED_AS_REAL` /
+  `MANUSCRIPT_DATASET_UNVERIFIED`：计算数据源未声明、合成数据冒用真实数据集名、
+  manuscript 声称的数据集无对应非合成条目。处理：在 compute_evidence 补
+  `data_sources`，合成数据标 `synthetic: true` 且不得用真实数据集名。
+- `BASELINE_NOT_EXECUTED`：baseline_budget 声明的 comparator 在 compute_evidence
+  里 per_run 为空。处理：补实际执行证据，或把该 comparator 明确标为 NOT_RUN
+  且不得计入比较结论。
+- `CLAIM_STRENGTH_EXCEEDS_PROFILE`：ALGORITHM profile 下经验 claim 用了
+  provably/guaranteed/theorem 等定理级措辞。处理：升 profile 到 MIXED 并跑
+  theory obligations，或把措辞降级为经验表述。
+- `REVIEW_ANSWERS_INCOMPLETE`：独立 reviewer 的 PASS 缺实质四问。处理：重新
+  派 subagent 跑 `iph review`，补全四问（数据真实性/baseline 执行/措辞强度/
+  证伪尝试），不得写"已确认通过"。
+- `REVIEW_ARTIFACT_TAMPERED`：review 产物被主 agent 事后改写。处理：重新派
+  subagent 生成 review 产物并重新 `iph review` 登记 hash。
+- `CAPABILITY_FLIPPED_WITHOUT_PROVENANCE`：capability_available 翻 true 但无
+  review 产物 hash 登记。处理：走 `iph review` 登记产物 hash。
+- `EVIDENCE_SCOPE_REGRESSED`：K 全文门已过后 scope 被清空。处理：恢复 scope，
+  登记只能单调增长。
+- `NEXT_ACTION_INCONSISTENT_WITH_STATE`：终局态下 next_required_action 滞留
+  中间态。处理：更新为终局处置。
+
 ---
 
 ## 16. 可直接复制的提示词库
@@ -1322,7 +1390,9 @@ python3 scripts/iph.py validate --root . --state workflow_state.json
 7. 固定一个主创新路径和一个主创新形式；
 8. 将新定理、算法或实验标为 PRIMARY 或 SUPPORTING；
 9. 若候选不属于锁定路径，报告 INNOVATION_PATH_DRIFT，不得自动换轨；
-10. 写明确关闭条件。
+10. 写明确关闭条件；
+11. 逐近邻回答三条证伪（直接占据？机械推出？换名？），每条"不能"都要有
+    可验证理由；碰撞类结论先写 evidence 数值锚点再下结论。
 ```
 
 ### 16.4 被近邻覆盖后上钻
@@ -1347,6 +1417,8 @@ Q6 停止理由。
 只审计 active_contribution 的单个 L3。
 检查正式出版资格、E2/E4、研究链、K→U→Δ、最小见证、机械推出攻击、
 主路径门、主形式门和失败条件。
+先写证伪书（falsification ledger）：逐条列出"我尝试杀死候选的方式及为何失败"
+（直接占据、机械归约、换名检测）。N0-1/N0-2 分别写占据证据/归约证据。
 输出 N0-1/2/3/4C 及唯一动作。
 预印本只能形成 PREPRINT THREAT，不得终局关闭。
 ```
