@@ -277,7 +277,13 @@ decision_log 推得，不在 state 中持久化，也不用手工维护。
 
 ```bash
 python3 scripts/iph.py validate --root . --state workflow_state.json
-python3 scripts/iph.py advance --root . --state workflow_state.json --to <STATE> --note "<一行决策说明>"
+python3 scripts/iph.py advance --root . --state workflow_state.json \
+  --to <STATE> \
+  --note "<一行决策说明>" \
+  --set-gate <gate>=true \
+  --set-artifact <artifact_key>=<relative_path> \
+  --artifact <relative_path> \
+  --next-action "<推进后的唯一动作>"
 ```
 
 `iph advance` 会先跑完整校验，READY 后才写 decision_log（真实 UTC 时间戳）并
@@ -286,6 +292,10 @@ next_required_action；证据层级与最后完成状态由校验器派生，不
 校验不过不推进。`validate_all.py` 仍是底层校验器
 （`iph validate` 即调用它），但常规推进一律走 iph CLI，不手动编辑
 `workflow_state.json` 或手动追加 decision_log。
+
+`--set-artifact key=path` 写顶层路径指针，`--artifact path` 把同一不可变文件的
+哈希锚定到 decision_log；二者用途不同。某个 gate 依赖多个工件时分别重复传入。
+目录只登记路径指针，不作为单文件哈希参数传入。
 
 不要先把门禁（gate）改成 `true`，再补文件。
 
@@ -1347,6 +1357,11 @@ python3 scripts/iph.py validate --root . --state workflow_state.json
   登记只能单调增长。
 - `NEXT_ACTION_INCONSISTENT_WITH_STATE`：终局态下 next_required_action 滞留
   中间态。处理：更新为终局处置。
+- `ARTIFACT <key>:missing_or_unsafe_path` 且文件已经存在：旧版推进只登记了
+  decision_log 哈希，遗漏顶层路径指针。STOP 期间使用
+  `iph clear-lock --set-artifact key=path --next-action "<下一动作>" \
+  --recovery-note "补登记遗漏的 artifact 指针"` 受控修复并重验；不得手改 state
+  或直接删除 `.workflow_stop.lock`。
 
 ---
 

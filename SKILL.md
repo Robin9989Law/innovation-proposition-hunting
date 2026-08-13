@@ -205,6 +205,11 @@ gate 置真以 `decision_log` 中对应状态的完成记录（含本状态产�
 为准，不得仅凭口头声明置真；跳过状态再补 gate 判自报置真。`novelty_level` /
 `validity_level` 必须与对应 gate 和登记互证，不得手填 N0-4C。
 
+状态推进时，顶层 `artifacts` 路径指针与 `decision_log[].artifacts` 哈希锚点必须在
+同一次 `iph advance` 原子写入：前者用 `--set-artifact key=path`，后者用
+`--artifact path`；同时用 `--next-action` 写入推进后的唯一恢复动作。不得只登记
+哈希而遗漏路径指针，也不得推进后继续保留上一状态的 `next_required_action`。
+
 `LAYER_DECISION → K_FULLTEXT` 跨越 L2/L3 边界时，必须由 `iph advance` 在同一
 原子状态写入中激活贡献：期刊未显式指定时自动设为 `M`，显式指定的非法贡献
 一律拒绝（不得静默改写）；博士用 `--contribution A|B|C` 指定。返回 L1/L2 时
@@ -352,6 +357,9 @@ LOCKED、CLOSED、启动新碰撞或计算。BLOCKED 时仍验证所有已有产
 `--clear-lock --recovery-note "<动作>"` 复跑（留痕于 validation.log）；修复后
 复跑 READY 会自动清锁。新增检查默认以 WARNING 输出、不改变退出码，
 `--strict-new-checks` 将其升为 INVALID；评审与交接一律以 strict 模式结果为准。
+如果失败来自旧版 `advance` 已记哈希却漏写顶层路径，可在 STOP 期间通过受控参数
+`clear-lock --set-artifact key=path --next-action "<下一动作>"` 原子修复并重验；这不是
+手工编辑 state，也不得用于改变 gate、活动状态或研究裁决。
 
 BLOCKED 期间仅允许三件事：验证所有已有产物、记录唯一恢复动作、登记用户直接
 提供的解阻材料。禁止撰写新综合、禁止任何计算、禁止新增冻结工件。
@@ -380,7 +388,7 @@ INVALID（§9）。
 | R-AUTH-01 | 用户授权只是 `compute_authorized` 的必要条件，不构成硬门旁路：N0-4C 与 V3 仍须先满足 | §8 |
 | R-COMPUTE-02 | COMPUTE 门前禁止任何数值输出实验；S0-SCREEN 数值预实验必须当天登记 `exploration_registry.json`，其数字不得进入冻结工件（`UNREGISTERED_COMPUTE_ARTIFACT` / `EXPLORATION_LEAK`） | §8、compute-funnel §2、templates §12 |
 | R-BLOCKED-03 | BLOCKED 期间仅允许：验证已有产物、记录唯一恢复动作、登记用户直接提供的解阻材料 | §9 |
-| R-LOG-04 | 每次状态完成必须追加 decision_log 条目（真实 UTC 时间、单调、gate 置真有对应条目）；标准动作是 `iph advance`，禁止手工回填 | §2、templates §1 |
+| R-LOG-04 | 每次状态完成必须追加 decision_log 条目（真实 UTC 时间、单调、gate 置真有对应条目）；`iph advance` 同时原子登记顶层 artifact 路径、日志哈希和下一动作，禁止手工回填 | §2、templates §1 |
 | R-N0-17 | 证伪优先且正负同严：候选裁决为 N0-4C 前必须在 novelty-audit.md 完成证伪书（falsification ledger），逐条列出杀死候选的尝试及失败原因；裁决为 N0-1/N0-2 时必须分别有占据证据/归约证据（`FALSIFICATION_LEDGER_MISSING`/`OCCUPATION_EVIDENCE_MISSING`/`REDUCTION_EVIDENCE_MISSING`）；负面终局与正面终局同价同严 | §3.1、templates §15 |
 | R-SELFTEST-06 | 禁自证：测试必须静态声明 `TARGET_CLAIM_IDS` 且 AST 可证 import 被绑定实现；只断言自身硬编码期望的脚本不计入证据（`SELF_ATTESTING_TEST`） | §4、templates §6 |
 | R-EMPIRICAL-07 | empirical 不得升格为 theorem：实证结果不能改写成全称命题，命题强度以实际支持的最弱形式重建 epoch | §6、compute-funnel §2 |

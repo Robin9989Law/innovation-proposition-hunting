@@ -59,6 +59,118 @@ class InProcessSuiteTests(unittest.TestCase):
 
 
 class AdvanceTests(unittest.TestCase):
+    def make_boot_project(self):
+        temporary_directory, project = make_valid_project(validity_level="V0")
+        state = load_json(project / "workflow_state.json")
+        state.update(
+            {
+                "active_state": "BOOT",
+                "resume_state": "BOOT",
+                "active_contribution": "NONE",
+                "next_required_action": (
+                    "Create and freeze scope_lock.md and hierarchy_status.md, "
+                    "then advance to SCOPE_LOCK."
+                ),
+                "novelty_level": "N0-3",
+                "validity_level": "V0",
+                "claim_bundle_sha256": "",
+                "independent_audit": {},
+                "artifacts": {},
+                "decision_log": [],
+            }
+        )
+        state["gates"] = {key: False for key in state["gates"]}
+        write_json(project / "workflow_state.json", state)
+        (project / "scope_lock.md").write_text("# Scope lock\n", encoding="utf-8")
+        (project / "hierarchy_status.md").write_text(
+            "# Hierarchy status\n", encoding="utf-8"
+        )
+        return temporary_directory, project
+
+    def test_boot_to_scope_lock_atomically_registers_artifact_pointers(self) -> None:
+        temporary_directory, project = self.make_boot_project()
+        with temporary_directory:
+            completed = run_iph(
+                project,
+                "advance",
+                "--to",
+                "SCOPE_LOCK",
+                "--note",
+                "scope contract frozen",
+                "--set-gate",
+                "scope_locked=true",
+                "--artifact",
+                "scope_lock.md",
+                "--artifact",
+                "hierarchy_status.md",
+                "--set-artifact",
+                "scope_lock=scope_lock.md",
+                "--set-artifact",
+                "hierarchy_status=hierarchy_status.md",
+                "--next-action",
+                "Drain prior-round claims before frontier search.",
+            )
+            self.assertEqual(
+                0, completed.returncode, completed.stdout + completed.stderr
+            )
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("SCOPE_LOCK", state["active_state"])
+            self.assertTrue(state["gates"]["scope_locked"])
+            self.assertEqual("scope_lock.md", state["artifacts"]["scope_lock"])
+            self.assertEqual(
+                "hierarchy_status.md", state["artifacts"]["hierarchy_status"]
+            )
+            self.assertEqual(
+                "Drain prior-round claims before frontier search.",
+                state["next_required_action"],
+            )
+            self.assertEqual(2, len(state["decision_log"][-1]["artifacts"]))
+            self.assertFalse((project / ".workflow_stop.lock").exists())
+
+    def test_clear_lock_repairs_missing_artifact_pointers_without_direct_edit(self) -> None:
+        temporary_directory, project = self.make_boot_project()
+        with temporary_directory:
+            failed = run_iph(
+                project,
+                "advance",
+                "--to",
+                "SCOPE_LOCK",
+                "--note",
+                "legacy advance omitted pointer map",
+                "--set-gate",
+                "scope_locked=true",
+                "--artifact",
+                "scope_lock.md",
+                "--artifact",
+                "hierarchy_status.md",
+            )
+            self.assertEqual(1, failed.returncode, failed.stdout + failed.stderr)
+            self.assertTrue((project / ".workflow_stop.lock").exists())
+
+            recovered = run_iph(
+                project,
+                "clear-lock",
+                "--recovery-note",
+                "registered missing scope artifact pointers",
+                "--set-artifact",
+                "scope_lock=scope_lock.md",
+                "--set-artifact",
+                "hierarchy_status=hierarchy_status.md",
+                "--next-action",
+                "Drain prior-round claims before frontier search.",
+            )
+            self.assertEqual(0, recovered.returncode, recovered.stdout)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("SCOPE_LOCK", state["active_state"])
+            self.assertEqual("scope_lock.md", state["artifacts"]["scope_lock"])
+            self.assertEqual(
+                "hierarchy_status.md", state["artifacts"]["hierarchy_status"]
+            )
+            self.assertFalse((project / ".workflow_stop.lock").exists())
+            log_text = (project / "validation.log").read_text(encoding="utf-8")
+            self.assertIn("RECOVERY_STATE_REPAIR", log_text)
+            self.assertIn("LOCK_CLEARED", log_text)
+
     def test_start_collision_round_rejects_non_n0_hold(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V0")
         with temporary_directory:

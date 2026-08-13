@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -48,6 +49,7 @@ from validate_workflow_state import (  # noqa: E402
 )
 
 GATE_BOOL = {"true": True, "false": False}
+ARTIFACT_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
 
 # 状态 -> 所属轴（TRACK_STATES 是分区；BLOCKED/COMPLETE 不属于任何轴）。
 # 仅用于 handover 报表派生展示，不再写回 state（schema 3.0 派生字段）。
@@ -124,6 +126,52 @@ def parse_gate_updates(pairs: list[str]) -> dict[str, bool]:
     return updates
 
 
+def parse_state_artifact_updates(
+    pairs: list[str], root: Path
+) -> dict[str, str]:
+    """解析受控的 state.artifacts 路径登记，不承担 decision_log 哈希记账。"""
+    updates: dict[str, str] = {}
+    for pair in pairs:
+        if "=" not in pair:
+            raise SystemExit(
+                f"--set-artifact 需要 key=根内规范相对路径 形式：{pair!r}"
+            )
+        key, _, relative = pair.partition("=")
+        key = key.strip()
+        relative = relative.strip()
+        if not ARTIFACT_KEY.fullmatch(key):
+            raise SystemExit(f"artifact key 非法：{key!r}")
+        if not canonical_relative_path(relative):
+            raise SystemExit(
+                f"--set-artifact 必须使用根内规范相对路径：{relative!r}"
+            )
+        candidate = root / relative
+        if not candidate.exists() or candidate.is_symlink():
+            raise SystemExit(f"--set-artifact 不存在或不是安全实体：{relative}")
+        previous = updates.get(key)
+        if previous is not None and previous != relative:
+            raise SystemExit(
+                f"同一 artifact key 不得登记多个路径：{key}={previous!r}/{relative!r}"
+            )
+        updates[key] = relative
+    return updates
+
+
+def apply_state_repairs(
+    state: dict[str, Any],
+    artifact_updates: dict[str, str],
+    next_action: str | None,
+) -> None:
+    artifacts = state.setdefault("artifacts", {})
+    if not isinstance(artifacts, dict):
+        raise SystemExit("workflow_state.artifacts 必须是对象")
+    artifacts.update(artifact_updates)
+    if next_action is not None:
+        if not nonempty_string(next_action):
+            raise SystemExit("--next-action 不得为空")
+        state["next_required_action"] = next_action.strip()
+
+
 def cmd_advance(args: argparse.Namespace) -> int:
     root = Path(args.root).resolve()
     state_path = Path(args.state).resolve()
@@ -143,6 +191,9 @@ def cmd_advance(args: argparse.Namespace) -> int:
             return exit_code
 
     gate_updates = parse_gate_updates(args.set_gate or [])
+    state_artifact_updates = parse_state_artifact_updates(
+        args.set_artifact or [], root
+    )
     artifact_paths: list[str] = []
     for raw in args.artifact or []:
         if not canonical_relative_path(raw):
@@ -201,6 +252,7 @@ def cmd_advance(args: argparse.Namespace) -> int:
         state["blocked_reasons"] = []
     state["active_state"] = target
     state["updated_at"] = now
+    apply_state_repairs(state, state_artifact_updates, args.next_action)
     gates = state.setdefault("gates", {})
     for key, value in gate_updates.items():
         gates[key] = value
@@ -221,7 +273,8 @@ def cmd_advance(args: argparse.Namespace) -> int:
     append_validation_log(
         root,
         f"ADVANCE {previous_state} -> {target} "
-        f"gates={gate_updates or '-'} artifacts={len(artifacts)} note={args.note.strip()}",
+        f"gates={gate_updates or '-'} artifacts={len(artifacts)} "
+        f"state_artifacts={state_artifact_updates or '-'} note={args.note.strip()}",
     )
     print(f"advanced: {previous_state} -> {target}")
 
@@ -594,9 +647,27 @@ def cmd_review(args: argparse.Namespace) -> int:
 def cmd_clear_lock(args: argparse.Namespace) -> int:
     if not nonempty_string(args.recovery_note):
         raise SystemExit("clear-lock 需要 --recovery-note 记录唯一恢复动作")
+    root = Path(args.root).resolve()
+    state_path = Path(args.state).resolve()
+    artifact_updates = parse_state_artifact_updates(args.set_artifact or [], root)
+    if artifact_updates or args.next_action is not None:
+        if not (root / ".workflow_stop.lock").is_file():
+            raise SystemExit("只有 STOP 锁存在时才能通过 clear-lock 修复状态指针")
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        if not isinstance(state, dict):
+            raise SystemExit("workflow_state.json 顶层必须是对象")
+        apply_state_repairs(state, artifact_updates, args.next_action)
+        state["updated_at"] = utc_now()
+        atomic_write_state(state_path, state)
+        append_validation_log(
+            root,
+            f"RECOVERY_STATE_REPAIR artifacts={artifact_updates or '-'} "
+            f"next_action_updated={args.next_action is not None} "
+            f"note={args.recovery_note.strip()}",
+        )
     return run_validate_all(
-        Path(args.root).resolve(),
-        Path(args.state).resolve(),
+        root,
+        state_path,
         args.strict_new_checks,
         ["--clear-lock", "--recovery-note", args.recovery_note.strip()],
     )
@@ -770,6 +841,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--set-gate", action="append", metavar="key=true|false")
     p.add_argument("--artifact", action="append", metavar="PATH")
     p.add_argument(
+        "--set-artifact",
+        action="append",
+        metavar="KEY=PATH",
+        help="与状态推进原子登记 workflow_state.artifacts 路径指针",
+    )
+    p.add_argument(
+        "--next-action",
+        help="与状态推进原子更新唯一 next_required_action",
+    )
+    p.add_argument(
         "--contribution",
         choices=["NONE", "M", "A", "B", "C"],
         help="与状态推进原子切换 active_contribution；期刊首次进入 L3 默认 M",
@@ -800,6 +881,16 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("clear-lock", help="完成恢复动作后解除 STOP 锁")
     add_root_state(p)
     p.add_argument("--recovery-note", required=True)
+    p.add_argument(
+        "--set-artifact",
+        action="append",
+        metavar="KEY=PATH",
+        help="STOP 恢复期受控修复 workflow_state.artifacts 路径指针",
+    )
+    p.add_argument(
+        "--next-action",
+        help="STOP 恢复期受控修复唯一 next_required_action",
+    )
     p.set_defaults(func=cmd_clear_lock)
 
     p = sub.add_parser(

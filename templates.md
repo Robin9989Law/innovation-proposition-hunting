@@ -84,6 +84,14 @@ POSIX path；所有 SHA-256 均为 64 位小写十六进制；`validation_epoch`
 }
 ```
 
+顶层 `artifacts` 与日志中的 `artifacts` 是两个互补合同：顶层对象保存 validator
+解析工件所需的稳定路径指针，日志数组保存状态完成时不可变文件的 SHA-256 锚点。
+推进必须同时使用 `iph advance --set-artifact key=path --artifact path` 原子登记，
+并用 `--next-action` 替换上一状态的恢复动作；日志有哈希不等于顶层已有路径。
+旧版推进若因此在 post-validation 进入 STOP，只能用
+`iph clear-lock --set-artifact key=path --next-action "..." --recovery-note "..."`
+受控修复后重验，不得直接编辑 `workflow_state.json`。
+
 - `at`：UTC ISO-8601；条目时间单调不减，且不得晚于 state 文件自身写入时刻
   （校验器以 mtime 交叉核验，未来时间或晚于写入时间即判伪造）。
 - `state`：必须是状态机中的状态；BLOCKED 期间的条目用 `BLOCKED@<STATE>`。
