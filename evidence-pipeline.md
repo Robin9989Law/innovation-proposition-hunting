@@ -296,6 +296,7 @@ artifact；reviewer 不得是 state 的 author。`DOWNLOAD_BLOCKED` 或能力不
       "statement": "...",
       "output_location": "L3_novelty_audit.md#...",
       "claim_kind": "FACT | SYNTHESIS | METHOD_COMPARISON | NOVELTY_VERDICT | CLOSURE | PROPOSITION_RATIONALE",
+      "evidence": "<数值锚点或 locator：N 的表 3 报告 AUPRC=0.288>",
       "supporting_claim_ids": ["LC-0001"],
       "counter_claim_ids": [],
       "inference_type": "DIRECT | SYNTHESIS | CONTRAST | INFERENCE",
@@ -319,6 +320,12 @@ artifact；reviewer 不得是 state 的 author。`DOWNLOAD_BLOCKED` 或能力不
 - 不得让来源观点承担超出其条件、对象、量词或证据级的结论；
 - 有直接反证或限定观点时登记到 `counter_claim_ids` 并写 caveat；
 - `trace_status = VERIFIED` 只有在全部观点和文献链可回溯时成立。
+
+**碰撞类结论三段式（R-REVIEW-20）**：`claim_kind` 为 `NOVELTY_VERDICT` /
+`CLOSURE` / `METHOD_COMPARISON` 时，`evidence` 必须非空且含数值锚点或
+locator（表/图/定理号）——`ATOMIC_COLLISION_NO_ANCHOR`。三段式顺序是
+`evidence`（我读到了什么）→ `reasoning`（如何推出）→ `statement`（结论），
+先证据后结论，禁止先下结论再回头凑证据。
 
 ## 7. 可追溯引用链
 

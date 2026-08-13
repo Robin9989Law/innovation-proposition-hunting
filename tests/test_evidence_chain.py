@@ -142,6 +142,30 @@ class EvidenceChainTests(unittest.TestCase):
         self.assertIn("evidence_chain_status=READY", result.stdout)
         self.assertIn("evidence_chain_issues=0", result.stdout)
 
+    def test_collision_verdict_requires_evidence_anchor(self) -> None:
+        """R-REVIEW-20：碰撞类结论缺 evidence 数值锚点即 ATOMIC_COLLISION_NO_ANCHOR。"""
+        project = self.make_project()
+        outputs = load_json(project / "output_claim_support.json")
+        outputs["output_claims"][0]["claim_kind"] = "NOVELTY_VERDICT"
+        outputs["output_claims"][0].pop("evidence", None)
+        write_json(project / "output_claim_support.json", outputs)
+
+        result = self.run_evidence(project)
+
+        self.assertIn("ATOMIC_COLLISION_NO_ANCHOR", result.stdout)
+
+    def test_collision_verdict_with_numeric_anchor_passes(self) -> None:
+        """R-REVIEW-20：碰撞结论 evidence 含数值锚点不报。"""
+        project = self.make_project()
+        outputs = load_json(project / "output_claim_support.json")
+        outputs["output_claims"][0]["claim_kind"] = "NOVELTY_VERDICT"
+        outputs["output_claims"][0]["evidence"] = "表 3 报告 AUPRC=0.288"
+        write_json(project / "output_claim_support.json", outputs)
+
+        result = self.run_evidence(project)
+
+        self.assertNotIn("ATOMIC_COLLISION_NO_ANCHOR", result.stdout)
+
     def test_validate_with_context_library_entry(self) -> None:
         project = self.make_project()
 

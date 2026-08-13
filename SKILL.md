@@ -167,6 +167,15 @@ evidence，列可归约近邻与机械归约路径，缺即 `REDUCTION_EVIDENCE_
 成功证伪一个候选（找到直接占据或机械归约）与锁定一个 N0-4C 命题是同一等级的
 研究结论，都写完整交接报告，不因是负结果而降格或轻省。
 
+**碰撞三段式 + 逐近邻强制证伪**（R-REVIEW-20）：`output_claim_support.json` 里
+碰撞类结论（`NOVELTY_VERDICT`/`CLOSURE`/`METHOD_COMPARISON`）必须三段式——
+`evidence`（我读到了什么：数值锚点或 locator）→ `reasoning`（如何推出）→
+`statement`（结论），先证据后结论，缺 evidence 或无数值锚点即
+`ATOMIC_COLLISION_NO_ANCHOR`。碰撞综合不是写"候选很新"，而是逐近邻回答三条
+证伪：直接占据？机械推出？换名？每条"不能"都要有可验证理由，不能填空话。
+作弊在生成、诚实在被追问：写完碰撞结论后，逐条追问"这条和原文一致吗？删掉
+它裁决会变吗？"——追问是产物的一部分，不是脑子里的事。
+
 ### 3.2 有效性轴
 
 ```text

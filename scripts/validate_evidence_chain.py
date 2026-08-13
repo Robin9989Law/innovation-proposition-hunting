@@ -7,6 +7,7 @@ import argparse
 from datetime import datetime
 import os
 from pathlib import Path
+import re
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -58,6 +59,12 @@ OUTPUT_KINDS = {
 }
 INFERENCE_TYPES = {"DIRECT", "SYNTHESIS", "CONTRAST", "INFERENCE"}
 
+# 碰撞类结论（R-REVIEW-20）：这些 claim_kind 是"裁决/关闭/比较"，必须带
+# evidence 数值锚点或 locator，否则是走形式的碰撞（ATOMIC_COLLISION_NO_ANCHOR）。
+COLLISION_KINDS = {"NOVELTY_VERDICT", "CLOSURE", "METHOD_COMPARISON"}
+# 数值锚点：小数、百分比、pp 点，或 locator 字段里的表/图/定理/算法号。
+NUMERIC_ANCHOR = re.compile(r"\d+\.\d+|\d+\s*%|\d+\s*pp", re.IGNORECASE)
+LOCATOR_KEYS = ("table", "figure", "theorem", "algorithm", "lemma", "corollary")
 # L1/L2 的分段证据约束：此时注册表负责保存身份与风险分级，不能反过来要求
 # 尚未被选入 K 集合的高风险条目已经完成全文归档和原子观点。无 state 的独立
 # 校验入口保留历史严格行为；L3（含 K_FULLTEXT）恢复完整硬约束。
@@ -425,6 +432,13 @@ def validate(
             add(issues, "OUTPUT", output_id, f"invalid_inference_type:{inference_type}")
         if inference_type in {"SYNTHESIS", "CONTRAST", "INFERENCE"} and not nonempty(output.get("reasoning")):
             add(issues, "OUTPUT", output_id, "inference_without_reasoning")
+        # R-REVIEW-20：碰撞类结论三段式，evidence 必须含数值锚点或 locator。
+        if output.get("claim_kind") in COLLISION_KINDS:
+            evidence = output.get("evidence")
+            if not nonempty(evidence):
+                add(issues, "ATOMIC_COLLISION_NO_ANCHOR", output_id, "evidence:missing_or_empty")
+            elif not NUMERIC_ANCHOR.search(evidence):
+                add(issues, "ATOMIC_COLLISION_NO_ANCHOR", output_id, "evidence:no_numeric_anchor_or_locator")
         supporting = output.get("supporting_claim_ids")
         if not isinstance(supporting, list) or not supporting:
             add(issues, "OUTPUT", output_id, "no_supporting_claim_ids")
