@@ -108,6 +108,34 @@ class SchemaV2ValidationTests(unittest.TestCase):
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
         self.assertIn("READY", completed.stdout)
 
+    def test_v3_final_review_state_allows_explicit_pending_audit(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V3")
+        self.addCleanup(temporary_directory.cleanup)
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = "FINAL_VALIDITY_AUDIT"
+        state["resume_state"] = "FINAL_VALIDITY_AUDIT"
+        state["independent_audit"] = {}
+        write_json(project / "workflow_state.json", state)
+
+        completed = run_schema_validator(project)
+
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("READY", completed.stdout)
+
+    def test_v3_direction_lock_still_requires_review_provenance(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V3")
+        self.addCleanup(temporary_directory.cleanup)
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = "DIRECTION_LOCK"
+        state["resume_state"] = "DIRECTION_LOCK"
+        state["independent_audit"] = {}
+        write_json(project / "workflow_state.json", state)
+
+        completed = run_schema_validator(project)
+
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("INVALID_AUDIT_AUTHORS", completed.stdout)
+
     def test_schema_v2_enums_and_epoch_are_validated(self) -> None:
         cases = (
             ("novelty_level", "N0-4", "INVALID_NOVELTY_LEVEL"),

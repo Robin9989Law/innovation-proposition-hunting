@@ -204,12 +204,19 @@ def validate(root: Path, state: dict[str, Any]) -> list[Issue]:
         )
 
     validity_level = state.get("validity_level")
+    audit = state.get("independent_audit")
+    review_pending = (
+        state.get("active_state") in {"INDEPENDENT_REVIEW", "FINAL_VALIDITY_AUDIT"}
+        and isinstance(audit, dict)
+        and not audit
+    )
     audit_required = (
         isinstance(validity_level, str) and validity_level in AUDIT_REQUIRED_LEVELS
+        and not review_pending
     )
     issues.extend(
         validate_audit(
-            state.get("independent_audit"),
+            audit,
             present="independent_audit" in state,
             required=audit_required,
         )

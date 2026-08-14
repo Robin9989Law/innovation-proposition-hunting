@@ -534,6 +534,12 @@ BLOCKED；不得伪造 reviewer、thread、PASS 或 bundle。
 `falsification_attempt`）必须全部非空，缺一即 `REVIEW_ANSWERS_INCOMPLETE`。这四问
 是实质复核，不是形式核对；写"已确认通过""8/8 通过"等空话等于未答。
 
+`INDEPENDENT_REVIEW` / `FINAL_VALIDITY_AUDIT` 刚进入且 state 中
+`independent_audit={}` 时表示 reviewer pending：作者 bundle 继续严格验证，但审计
+provenance 暂不要求。reviewer 必须创建并封印自己的 artifact（替换审计放在
+`review_artifacts/`）；`iph review` 会原子登记 state pointer、运行时 agent/thread、
+artifact hash 和 V3/V4。下一状态不接受 pending。
+
 ## 10. `compute_evidence.json` 与 state pointer
 
 S4 完成后的计算证据文件可采用：

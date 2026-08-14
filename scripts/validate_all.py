@@ -412,6 +412,12 @@ def main() -> int:
         frontier_coverage = _prefer_artifact(
             "frontier_coverage", args.frontier_coverage, frontier_coverage
         )
+        audit_manifest = _prefer_artifact(
+            "audit_manifest", args.audit_manifest, audit_manifest
+        )
+        independent_audit = _prefer_artifact(
+            "independent_audit", args.independent_audit, independent_audit
+        )
 
     # STOP 锁：上一次非零退出后，状态未变时直接以锁内退出码拦截；
     # 状态已变则继续校验，并在推进状态时追加 STATE_ADVANCED_UNDER_STOP_LOCK。
@@ -527,12 +533,16 @@ def main() -> int:
     )
     dispatch_state = effective_state if isinstance(effective_state, str) else ""
 
-    audit_required = (
+    state_audit = state.get("independent_audit")
+    review_pending = (
+        dispatch_state in {"INDEPENDENT_REVIEW", "FINAL_VALIDITY_AUDIT"}
+        and not (isinstance(state_audit, dict) and state_audit)
+    )
+    manifest_required = (
         state.get("validity_level") in AUDIT_REQUIRED_LEVELS
         or dispatch_state in {"FINAL_VALIDITY_AUDIT", "FINAL_LOCK"}
     )
-    if audit_required:
-        state_audit = state.get("independent_audit")
+    if manifest_required:
         capability_unavailable = (
             isinstance(state_audit, dict)
             and state_audit.get("capability_available") is False
@@ -568,30 +578,34 @@ def main() -> int:
             if artifact_issue:
                 suite_issues.append(artifact_issue)
 
-        audit_exit = execute(
-            "audit_provenance",
-            [
-                sys.executable,
-                str(script_dir / "validate_audit_provenance.py"),
-                "--root",
-                str(root),
-                "--state",
-                str(state_path),
-                "--manifest",
-                str(audit_manifest),
-                "--audit",
-                str(independent_audit),
-            ],
-            ctx=ctx,
-            module="validate_audit_provenance",
-            ctx_kwargs={
-                "manifest_path": relative_cli_path(root, audit_manifest),
-                "audit_path": relative_cli_path(root, independent_audit),
-            },
-        )
-        audit_issue = issue_for_exit("audit_provenance", audit_exit)
-        if audit_issue:
-            suite_issues.append(audit_issue)
+        if review_pending:
+            print("=== audit_provenance ===")
+            print(f"SKIP\treviewer_pending_at_state:{dispatch_state}")
+        else:
+            audit_exit = execute(
+                "audit_provenance",
+                [
+                    sys.executable,
+                    str(script_dir / "validate_audit_provenance.py"),
+                    "--root",
+                    str(root),
+                    "--state",
+                    str(state_path),
+                    "--manifest",
+                    str(audit_manifest),
+                    "--audit",
+                    str(independent_audit),
+                ],
+                ctx=ctx,
+                module="validate_audit_provenance",
+                ctx_kwargs={
+                    "manifest_path": relative_cli_path(root, audit_manifest),
+                    "audit_path": relative_cli_path(root, independent_audit),
+                },
+            )
+            audit_issue = issue_for_exit("audit_provenance", audit_exit)
+            if audit_issue:
+                suite_issues.append(audit_issue)
     else:
         print("=== artifact_hashes ===")
         print(f"SKIP\tnot_required_at_validity:{state.get('validity_level')}")

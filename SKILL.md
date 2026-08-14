@@ -300,6 +300,13 @@ PASS，也不得因此跳过对已经存在产物的矛盾检查。
 证伪尝试。写"已确认通过""8/8 通过"等空话等于未答，判 INVALID。review 的价值在
 于发现问题，不在于签第二张 PASS 表。
 
+进入 `INDEPENDENT_REVIEW` / `FINAL_VALIDITY_AUDIT` 后、reviewer 尚未封印当前
+bundle 的短暂状态是合法的 **review pending**：总校验器仍严格验证作者侧 manifest、
+epoch、bundle 与 form artifacts，但跳过尚不存在的 independent-audit provenance。
+只有 `iph-reviewer` 通过 `iph review` 写入运行时身份后才提升 V3/V4；进入
+`DIRECTION_LOCK` / `FINAL_LOCK` 时 provenance 恢复为硬门。pending 不得掩盖已有
+审计产物的矛盾，也不得进入最终锁。
+
 ## 6. 哈希、epoch 与失效
 
 `audit_manifest.json` 必须列出当前 profile 的全部实质 claim-bearing 产物及 SHA-256。
