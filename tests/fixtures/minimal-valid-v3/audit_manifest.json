@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "validation_epoch": 1,
-  "claim_bundle_sha256": "836459b43b5f95f0f2f8e2cc9b031c9b99b480a19439d2c9b5ea9458f18e094b",
+  "claim_bundle_sha256": "367e6e3997849f5826b9eb582b98fdfa1669ad3adbe64396bfe8bf61c15bdfee",
   "entries": [
     {
       "path": "baseline_budget.json",
@@ -21,7 +21,7 @@
     {
       "path": "claim_inventory.json",
       "role": "CLAIM_INVENTORY",
-      "sha256": "405abecd741f5eff8cc42fa3f78bcdd3b3b87970fd462c8d171467a3f8d78b25"
+      "sha256": "de2527069f5d68232bfe3630087ff7710c3d43296deb3198a83a1cf6a04575a3"
     },
     {
       "path": "frontier_coverage.json",

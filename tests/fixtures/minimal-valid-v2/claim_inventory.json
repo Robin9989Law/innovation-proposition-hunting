@@ -35,7 +35,9 @@
       ],
       "status": "FROZEN",
       "validation_epoch": 1,
-      "occurrence_ids": []
+      "occurrence_ids": [
+        "fb92666c09a5a8ac27018cdded738a637aeabed7a384ba00ccf246bc706fd887"
+      ]
     }
   ]
 }

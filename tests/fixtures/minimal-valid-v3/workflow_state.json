@@ -23,7 +23,7 @@
   "validity_level": "V3",
   "claim_profile": "MIXED",
   "validation_epoch": 1,
-  "claim_bundle_sha256": "836459b43b5f95f0f2f8e2cc9b031c9b99b480a19439d2c9b5ea9458f18e094b",
+  "claim_bundle_sha256": "367e6e3997849f5826b9eb582b98fdfa1669ad3adbe64396bfe8bf61c15bdfee",
   "independent_audit": {
     "capability_available": true,
     "validation_epoch": 1,
@@ -32,7 +32,7 @@
     ],
     "reviewer_agent_id": "agent-b",
     "reviewer_thread_id": "thread-b",
-    "audited_bundle_sha256": "836459b43b5f95f0f2f8e2cc9b031c9b99b480a19439d2c9b5ea9458f18e094b",
+    "audited_bundle_sha256": "367e6e3997849f5826b9eb582b98fdfa1669ad3adbe64396bfe8bf61c15bdfee",
     "verdict": "PASS"
   },
   "gates": {

@@ -51,6 +51,9 @@ def english_risk_pattern(expression: str) -> re.Pattern[str]:
 
 ENGLISH_RISK_PATTERNS = (
     ("strong baseline", english_risk_pattern(r"strong\s+baseline")),
+    ("matched-budget", english_risk_pattern(r"matched(?:\s+|-)budget")),
+    ("strong", english_risk_pattern("strong")),
+    ("fair", english_risk_pattern("fair")),
     ("zero regret", english_risk_pattern(r"zero\s+regret")),
     ("for any", english_risk_pattern(r"for\s+any")),
     ("interpolation", english_risk_pattern("interpolation")),

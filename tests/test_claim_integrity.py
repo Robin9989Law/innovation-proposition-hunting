@@ -204,7 +204,15 @@ class ClaimInventoryTests(unittest.TestCase):
                 )
 
     def test_english_terms_are_case_insensitive(self) -> None:
-        for term in ("EXACT", "Universal", "BoUnDeD"):
+        for term in (
+            "EXACT",
+            "Universal",
+            "BoUnDeD",
+            "STRONG",
+            "FaIr",
+            "MATCHED-BUDGET",
+            "matched budget",
+        ):
             with self.subTest(term=term):
                 _, project = self.make_project(validity_level="V1")
                 (project / "manuscript.md").write_text(
