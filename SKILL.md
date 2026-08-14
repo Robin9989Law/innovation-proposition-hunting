@@ -225,6 +225,17 @@ gate 置真以 `decision_log` 中对应状态的完成记录（含本状态产�
 `--artifact path`；同时用 `--next-action` 写入推进后的唯一恢复动作。不得只登记
 哈希而遗漏路径指针，也不得推进后继续保留上一状态的 `next_required_action`。
 
+状态语义变化也必须由同一事务派生，不能要求 agent 手改 state：进入 `N0_AUDIT`
+必须用 `--novelty-level` 并让 `n0_4_locked` 与裁决互证；进入 `VALIDITY_AUDIT` /
+`INDEPENDENT_REVIEW` 由 CLI 分别原子提升到 V1 / V2（进入 V1 同时用
+`--claim-bundle-manifest` 登记当前 epoch bundle）；进入 `COMPUTE` 必须同时提供
+`--authorize-compute --authorization-note`，CLI 才写入授权并从 S0-SCREEN 开始；
+进入 `POSTCOMPUTE_CLAIM_FREEZE` 用 `--compute-evidence` 登记 S4 pointer；进入
+`FINAL_VALIDITY_AUDIT` 用 `--claim-bundle-manifest` 原子切换到恰好 `+1` 的 epoch
+与新 bundle。`iph advance` 只接受当前状态的唯一正向目标（任意状态可显式进入
+BLOCKED）；BLOCKED 恢复仍只走 `clear-lock --resume-blocked`。这些参数不能在其他
+目标上借用。
+
 `LAYER_DECISION → K_FULLTEXT` 跨越 L2/L3 边界时，必须由 `iph advance` 在同一
 原子状态写入中激活贡献：期刊未显式指定时自动设为 `M`，显式指定的非法贡献
 一律拒绝（不得静默改写）；博士用 `--contribution A|B|C` 指定。返回 L1/L2 时

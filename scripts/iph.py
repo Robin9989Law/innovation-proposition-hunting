@@ -52,6 +52,35 @@ from validate_workflow_state import (  # noqa: E402
 GATE_BOOL = {"true": True, "false": False}
 ARTIFACT_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
 
+POSITIVE_STATE_SEQUENCE = (
+    "BOOT",
+    "SCOPE_LOCK",
+    "PRIOR_CLAIM_DRAIN",
+    "RECENT_FRONTIER",
+    "LITERATURE_REGISTER",
+    "L1_FREEZE",
+    "L2_TRIAGE",
+    "LAYER_DECISION",
+    "K_FULLTEXT",
+    "K_CLAIM_REGISTER",
+    "SYNTHESIZE_COLLISION",
+    "OUTPUT_CLAIM_BIND",
+    "EVIDENCE_VALIDATE",
+    "N0_AUDIT",
+    "CLAIM_FREEZE",
+    "VALIDITY_AUDIT",
+    "INDEPENDENT_REVIEW",
+    "DIRECTION_LOCK",
+    "COMPUTE",
+    "POSTCOMPUTE_CLAIM_FREEZE",
+    "FINAL_VALIDITY_AUDIT",
+    "FINAL_LOCK",
+    "COMPLETE",
+)
+NEXT_POSITIVE_STATE = dict(zip(POSITIVE_STATE_SEQUENCE, POSITIVE_STATE_SEQUENCE[1:]))
+VALID_NOVELTY_LEVELS = {"N0-1", "N0-2", "N0-3", "N0-4C"}
+VALID_COMPUTE_STAGES = {"NOT_STARTED", "S0", "S1", "S2", "S3", "S4", "STOPPED"}
+
 # 状态 -> 所属轴（TRACK_STATES 是分区；BLOCKED/COMPLETE 不属于任何轴）。
 # 仅用于 handover 报表派生展示，不再写回 state（schema 3.0 派生字段）。
 STATE_TO_TRACK = {
@@ -125,6 +154,132 @@ def parse_gate_updates(pairs: list[str]) -> dict[str, bool]:
             raise SystemExit(f"gate 值必须是 true/false：{pair!r}")
         updates[key] = value
     return updates
+
+
+def validate_transition_target(state: dict[str, Any], target: str) -> None:
+    current = state.get("active_state")
+    if target == "BLOCKED":
+        if current in {"BLOCKED", "COMPLETE"}:
+            raise SystemExit(f"{current} 不允许再次进入 BLOCKED")
+        return
+    if current == "BLOCKED":
+        raise SystemExit("BLOCKED 只能通过 clear-lock --resume-blocked 恢复")
+    expected = NEXT_POSITIVE_STATE.get(current)
+    if expected != target:
+        raise SystemExit(
+            f"禁止跳态：active_state={current!r} 的唯一正向目标是 {expected!r}，"
+            f"收到 {target!r}"
+        )
+    if current == "N0_AUDIT" and state.get("novelty_level") != "N0-4C":
+        raise SystemExit(
+            f"N0_AUDIT/{state.get('novelty_level')} 是终局，不能推进到 {target}"
+        )
+
+
+def load_transition_json(root: Path, relative: str, label: str) -> tuple[Path, dict[str, Any]]:
+    if not canonical_relative_path(relative):
+        raise SystemExit(f"{label} 必须是根内规范相对路径：{relative!r}")
+    path = root / relative
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise SystemExit(f"{label} 不可读取：{error}") from error
+    if not isinstance(payload, dict):
+        raise SystemExit(f"{label} 顶层必须是 JSON 对象")
+    return path, payload
+
+
+def apply_transition_semantics(
+    state: dict[str, Any],
+    target: str,
+    args: argparse.Namespace,
+    root: Path,
+    gate_updates: dict[str, bool],
+) -> None:
+    """把裁决、有效性、计算和 epoch 变化绑定到唯一合法状态事务。"""
+
+    novelty = args.novelty_level
+    if target == "N0_AUDIT":
+        if novelty not in VALID_NOVELTY_LEVELS:
+            raise SystemExit("进入 N0_AUDIT 必须用 --novelty-level 写入本轮裁决")
+        positive = novelty == "N0-4C"
+        if gate_updates.get("n0_4_locked") is not positive:
+            expected = str(positive).lower()
+            raise SystemExit(
+                "N0 裁决与 gate 必须同一事务互证："
+                f"--novelty-level {novelty} 需要 --set-gate n0_4_locked={expected}"
+            )
+        state["novelty_level"] = novelty
+    elif novelty is not None:
+        raise SystemExit("--novelty-level 只允许用于进入 N0_AUDIT")
+
+    if target == "VALIDITY_AUDIT":
+        state["validity_level"] = "V1"
+    elif target == "INDEPENDENT_REVIEW":
+        state["validity_level"] = "V2"
+
+    if target == "COMPUTE":
+        if not args.authorize_compute or not nonempty_string(args.authorization_note):
+            raise SystemExit(
+                "进入 COMPUTE 必须有显式用户授权："
+                "--authorize-compute --authorization-note <授权依据>"
+            )
+        gate_updates["compute_authorized"] = True
+        state["compute_stage"] = "S0"
+    elif args.authorize_compute or args.authorization_note is not None:
+        raise SystemExit("计算授权参数只允许用于 DIRECTION_LOCK -> COMPUTE")
+
+    if target == "POSTCOMPUTE_CLAIM_FREEZE":
+        if not args.compute_evidence:
+            raise SystemExit(
+                "进入 POSTCOMPUTE_CLAIM_FREEZE 必须用 --compute-evidence 登记 S4 证据"
+            )
+        evidence_path, evidence = load_transition_json(
+            root, args.compute_evidence, "--compute-evidence"
+        )
+        if evidence.get("compute_stage") != "S4":
+            raise SystemExit("--compute-evidence 必须声明 compute_stage=S4")
+        state["compute_stage"] = "S4"
+        state["compute_evidence"] = {
+            "status": "COMPLETED",
+            "validation_epoch": state.get("validation_epoch"),
+            "artifact_path": args.compute_evidence,
+            "artifact_sha256": file_sha256(evidence_path),
+        }
+    elif args.compute_evidence is not None:
+        raise SystemExit("--compute-evidence 只允许用于进入 POSTCOMPUTE_CLAIM_FREEZE")
+
+    if target in {"VALIDITY_AUDIT", "FINAL_VALIDITY_AUDIT"}:
+        if not args.claim_bundle_manifest:
+            raise SystemExit(
+                f"进入 {target} 必须用 --claim-bundle-manifest 登记精确 claim bundle"
+            )
+        _, manifest = load_transition_json(
+            root, args.claim_bundle_manifest, "--claim-bundle-manifest"
+        )
+        next_epoch = manifest.get("validation_epoch")
+        bundle = manifest.get("claim_bundle_sha256")
+        expected_epoch = (
+            state.get("validation_epoch", 0) + 1
+            if target == "FINAL_VALIDITY_AUDIT"
+            else state.get("validation_epoch")
+        )
+        if next_epoch != expected_epoch:
+            raise SystemExit(
+                f"{target} 的 manifest.validation_epoch 必须为 {expected_epoch}"
+            )
+        if not isinstance(bundle, str) or re.fullmatch(r"[0-9a-f]{64}", bundle) is None:
+            raise SystemExit("计算后 manifest.claim_bundle_sha256 非法")
+        state["validation_epoch"] = next_epoch
+        state["claim_bundle_sha256"] = bundle
+        if target == "FINAL_VALIDITY_AUDIT":
+            state["independent_audit"] = {}
+            state.pop("review_artifact_sha256", None)
+        state.setdefault("artifacts", {})["audit_manifest"] = args.claim_bundle_manifest
+    elif args.claim_bundle_manifest is not None:
+        raise SystemExit(
+            "--claim-bundle-manifest 只允许用于进入 VALIDITY_AUDIT 或 FINAL_VALIDITY_AUDIT"
+        )
 
 
 def parse_state_artifact_updates(
@@ -255,6 +410,8 @@ def cmd_advance(args: argparse.Namespace) -> int:
     now = utc_now()
     state = json.loads(state_path.read_text(encoding="utf-8"))
     previous_state = state.get("active_state")
+    validate_transition_target(state, target)
+    apply_transition_semantics(state, target, args, root, gate_updates)
 
     # schema 3.0 起证据层级由 active_state 派生：LAYER_DECISION -> K_FULLTEXT
     # 的严格推进必须在同一次原子写入中切换贡献——前校验要求 L2 为 NONE，
@@ -1041,6 +1198,28 @@ def build_parser() -> argparse.ArgumentParser:
         "--contribution",
         choices=["NONE", "M", "A", "B", "C"],
         help="与状态推进原子切换 active_contribution；期刊首次进入 L3 默认 M",
+    )
+    p.add_argument(
+        "--novelty-level",
+        choices=sorted(VALID_NOVELTY_LEVELS),
+        help="仅进入 N0_AUDIT 时，与 n0_4_locked gate 原子写入裁决",
+    )
+    p.add_argument(
+        "--authorize-compute",
+        action="store_true",
+        help="仅进入 COMPUTE 时登记用户已显式授权",
+    )
+    p.add_argument(
+        "--authorization-note",
+        help="用户授权的可审计依据；与 --authorize-compute 同时使用",
+    )
+    p.add_argument(
+        "--compute-evidence",
+        help="仅进入 POSTCOMPUTE_CLAIM_FREEZE 时登记 S4 证据 JSON",
+    )
+    p.add_argument(
+        "--claim-bundle-manifest",
+        help="进入 VALIDITY_AUDIT 时登记当前 epoch bundle，或进入 FINAL_VALIDITY_AUDIT 时登记 +1 epoch bundle",
     )
     p.add_argument("--blocked-reason", action="append")
     p.add_argument("--no-validate", action="store_true")

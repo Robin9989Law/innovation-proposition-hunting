@@ -24,6 +24,18 @@ PASS。旧 `n0_4_locked` gate 只是兼容性镜像，不能代替 N0-4C、V3 �
 否则返回主状态机，不启动实验、模型调用或昂贵计算。每次阶段升级先落盘结果，
 再更新 `compute_stage`。
 
+合法计算入口由状态事务登记，而不是手改 gate：
+
+```bash
+iph advance --to COMPUTE \
+  --authorize-compute --authorization-note "<用户明确授权依据>" ...
+```
+
+CLI 仍会先验证 N0-4C 与当前 V3 audit；授权参数不能旁路硬门。事务成功后
+`compute_authorized=true` 且 `compute_stage=S0`。S4 完成后以
+`--compute-evidence <path>` 进入 `POSTCOMPUTE_CLAIM_FREEZE`，随后以
+`--claim-bundle-manifest <path>` 进入 `FINAL_VALIDITY_AUDIT` 并原子切换新 epoch。
+
 把计算当作逐级获得的权限，不把完整确认实验当作探索工具。每个候选先使用
 成本最低、最容易推翻它的证据。多数候选应在 S0-SCREEN–S2 关闭；S4 同一研究
 周期只服务一个最终幸存候选。

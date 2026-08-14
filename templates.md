@@ -100,6 +100,27 @@ POSIX path；所有 SHA-256 均为 64 位小写十六进制；`validation_epoch`
 `recent_window` 校验并同步 `start_year`、`end_year`、`status` 与 `snapshot_mode`；
 协调 agent 不得手工猜测或直接改写这些字段。
 
+裁决与后半程状态变化采用目标专属原子参数：
+
+```text
+EVIDENCE_VALIDATE -> N0_AUDIT:
+  --novelty-level N0-1|N0-2|N0-3|N0-4C
+  --set-gate n0_4_locked=false|true
+CLAIM_FREEZE -> VALIDITY_AUDIT:
+  --claim-bundle-manifest audit_manifest.json（CLI 派生 V1 并登记当前 epoch bundle）
+VALIDITY_AUDIT -> INDEPENDENT_REVIEW: CLI 派生 V2
+DIRECTION_LOCK -> COMPUTE:
+  --authorize-compute --authorization-note <用户授权依据>（CLI 派生 S0）
+COMPUTE -> POSTCOMPUTE_CLAIM_FREEZE:
+  --compute-evidence compute_evidence.json（必须声明 S4）
+POSTCOMPUTE_CLAIM_FREEZE -> FINAL_VALIDITY_AUDIT:
+  --claim-bundle-manifest audit_manifest.json（manifest epoch 必须恰好 +1）
+```
+
+N0-1/N0-2/N0-3 时 `n0_4_locked=false`；只有 N0-4C 才为 true。CLI 拒绝跳态、
+拒绝把上述参数用于其他目标，并在新 epoch 切换时清空旧 independent audit，避免
+出现“模型读懂了但没有合法 state 写入口”的执行死锁。
+
 - `at`：UTC ISO-8601；条目时间单调不减，且不得晚于 state 文件自身写入时刻
   （校验器以 mtime 交叉核验，未来时间或晚于写入时间即判伪造）。
 - `state`：必须是状态机中的状态；BLOCKED 期间的条目用 `BLOCKED@<STATE>`。

@@ -322,6 +322,8 @@ class AdvanceTests(unittest.TestCase):
                 "claim inventory frozen; enter G9 form audit",
                 "--artifact",
                 "claim_inventory.json",
+                "--claim-bundle-manifest",
+                "audit_manifest.json",
             )
             self.assertEqual(0, completed.returncode, completed.stdout)
             state = load_json(project / "workflow_state.json")
@@ -341,6 +343,11 @@ class AdvanceTests(unittest.TestCase):
     def test_recent_frontier_advance_syncs_window_from_registered_artifact(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V0")
         with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "PRIOR_CLAIM_DRAIN"
+            state["resume_state"] = "PRIOR_CLAIM_DRAIN"
+            state["active_contribution"] = "NONE"
+            write_json(project / "workflow_state.json", state)
             registry = project / "frontier-registry.json"
             write_json(
                 registry,
@@ -386,6 +393,11 @@ class AdvanceTests(unittest.TestCase):
     def test_recent_frontier_advance_rejects_invalid_registry_window_atomically(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V0")
         with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "PRIOR_CLAIM_DRAIN"
+            state["resume_state"] = "PRIOR_CLAIM_DRAIN"
+            state["active_contribution"] = "NONE"
+            write_json(project / "workflow_state.json", state)
             original = load_json(project / "workflow_state.json")
             write_json(
                 project / "near_neighbor_registry.json",
@@ -475,6 +487,11 @@ class AdvanceTests(unittest.TestCase):
     def test_advance_resets_contribution_when_reentering_l2(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V0")
         with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "L1_FREEZE"
+            state["resume_state"] = "L1_FREEZE"
+            state["active_contribution"] = "M"
+            write_json(project / "workflow_state.json", state)
             completed = run_iph(
                 project,
                 "advance",
@@ -488,6 +505,119 @@ class AdvanceTests(unittest.TestCase):
             state = load_json(project / "workflow_state.json")
             self.assertEqual("L2_TRIAGE", state["active_state"])
             self.assertEqual("NONE", state["active_contribution"])
+
+    def test_advance_rejects_skipped_positive_state(self) -> None:
+        temporary_directory, project = self.make_boot_project()
+        with temporary_directory:
+            before = load_json(project / "workflow_state.json")
+            completed = run_iph(
+                project,
+                "advance",
+                "--to",
+                "RECENT_FRONTIER",
+                "--note",
+                "skip forbidden",
+                "--no-validate",
+            )
+            self.assertNotEqual(0, completed.returncode)
+            self.assertIn("禁止跳态", completed.stderr)
+            self.assertEqual(before, load_json(project / "workflow_state.json"))
+
+    def test_n0_verdict_is_written_atomically_with_gate(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V0")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "EVIDENCE_VALIDATE"
+            state["resume_state"] = "EVIDENCE_VALIDATE"
+            state["novelty_level"] = "N0-3"
+            state["gates"]["n0_4_locked"] = False
+            write_json(project / "workflow_state.json", state)
+            completed = run_iph(
+                project,
+                "advance",
+                "--to",
+                "N0_AUDIT",
+                "--note",
+                "mechanical reduction found",
+                "--novelty-level",
+                "N0-2",
+                "--set-gate",
+                "n0_4_locked=false",
+                "--no-validate",
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("N0_AUDIT", state["active_state"])
+            self.assertEqual("N0-2", state["novelty_level"])
+            self.assertFalse(state["gates"]["n0_4_locked"])
+
+    def test_validity_levels_are_derived_from_completed_author_work(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V0")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "CLAIM_FREEZE"
+            state["resume_state"] = "CLAIM_FREEZE"
+            state["novelty_level"] = "N0-4C"
+            state["gates"]["n0_4_locked"] = True
+            write_json(project / "workflow_state.json", state)
+            v1 = run_iph(
+                project,
+                "advance",
+                "--to",
+                "VALIDITY_AUDIT",
+                "--note",
+                "inventory frozen",
+                "--claim-bundle-manifest",
+                "audit_manifest.json",
+                "--no-validate",
+            )
+            self.assertEqual(0, v1.returncode, v1.stderr)
+            self.assertEqual("V1", load_json(project / "workflow_state.json")["validity_level"])
+            v2 = run_iph(
+                project,
+                "advance",
+                "--to",
+                "INDEPENDENT_REVIEW",
+                "--note",
+                "form audit complete",
+                "--no-validate",
+            )
+            self.assertEqual(0, v2.returncode, v2.stderr)
+            self.assertEqual("V2", load_json(project / "workflow_state.json")["validity_level"])
+
+    def test_compute_entry_requires_and_records_explicit_authorization(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V3")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "DIRECTION_LOCK"
+            state["resume_state"] = "DIRECTION_LOCK"
+            write_json(project / "workflow_state.json", state)
+            denied = run_iph(
+                project,
+                "advance",
+                "--to",
+                "COMPUTE",
+                "--note",
+                "missing authority",
+                "--no-validate",
+            )
+            self.assertNotEqual(0, denied.returncode)
+            authorized = run_iph(
+                project,
+                "advance",
+                "--to",
+                "COMPUTE",
+                "--note",
+                "authorized compute entry",
+                "--authorize-compute",
+                "--authorization-note",
+                "user explicitly authorized this bounded test",
+                "--no-validate",
+            )
+            self.assertEqual(0, authorized.returncode, authorized.stderr)
+            state = load_json(project / "workflow_state.json")
+            self.assertTrue(state["gates"]["compute_authorized"])
+            self.assertEqual("S0", state["compute_stage"])
 
 
     def prepare_layer_decision(self, project) -> None:
