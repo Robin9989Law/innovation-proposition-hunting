@@ -534,13 +534,15 @@ def main() -> int:
     dispatch_state = effective_state if isinstance(effective_state, str) else ""
 
     state_audit = state.get("independent_audit")
+    audit_present = isinstance(state_audit, dict) and bool(state_audit)
     review_pending = (
         dispatch_state in {"INDEPENDENT_REVIEW", "FINAL_VALIDITY_AUDIT"}
-        and not (isinstance(state_audit, dict) and state_audit)
+        and not audit_present
     )
     manifest_required = (
         state.get("validity_level") in AUDIT_REQUIRED_LEVELS
         or dispatch_state in {"FINAL_VALIDITY_AUDIT", "FINAL_LOCK"}
+        or audit_present
     )
     if manifest_required:
         capability_unavailable = (

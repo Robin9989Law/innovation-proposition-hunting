@@ -106,11 +106,13 @@ def validate(
     audit: dict[str, Any],
 ) -> list[Issue]:
     validity_level = state.get("validity_level")
-    if validity_level not in AUDIT_REQUIRED_LEVELS:
+    state_audit = state.get("independent_audit")
+    if validity_level not in AUDIT_REQUIRED_LEVELS and not (
+        isinstance(state_audit, dict) and state_audit
+    ):
         return []
 
     issues: list[Issue] = []
-    state_audit = state.get("independent_audit")
     if not isinstance(state_audit, dict):
         state_audit = {}
         issues.append(

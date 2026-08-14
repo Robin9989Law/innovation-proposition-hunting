@@ -196,6 +196,26 @@ class AuditInvalidationTests(unittest.TestCase):
                 )
                 self.assertIn(code, result.stdout)
 
+    def test_sealed_fail_is_validated_while_review_gate_remains_v2(self) -> None:
+        project = self.make_project(claim_profile="MIXED", validity_level="V2")
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = "INDEPENDENT_REVIEW"
+        state["resume_state"] = "INDEPENDENT_REVIEW"
+        audit = load_json(project / AUDIT)
+        audit["verdict"] = "FAIL"
+        audit["required_remediation"] = (
+            "Correct the false locator and rerun the executable witness before review."
+        )
+        state["independent_audit"] = audit
+        state.setdefault("artifacts", {})["independent_audit"] = AUDIT
+        write_json(project / AUDIT, audit)
+        write_json(project / "workflow_state.json", state)
+
+        result = run_validator(project)
+
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        self.assertIn("AUDIT_VERDICT_NOT_PASS", result.stdout)
+
     def test_pass_audit_requires_complete_review_answers(self) -> None:
         """review 实质四问：PASS 且能力可用时四键必须全部非空（R-N0-17）。"""
         cases = (
