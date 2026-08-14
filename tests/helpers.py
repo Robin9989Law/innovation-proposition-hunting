@@ -22,6 +22,7 @@ STANDALONE_ONLY = {
     "literature_archive",
     "literature_claim_registry.json",
     "near_neighbor_registry.json",
+    "near_neighbor_url_ledger.csv",
     "novelty-audit.md",
     "output_claim_support.json",
     "scope_lock.md",

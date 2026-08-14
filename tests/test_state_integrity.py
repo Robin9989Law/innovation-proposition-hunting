@@ -78,6 +78,21 @@ class IncidentFixtureTests(unittest.TestCase):
 class NewCheckSemanticsTests(unittest.TestCase):
     """新检查的 WARNING/strict 升级语义与 level/track 交叉检查。"""
 
+    def test_valid_literature_gate_requires_active_url_ledger_pointer(self) -> None:
+        temporary_directory, project = make_valid_project()
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["gates"]["literature_registry_valid"] = True
+            state["artifacts"]["literature_registry"] = "near_neighbor_registry.json"
+            write_json(project / "workflow_state.json", state)
+            write_json(project / "near_neighbor_registry.json", {"records": []})
+
+            completed = run_script(
+                "validate_workflow_state.py", project, ["--current-year", "2026"]
+            )
+            self.assertEqual(1, completed.returncode, completed.stdout)
+            self.assertIn("ARTIFACT\tworkflow_state\turl_ledger:missing_or_unsafe_path", completed.stdout)
+
     def test_self_declared_level_warning_then_invalid(self) -> None:
         temporary_directory, project = make_valid_project()
         with temporary_directory:

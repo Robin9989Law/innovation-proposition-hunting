@@ -157,6 +157,8 @@ medRxiv、SSRN 等预印本页面可以核验作品身份或版本存在，但�
 该状态的权威来源证明。为追求 URL 数量或 distinctness 改换证据角色属于身份伪造。
 
 URL ledger 是活动证据指针 `workflow_state.artifacts.url_ledger`，默认文件名仅用于兼容。
+`literature_registry_valid=true` 时该指针与 `literature_registry` 同为持久 gate 义务；磁盘上存在
+ledger 但 state 未指向它，仍是 `ARTIFACT` INVALID，不得由 validator 隐式猜测。
 若登记后发现语义错误，不得改写 decision log 已锚定的旧文件：保留旧文件与哈希，生成带版本
 的新 ledger，并在 STOP 恢复中原子切换 `url_ledger` 指针、记录恢复原因。历史证据与当前有效
 证据必须同时可追溯。

@@ -130,7 +130,7 @@ STATE_PREREQUISITES = {
 
 GATE_ARTIFACTS = {
     "scope_locked": ("scope_lock", "hierarchy_status"),
-    "literature_registry_valid": ("literature_registry",),
+    "literature_registry_valid": ("literature_registry", "url_ledger"),
     "l1_frozen": ("l1_card",),
     "k_set_selected": ("k_triage",),
     "l2_frozen": ("l2_card",),

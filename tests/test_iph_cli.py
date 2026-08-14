@@ -515,6 +515,7 @@ class AdvanceTests(unittest.TestCase):
             "scope_lock": "scope_lock.md",
             "hierarchy_status": "hierarchy_status.md",
             "literature_registry": "near_neighbor_registry.json",
+            "url_ledger": "near_neighbor_url_ledger.csv",
             "claim_registry": "literature_claim_registry.json",
             "l1_card": "l1-card.md",
             "k_triage": "l2-triage.md",
@@ -553,6 +554,10 @@ class AdvanceTests(unittest.TestCase):
             },
         )
         write_json(project / "literature_claim_registry.json", {"records": []})
+        (project / "near_neighbor_url_ledger.csv").write_text(
+            "registry_id,canonical_url,identity_verification_url,publication_verification_url,peer_review_verification_url,status,checked_at,role\n",
+            encoding="utf-8",
+        )
 
     def test_advance_strict_l2_to_l3_with_atomic_contribution(self) -> None:
         # 真实缺口场景：严格模式（前+后校验）跨越 L2/L3 边界

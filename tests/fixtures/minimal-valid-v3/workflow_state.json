@@ -54,6 +54,7 @@
   "artifacts": {
     "scope_lock": "scope_lock.md",
     "literature_registry": "near_neighbor_registry.json",
+    "url_ledger": "near_neighbor_url_ledger.csv",
     "claim_registry": "literature_claim_registry.json",
     "output_support": "output_claim_support.json",
     "literature_archive": "literature_archive",
