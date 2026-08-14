@@ -14,6 +14,7 @@ schema 3.0 起 active_track / active_layer / last_completed_state 不再持久�
   start-collision-round   从 N0-3 审计合规开启下一碰撞轮次
   review                  subagent 登记 review 产物 hash 到 state（主 agent 只读）
   clear-lock              完成恢复动作后解除 STOP 锁
+  repair-artifact-pointer 保留旧证据并原子切换到版本化修正版
   register-exploration    把探索性数据/产物登记为永久探索级证据
   handover                按 SKILL.md §10 生成交接报告
 """
@@ -773,6 +774,92 @@ def cmd_clear_lock(args: argparse.Namespace) -> int:
     return exit_code
 
 
+def cmd_repair_artifact_pointer(args: argparse.Namespace) -> int:
+    """Atomically repoint active evidence while preserving historical artifacts."""
+
+    if not nonempty_string(args.recovery_note):
+        raise SystemExit("repair-artifact-pointer 需要 --recovery-note")
+    root = Path(args.root).resolve()
+    state_path = Path(args.state).resolve()
+    lock_path = root / ".workflow_stop.lock"
+    validation_log_path = root / "validation.log"
+    original_state = state_path.read_bytes()
+    original_lock = lock_path.read_bytes() if lock_path.is_file() else None
+    original_log = (
+        validation_log_path.read_bytes() if validation_log_path.is_file() else None
+    )
+    updates = parse_state_artifact_updates(args.set_artifact or [], root)
+    if not updates:
+        raise SystemExit("repair-artifact-pointer 至少需要一个 --set-artifact")
+
+    state = _load_json_object(state_path, "workflow_state")
+    artifacts = state.setdefault("artifacts", {})
+    if not isinstance(artifacts, dict):
+        raise SystemExit("workflow_state.artifacts 必须是对象")
+    corrections: list[str] = []
+    defaults = {
+        "url_ledger": "near_neighbor_url_ledger.csv",
+    }
+    for key, replacement in updates.items():
+        previous = artifacts.get(key, defaults.get(key))
+        if not isinstance(previous, str) or not canonical_relative_path(previous):
+            raise SystemExit(f"artifacts.{key} 没有可保留的旧规范路径")
+        if previous == replacement:
+            raise SystemExit(f"artifacts.{key} 新旧路径相同：{replacement}")
+        old_path = root / previous
+        new_path = root / replacement
+        if not old_path.is_file() or old_path.is_symlink():
+            raise SystemExit(f"旧证据不存在或不安全，无法保留：{previous}")
+        if not new_path.is_file() or new_path.is_symlink():
+            raise SystemExit(f"修正版证据不存在或不安全：{replacement}")
+        corrections.append(
+            f"{key}:{previous}@{file_sha256(old_path)}"
+            f"->{replacement}@{file_sha256(new_path)}"
+        )
+
+    apply_state_repairs(state, updates, args.next_action)
+    now = utc_now()
+    state["updated_at"] = now
+    active_state = state.get("active_state")
+    state.setdefault("decision_log", []).append(
+        {
+            "at": now,
+            "state": active_state,
+            "action": (
+                "EVIDENCE_POINTER_REPAIR preserving historical bytes: "
+                f"{'; '.join(corrections)}; note={args.recovery_note.strip()}"
+            ),
+        }
+    )
+    atomic_write_state(state_path, state)
+    append_validation_log(
+        root,
+        "EVIDENCE_POINTER_REPAIR "
+        f"corrections={'; '.join(corrections)} note={args.recovery_note.strip()}",
+    )
+    exit_code = run_validate_all(
+        root,
+        state_path,
+        args.strict_new_checks,
+        ["--clear-lock", "--recovery-note", args.recovery_note.strip()],
+    )
+    if exit_code == int(ExitCode.READY):
+        print(f"artifact pointers repaired: {', '.join(sorted(updates))}")
+        return exit_code
+
+    state_path.write_bytes(original_state)
+    if original_lock is None:
+        lock_path.unlink(missing_ok=True)
+    else:
+        lock_path.write_bytes(original_lock)
+    if original_log is None:
+        validation_log_path.unlink(missing_ok=True)
+    else:
+        validation_log_path.write_bytes(original_log)
+    print("POINTER_REPAIR_ROLLBACK\trestored state, STOP lock, and validation log")
+    return exit_code
+
+
 def cmd_register_exploration(args: argparse.Namespace) -> int:
     root = Path(args.root).resolve()
     relative = args.path
@@ -997,6 +1084,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="operator 修复外部阻塞后，把 BLOCKED 原子恢复到 resume_state",
     )
     p.set_defaults(func=cmd_clear_lock)
+
+    p = sub.add_parser(
+        "repair-artifact-pointer",
+        help="保留旧证据文件与哈希，原子切换 state artifact 到版本化修正版",
+    )
+    add_root_state(p)
+    p.add_argument("--recovery-note", required=True)
+    p.add_argument("--set-artifact", action="append", metavar="KEY=PATH", required=True)
+    p.add_argument("--next-action")
+    p.set_defaults(func=cmd_repair_artifact_pointer)
 
     p = sub.add_parser(
         "register-exploration", help="登记探索性产物（永久探索级证据）"

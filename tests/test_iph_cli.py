@@ -233,6 +233,68 @@ class AdvanceTests(unittest.TestCase):
             for name, expected in original.items():
                 self.assertEqual(expected, (project / name).read_bytes())
 
+    def test_repair_artifact_pointer_preserves_old_bytes_and_records_hashes(self) -> None:
+        temporary_directory, project = self.make_boot_project()
+        with temporary_directory:
+            old = project / "near_neighbor_url_ledger.csv"
+            replacement = project / "near_neighbor_url_ledger.v2.csv"
+            old.write_text("old evidence\n", encoding="utf-8")
+            replacement.write_text("corrected evidence\n", encoding="utf-8")
+            old_bytes = old.read_bytes()
+
+            repaired = run_iph(
+                project,
+                "repair-artifact-pointer",
+                "--recovery-note",
+                "preprint could not verify peer review",
+                "--set-artifact",
+                "url_ledger=near_neighbor_url_ledger.v2.csv",
+            )
+
+            self.assertEqual(0, repaired.returncode, repaired.stdout + repaired.stderr)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual(
+                "near_neighbor_url_ledger.v2.csv", state["artifacts"]["url_ledger"]
+            )
+            self.assertEqual(old_bytes, old.read_bytes())
+            action = state["decision_log"][-1]["action"]
+            self.assertIn("EVIDENCE_POINTER_REPAIR", action)
+            self.assertIn("near_neighbor_url_ledger.csv@", action)
+            self.assertIn("near_neighbor_url_ledger.v2.csv@", action)
+
+    def test_failed_artifact_pointer_repair_rolls_back_state_lock_and_log(self) -> None:
+        temporary_directory, project = self.make_boot_project()
+        with temporary_directory:
+            (project / "near_neighbor_url_ledger.csv").write_text(
+                "old evidence\n", encoding="utf-8"
+            )
+            (project / "near_neighbor_url_ledger.v2.csv").write_text(
+                "corrected evidence\n", encoding="utf-8"
+            )
+            state = load_json(project / "workflow_state.json")
+            state["current_year"] = 2025
+            write_json(project / "workflow_state.json", state)
+            write_json(project / ".workflow_stop.lock", {"exit_code": 1, "marker": "old"})
+            (project / "validation.log").write_text("old log\n", encoding="utf-8")
+            original = {
+                name: (project / name).read_bytes()
+                for name in ("workflow_state.json", ".workflow_stop.lock", "validation.log")
+            }
+
+            repaired = run_iph(
+                project,
+                "repair-artifact-pointer",
+                "--recovery-note",
+                "must roll back",
+                "--set-artifact",
+                "url_ledger=near_neighbor_url_ledger.v2.csv",
+            )
+
+            self.assertNotEqual(0, repaired.returncode)
+            self.assertIn("POINTER_REPAIR_ROLLBACK", repaired.stdout)
+            for name, expected in original.items():
+                self.assertEqual(expected, (project / name).read_bytes())
+
     def test_start_collision_round_rejects_non_n0_hold(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V0")
         with temporary_directory:
