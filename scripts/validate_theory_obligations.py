@@ -70,6 +70,9 @@ TAUTOLOGY_BLACKLIST = (
     "by definition",
     "恒真",
 )
+# 中文"恒真"被否定前缀（非/不/未/否）修饰时（如"非恒真"）是合法的反恒真声明，
+# 不是构造性恒真表述；纯子串匹配会误报（2026-08 OBIC-Flex 项目实战暴露）。
+NEGATED_TAUTOLOGY_RE = re.compile(r"(?<![非不未否])恒真")
 MECHANISM_MIN_LENGTH = 20
 SENSITIVITY_CONTROL_MIN_LENGTH = 10
 
@@ -731,10 +734,16 @@ def validate_witness_bite(
                 )
                 continue
             lowered = mechanism.lower()
-            hit = next(
-                (phrase for phrase in TAUTOLOGY_BLACKLIST if phrase in lowered),
-                None,
-            )
+            hit: str | None = None
+            for phrase in TAUTOLOGY_BLACKLIST:
+                if phrase == "恒真":
+                    # 排除被否定前缀修饰的"恒真"（非恒真/不恒真/未恒真/否恒真）。
+                    if NEGATED_TAUTOLOGY_RE.search(lowered):
+                        hit = phrase
+                        break
+                elif phrase in lowered:
+                    hit = phrase
+                    break
             if hit is not None:
                 issues.append(
                     Issue(

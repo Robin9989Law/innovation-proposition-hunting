@@ -1011,6 +1011,30 @@ class WitnessBiteTests(unittest.TestCase):
                     completed.stdout,
                 )
 
+    def test_negated_tautology_phrase_is_not_reported(self) -> None:
+        # 非恒真/不恒真 是合法的反恒真声明，不应命中"恒真"黑名单（2026-08 OBIC-Flex
+        # 项目实战：mechanism 以"非恒真"结尾被纯子串匹配误报为 constructive_tautology）。
+        for negated in ("非恒真", "不恒真", "未恒真", "并非恒真"):
+            with self.subTest(negated=negated):
+                project = self.make_project()
+                obligations = load_obligations(project)
+                make_witnesses_bite_clean(first_obligation(obligations))
+                find_witness(first_obligation(obligations), "PREMISE_REMOVAL")[
+                    "mechanism"
+                ] = (
+                    "移除有效界对前提使输入被拒为 INVALID_INPUT，"
+                    f"该失效依赖具体界数值，{negated}。"
+                )
+                write_obligations(project, obligations)
+
+                completed = self.run_theory(project, "--strict-new-checks")
+
+                self.assertEqual(
+                    0, completed.returncode, completed.stdout + completed.stderr
+                )
+                self.assertNotIn("WITNESS_NO_BITE", completed.stdout)
+                self.assertNotIn("constructive_tautology", completed.stdout)
+
     def test_short_mechanism_is_reported(self) -> None:
         project = self.make_project()
         obligations = load_obligations(project)
