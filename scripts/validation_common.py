@@ -362,6 +362,9 @@ DEFAULT_ARTIFACT_PATHS = {
     "url_ledger": "near_neighbor_url_ledger.csv",
     "exploration_registry": "exploration_registry.json",
     "instance_probe_registry": "instance_probe_registry.json",
+    "l3_contract": "l3_contract.json",
+    "composition_audit": "composition_audit.json",
+    "exact_statement": "l3-exact.md",
     "manuscript": "manuscript.md",
     "validation_log": "validation.log",
 }

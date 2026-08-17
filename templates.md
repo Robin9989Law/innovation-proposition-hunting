@@ -650,6 +650,7 @@ novelty-audit；它们不是探索级泄漏。
       "old_metric_verdict": "UNDEFINED",
       "success_rule": "",
       "boundary_lost": ["condition"],
+      "g4_role": "OLD_STOP_STILL_SCORES",
       "output_file": "instance_probes/IP-0001.json",
       "output_sha256": "<sha256>"
     }
@@ -659,6 +660,20 @@ novelty-audit；它们不是探索级泄漏。
 
 `old_metric_verdict=SUCCESS` 时 `success_rule` 必填，且不得把数据集总体分数 /
 Figure 4 均值当成单条阈值（`INSTANCE_PROBE_MEAN_AS_THRESHOLD`）。
+
+`g4_role` 仅允许：
+
+```text
+OLD_STOP_STILL_SCORES   旧停止规则在该实例上仍给出分数/输出
+NEW_STOP_FAIL           新停止规则在该实例上失败
+DESIGN_WALKTHROUGH      设计走查，不能单独支撑 N0-4C
+NOT_A_THRESHOLD         已发表数字不是成功阈值（如表中 POSSIBLE）
+```
+
+N0-4C 下已登记探针必须带角色；全部为 `DESIGN_WALKTHROUGH` /
+`NOT_A_THRESHOLD` 即 `G4_WALKTHROUGH_ONLY`。`purpose=COUNTEREXAMPLE` 不得使用
+`NOT_A_THRESHOLD`（`G4_NOT_A_THRESHOLD_AS_COUNTEREXAMPLE`）。登记入口：
+`iph register-instance-probe --g4-role ...`。
 
 ## 13. `scope_lock.md`
 
@@ -754,3 +769,59 @@ validator 识别标记：`证伪书`/`falsification`、`占据证据`/`occupatio
 `归约证据`/`reduction evidence` 三类标题，且各自标题后至少一条对应条目。
 缺对应节分别报 `FALSIFICATION_LEDGER_MISSING` / `OCCUPATION_EVIDENCE_MISSING` /
 `REDUCTION_EVIDENCE_MISSING`（默认 WARNING，`--strict-new-checks` 升 INVALID）。
+
+只改 L3 精确句、不改 L1/L2/K 时，不得 `start-collision-round`。唯一写入口：
+
+```bash
+python3 <skill>/scripts/iph.py revise-exact-statement \
+  --root <研究目录> --state <研究目录>/workflow_state.json \
+  --path l3-exact.rN.md --note "<改句理由>"
+```
+
+仅接受 `N0_AUDIT / N0-3 / V0`。同轮保留 L1/L2/K 门，只重置输出/证据/`n0_4_locked`，
+并把 `artifacts.exact_statement` 指到新文件，状态跳回 `SYNTHESIZE_COLLISION`。
+已锁定的 N0-4C 须先 `retract-novelty`。
+
+## 16. `l3_contract.json`
+
+ALGORITHM / MIXED 锁定 N0-4C 前必须声明：每个停止轴是哪些输入的函数。缺文件
+报 `L3_CONTRACT_MISSING`；`depends_on` 引用 `inputs` 之外的符号报
+`AXIS_NOT_IN_INPUT`。
+
+```json
+{
+  "schema_version": "2.0",
+  "inputs": ["s", "I"],
+  "stop_axes": [
+    {"name": "identity", "depends_on": ["s", "I"]},
+    {"name": "boundary_lock", "depends_on": ["s", "I"]}
+  ]
+}
+```
+
+身份若只写输入 `s`、却依赖词表 `I`，不得声称可执行。空输入上的恒等不得 PASS。
+
+## 17. `composition_audit.json`
+
+ALGORITHM / MIXED 锁定 N0-4C 前必须拆开候选，证明它不是近邻已有碎片的可机械
+并集。缺文件报 `COMPOSITION_AUDIT_MISSING`；`union_equals_candidate=true` 报
+`COMPOSITION_REDUCES`（那是 N0-2，不是 N0-4C）。
+
+```json
+{
+  "schema_version": "2.0",
+  "candidate_id": "M",
+  "components": [
+    {
+      "component_id": "source_inventory",
+      "neighbor_ids": ["W-0004"],
+      "neighbor_fragment": "post-hoc factuality labels on extracted triples",
+      "mechanical_gap": "source-first inventory is not post-hoc labeling of extracted triples"
+    }
+  ],
+  "union_equals_candidate": false,
+  "reduction_failed_because": "the conjunction does not yield the accept-token or monotone refine"
+}
+```
+
+每块必须有非空 `mechanical_gap`。只写"合取不是相同词语"不算完成。

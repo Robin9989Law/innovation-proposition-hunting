@@ -297,6 +297,175 @@ class NewCheckSemanticsTests(unittest.TestCase):
                     )
                     self.assertIn(f"INVALID\t{code}", completed.stdout)
 
+
+class L3ContractG4CompositionTests(unittest.TestCase):
+    def _algorithm_n0_4c(self):
+        temporary_directory, project = make_valid_project(
+            claim_profile="ALGORITHM", novelty_level="N0-4C", validity_level="V0"
+        )
+        state = load_json(project / "workflow_state.json")
+        state["claim_profile"] = "ALGORITHM"
+        state["novelty_level"] = "N0-4C"
+        write_json(project / "workflow_state.json", state)
+        return temporary_directory, project
+
+    def test_axis_not_in_input_warns_then_strict_invalid(self) -> None:
+        temporary_directory, project = self._algorithm_n0_4c()
+        with temporary_directory:
+            write_json(
+                project / "l3_contract.json",
+                {
+                    "schema_version": "2.0",
+                    "inputs": ["s"],
+                    "stop_axes": [
+                        {"name": "identity", "depends_on": ["s", "I"]},
+                    ],
+                },
+            )
+            write_json(
+                project / "composition_audit.json",
+                {
+                    "schema_version": "2.0",
+                    "components": [
+                        {
+                            "component_id": "inventory",
+                            "mechanical_gap": "source-first inventory is not post-hoc labeling",
+                        }
+                    ],
+                    "union_equals_candidate": False,
+                    "reduction_failed_because": "conjunction does not yield the accept token",
+                },
+            )
+            default = run_script(
+                "validate_workflow_state.py", project, ["--current-year", "2026"]
+            )
+            self.assertEqual(0, default.returncode, default.stdout)
+            self.assertIn("WARNING\tAXIS_NOT_IN_INPUT", default.stdout)
+            self.assertIn("axis:identity;dep:I", default.stdout)
+            strict = run_script(
+                "validate_workflow_state.py",
+                project,
+                ["--current-year", "2026", "--strict-new-checks"],
+            )
+            self.assertEqual(1, strict.returncode, strict.stdout)
+            self.assertIn("INVALID\tAXIS_NOT_IN_INPUT", strict.stdout)
+
+    def test_walkthrough_only_cannot_lock_n0_4c(self) -> None:
+        temporary_directory, project = self._algorithm_n0_4c()
+        with temporary_directory:
+            write_json(
+                project / "l3_contract.json",
+                {
+                    "schema_version": "2.0",
+                    "inputs": ["s", "I"],
+                    "stop_axes": [{"name": "identity", "depends_on": ["s", "I"]}],
+                },
+            )
+            write_json(
+                project / "composition_audit.json",
+                {
+                    "schema_version": "2.0",
+                    "components": [
+                        {
+                            "component_id": "inventory",
+                            "mechanical_gap": "source-first inventory is not post-hoc labeling",
+                        }
+                    ],
+                    "union_equals_candidate": False,
+                    "reduction_failed_because": "conjunction does not yield the accept token",
+                },
+            )
+            write_json(
+                project / "instance_probe_registry.json",
+                {
+                    "schema_version": "2.0",
+                    "authorization_note": "inspect published figure",
+                    "probes": [
+                        {
+                            "probe_id": "IP-0001",
+                            "purpose": "SUPPORT",
+                            "g4_role": "DESIGN_WALKTHROUGH",
+                            "old_metric_verdict": "UNDEFINED",
+                        }
+                    ],
+                },
+            )
+            completed = run_script(
+                "validate_workflow_state.py",
+                project,
+                ["--current-year", "2026", "--strict-new-checks"],
+            )
+            self.assertIn("INVALID\tG4_WALKTHROUGH_ONLY", completed.stdout)
+
+    def test_not_a_threshold_cannot_be_counterexample(self) -> None:
+        temporary_directory, project = self._algorithm_n0_4c()
+        with temporary_directory:
+            write_json(
+                project / "instance_probe_registry.json",
+                {
+                    "schema_version": "2.0",
+                    "authorization_note": "inspect table 1",
+                    "probes": [
+                        {
+                            "probe_id": "IP-0002",
+                            "purpose": "COUNTEREXAMPLE",
+                            "g4_role": "NOT_A_THRESHOLD",
+                            "old_metric_verdict": "FAIL",
+                        }
+                    ],
+                },
+            )
+            completed = run_script(
+                "validate_workflow_state.py", project, ["--current-year", "2026"]
+            )
+            self.assertIn("WARNING\tG4_NOT_A_THRESHOLD_AS_COUNTEREXAMPLE", completed.stdout)
+
+    def test_composition_union_blocks_n0_4c(self) -> None:
+        temporary_directory, project = self._algorithm_n0_4c()
+        with temporary_directory:
+            write_json(
+                project / "l3_contract.json",
+                {
+                    "schema_version": "2.0",
+                    "inputs": ["s", "I"],
+                    "stop_axes": [{"name": "identity", "depends_on": ["s", "I"]}],
+                },
+            )
+            write_json(
+                project / "composition_audit.json",
+                {
+                    "schema_version": "2.0",
+                    "components": [
+                        {
+                            "component_id": "all_neighbors",
+                            "mechanical_gap": "none; the union is the candidate",
+                        }
+                    ],
+                    "union_equals_candidate": True,
+                    "reduction_failed_because": "it does reduce",
+                },
+            )
+            completed = run_script(
+                "validate_workflow_state.py",
+                project,
+                ["--current-year", "2026", "--strict-new-checks"],
+            )
+            self.assertIn("INVALID\tCOMPOSITION_REDUCES", completed.stdout)
+
+    def test_theory_profile_does_not_require_algorithm_contracts(self) -> None:
+        temporary_directory, project = make_valid_project(
+            claim_profile="THEORY", novelty_level="N0-4C", validity_level="V0"
+        )
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["gates"]["n0_4_locked"] = True
+            write_json(project / "workflow_state.json", state)
+            completed = run_script(
+                "validate_workflow_state.py", project, ["--current-year", "2026"]
+            )
+            self.assertNotIn("L3_CONTRACT_MISSING", completed.stdout)
+            self.assertNotIn("COMPOSITION_AUDIT_MISSING", completed.stdout)
+
     def test_negative_terminal_evidence_present_passes(self) -> None:
         """R-N0-17：占据/归约证据节存在时不报缺失。"""
         temporary_directory, project = make_valid_project()

@@ -223,6 +223,16 @@ NEW_CHECK_CODES = frozenset(
         "INSTANCE_PROBE_UNAUTHORIZED",
         "INSTANCE_PROBE_LIMIT",
         "INSTANCE_PROBE_MEAN_AS_THRESHOLD",
+        "L3_CONTRACT_MISSING",
+        "L3_CONTRACT_INVALID",
+        "AXIS_NOT_IN_INPUT",
+        "G4_ROLE_MISSING",
+        "G4_ROLE_UNKNOWN",
+        "G4_WALKTHROUGH_ONLY",
+        "G4_NOT_A_THRESHOLD_AS_COUNTEREXAMPLE",
+        "COMPOSITION_AUDIT_MISSING",
+        "COMPOSITION_AUDIT_INVALID",
+        "COMPOSITION_REDUCES",
     }
 )
 
@@ -426,6 +436,45 @@ MEAN_AS_THRESHOLD = re.compile(
     r"dataset mean|dataset-level|总体均值|平均分当|figure\s*4.*threshold",
     re.IGNORECASE,
 )
+G4_ROLES = {
+    "OLD_STOP_STILL_SCORES",
+    "NEW_STOP_FAIL",
+    "DESIGN_WALKTHROUGH",
+    "NOT_A_THRESHOLD",
+}
+G4_SUPPORTING_ROLES = frozenset({"OLD_STOP_STILL_SCORES", "NEW_STOP_FAIL"})
+ALGORITHM_PROFILES = {"ALGORITHM", "MIXED"}
+
+
+def n0_4_claimed(state: dict[str, Any]) -> bool:
+    gates = state.get("gates")
+    return state.get("novelty_level") == "N0-4C" or (
+        isinstance(gates, dict) and gates.get("n0_4_locked") is True
+    )
+
+
+def algorithm_profile(state: dict[str, Any]) -> bool:
+    return state.get("claim_profile") in ALGORITHM_PROFILES
+
+
+def load_optional_json_artifact(
+    root: Path, state: dict[str, Any], key: str, fallback: str
+) -> tuple[Path | None, dict[str, Any] | None, str | None]:
+    """读取可选 JSON 工件。返回 (path, payload, error)。缺文件时 path 为 None。"""
+
+    artifacts = state.get("artifacts")
+    raw = artifacts.get(key) if isinstance(artifacts, dict) else None
+    relative = raw if isinstance(raw, str) and raw.strip() else fallback
+    path = resolve_artifact(root, relative)
+    if path is None or not path.is_file():
+        return None, None, None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        return path, None, f"unreadable:{error}"
+    if not isinstance(payload, dict):
+        return path, None, "top_level_must_be_object"
+    return path, payload, None
 
 
 def validate_instance_probe_registry(
@@ -465,6 +514,7 @@ def validate_instance_probe_registry(
             "INSTANCE_PROBE_LIMIT",
             f"count:{len(probes)}>max:{MAX_INSTANCE_PROBES}",
         )
+    observed_roles: list[str] = []
     for index, probe in enumerate(probes):
         item = f"probes[{index}]"
         if not isinstance(probe, dict):
@@ -478,6 +528,142 @@ def validate_instance_probe_registry(
                     "INSTANCE_PROBE_MEAN_AS_THRESHOLD",
                     f"{item}:success_rule:{rule}",
                 )
+        role = probe.get("g4_role")
+        if role is None or (isinstance(role, str) and not role.strip()):
+            if n0_4_claimed(state):
+                add(errors, "G4_ROLE_MISSING", f"{item}:g4_role")
+            continue
+        if role not in G4_ROLES:
+            add(errors, "G4_ROLE_UNKNOWN", f"{item}:g4_role:{role}")
+            continue
+        observed_roles.append(role)
+        if (
+            n0_4_claimed(state)
+            and probe.get("purpose") == "COUNTEREXAMPLE"
+            and role == "NOT_A_THRESHOLD"
+        ):
+            add(
+                errors,
+                "G4_NOT_A_THRESHOLD_AS_COUNTEREXAMPLE",
+                f"{item}:published score is not a fail witness",
+            )
+    if n0_4_claimed(state) and observed_roles:
+        if not any(role in G4_SUPPORTING_ROLES for role in observed_roles):
+            add(
+                errors,
+                "G4_WALKTHROUGH_ONLY",
+                "DESIGN_WALKTHROUGH/NOT_A_THRESHOLD cannot solely support N0-4C",
+            )
+
+
+def validate_l3_contract(
+    root: Path, state: dict[str, Any], errors: list[str]
+) -> None:
+    """停止轴必须是已声明输入的函数（AXIS_NOT_IN_INPUT）。"""
+
+    path, payload, error = load_optional_json_artifact(
+        root, state, "l3_contract", "l3_contract.json"
+    )
+    required = n0_4_claimed(state) and algorithm_profile(state)
+    if path is None:
+        if required:
+            add(errors, "L3_CONTRACT_MISSING", "ALGORITHM/MIXED N0-4C 需要 l3_contract.json")
+        return
+    if payload is None:
+        add(errors, "L3_CONTRACT_INVALID", error or "unreadable")
+        return
+    inputs = payload.get("inputs")
+    stop_axes = payload.get("stop_axes")
+    input_set: set[str] = set()
+    if not isinstance(inputs, list) or not inputs:
+        add(errors, "L3_CONTRACT_INVALID", "inputs:expected_nonempty_list")
+    else:
+        for index, item in enumerate(inputs):
+            if not nonempty(item):
+                add(errors, "L3_CONTRACT_INVALID", f"inputs[{index}]:expected_nonempty_string")
+                continue
+            input_set.add(item.strip())
+    if not isinstance(stop_axes, list) or not stop_axes:
+        add(errors, "L3_CONTRACT_INVALID", "stop_axes:expected_nonempty_list")
+        return
+    for index, axis in enumerate(stop_axes):
+        item = f"stop_axes[{index}]"
+        if not isinstance(axis, dict):
+            add(errors, "L3_CONTRACT_INVALID", f"{item}:not_object")
+            continue
+        name = axis.get("name")
+        axis_name = name.strip() if nonempty(name) else item
+        depends_on = axis.get("depends_on")
+        if not isinstance(depends_on, list):
+            add(errors, "L3_CONTRACT_INVALID", f"{item}:depends_on:not_list")
+            continue
+        for dep_index, dep in enumerate(depends_on):
+            if not nonempty(dep):
+                add(
+                    errors,
+                    "L3_CONTRACT_INVALID",
+                    f"{item}:depends_on[{dep_index}]:expected_nonempty_string",
+                )
+                continue
+            if dep.strip() not in input_set:
+                add(
+                    errors,
+                    "AXIS_NOT_IN_INPUT",
+                    f"axis:{axis_name};dep:{dep.strip()}",
+                )
+
+
+def validate_composition_audit(
+    root: Path, state: dict[str, Any], errors: list[str]
+) -> None:
+    """N0-4C ALGORITHM/MIXED 必须证明候选不是近邻碎片的可机械并集。"""
+
+    path, payload, error = load_optional_json_artifact(
+        root, state, "composition_audit", "composition_audit.json"
+    )
+    required = n0_4_claimed(state) and algorithm_profile(state)
+    if path is None:
+        if required:
+            add(
+                errors,
+                "COMPOSITION_AUDIT_MISSING",
+                "ALGORITHM/MIXED N0-4C 需要 composition_audit.json",
+            )
+        return
+    if payload is None:
+        add(errors, "COMPOSITION_AUDIT_INVALID", error or "unreadable")
+        return
+    components = payload.get("components")
+    if not isinstance(components, list) or not components:
+        add(errors, "COMPOSITION_AUDIT_INVALID", "components:expected_nonempty_list")
+        return
+    for index, component in enumerate(components):
+        item = f"components[{index}]"
+        if not isinstance(component, dict):
+            add(errors, "COMPOSITION_AUDIT_INVALID", f"{item}:not_object")
+            continue
+        if not nonempty(component.get("mechanical_gap")):
+            add(errors, "COMPOSITION_AUDIT_INVALID", f"{item}:mechanical_gap:missing")
+    if not required:
+        return
+    if payload.get("union_equals_candidate") is True:
+        add(
+            errors,
+            "COMPOSITION_REDUCES",
+            "union_equals_candidate=true 是机械并集，不能锁定 N0-4C",
+        )
+    elif payload.get("union_equals_candidate") is not False:
+        add(
+            errors,
+            "COMPOSITION_AUDIT_INVALID",
+            "union_equals_candidate:expected_false_for_N0-4C",
+        )
+    if not nonempty(payload.get("reduction_failed_because")):
+        add(
+            errors,
+            "COMPOSITION_AUDIT_INVALID",
+            "reduction_failed_because:missing",
+        )
 
 
 def find_unregistered_compute_artifacts(
@@ -1373,6 +1559,8 @@ def validate(
         for artifact in find_unregistered_compute_artifacts(root, state):
             add(errors, "UNREGISTERED_COMPUTE_ARTIFACT", f"path:{artifact}")
     validate_instance_probe_registry(root, state, errors)
+    validate_l3_contract(root, state, errors)
+    validate_composition_audit(root, state, errors)
 
     # R-LAYER-13：证据深度按段供给；超段超量取证即主次颠倒。
     tier = evidence_tier(str(effective_state))

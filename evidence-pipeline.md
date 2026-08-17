@@ -37,8 +37,19 @@ P0 读取 workflow_state.json；耗尽所有 prior-round 旧观点
   → 若开启下一轮，collision_round +1 并返回 P0
 ```
 
-当上一轮在 `N0_AUDIT` 裁决为 `N0-3`、且实质改变的 L3 命题必须重新碰撞时，使用唯一
-原子入口：
+当上一轮在 `N0_AUDIT` 裁决为 `N0-3`、且**只改 L3 精确句**、L1/L2/K 不变时，不得
+开新碰撞轮次。使用：
+
+```bash
+python3 <skill>/scripts/iph.py revise-exact-statement \
+  --root <研究目录> --state <研究目录>/workflow_state.json \
+  --path l3-exact.rN.md --note "<改句理由>"
+```
+
+该命令保持 `collision_round` 与 L1/L2/K 门，只重置输出/证据/`n0_4_locked`，并跳回
+`SYNTHESIZE_COLLISION`。已锁定的 N0-4C 须先 `retract-novelty`。
+
+当必须重新碰撞（改目标链、基线或 O/I/A/T/C/R/B 对齐项）时，使用：
 
 ```bash
 python3 <skill>/scripts/iph.py start-collision-round \
@@ -46,9 +57,12 @@ python3 <skill>/scripts/iph.py start-collision-round \
   --strict-new-checks --note "<本轮重开原因>"
 ```
 
+L1/L2/架构未变时加 `--keep-layers`：保留这些冻结门及其文献前置门，只重置本轮
+K/输出/证据门。默认（不加该旗标）仍会打回 L1/L2，仅在研究程序本身变化时使用。
+
 该命令仅接受 `N0_AUDIT / N0-3 / V0`。它先严格验证、确认所有旧观点已耗尽，再将
 `collision_round` 与三本全局账本的 current 指针对齐，创建空的
-`current_evidence_scope.json`，重置仅属于 L3 当前轮的门，并进入 `PRIOR_CLAIM_DRAIN`。
+`current_evidence_scope.json`，并进入 `PRIOR_CLAIM_DRAIN`。
 不得手工编辑轮次、scope 或 decision_log，也不得将历史全文/观点留在新 scope 中。
 
 若该原子操作的后校验非零，校验器会写入 STOP 锁。此时只允许使用

@@ -899,6 +899,196 @@ class RetractNoveltyTests(unittest.TestCase):
             self.assertIn("有效性已冻结", completed.stderr)
 
 
+class ReviseExactStatementTests(unittest.TestCase):
+    def _n0_3_hold(self, *, state_name: str = "N0_AUDIT", novelty: str = "N0-3"):
+        temporary_directory, project = make_valid_project(
+            novelty_level=novelty, validity_level="V0"
+        )
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = state_name
+        state["resume_state"] = state_name
+        state["novelty_level"] = novelty
+        state["validity_level"] = "V0"
+        state["collision_round"] = 3
+        state["gates"]["n0_4_locked"] = novelty == "N0-4C"
+        state["gates"]["compute_authorized"] = False
+        for key in (
+            "scope_locked",
+            "prior_claims_drained",
+            "recent_frontier_complete",
+            "literature_registry_valid",
+            "l1_frozen",
+            "k_set_selected",
+            "l2_frozen",
+            "architecture_frozen",
+            "k_fulltext_complete",
+            "k_claims_complete",
+            "output_claims_traced",
+            "evidence_validated",
+        ):
+            state["gates"][key] = True
+        write_json(project / "workflow_state.json", state)
+        (project / "l3-exact.r11.md").write_text(
+            "On input (s, I), lock the mapping if ATP succeeds or 10 iterations elapse.\n",
+            encoding="utf-8",
+        )
+        return temporary_directory, project
+
+    def test_revises_statement_without_resetting_layers_or_round(self) -> None:
+        temporary_directory, project = self._n0_3_hold()
+        with temporary_directory:
+            completed = run_iph(
+                project,
+                "revise-exact-statement",
+                "--path",
+                "l3-exact.r11.md",
+                "--note",
+                "identity requires lexicon I; stop is ATP or 10 iterations",
+                "--no-validate",
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("SYNTHESIZE_COLLISION", state["active_state"])
+            self.assertEqual(3, state["collision_round"])
+            self.assertTrue(state["gates"]["l1_frozen"])
+            self.assertTrue(state["gates"]["l2_frozen"])
+            self.assertTrue(state["gates"]["architecture_frozen"])
+            self.assertTrue(state["gates"]["k_fulltext_complete"])
+            self.assertTrue(state["gates"]["k_claims_complete"])
+            self.assertFalse(state["gates"]["output_claims_traced"])
+            self.assertFalse(state["gates"]["evidence_validated"])
+            self.assertFalse(state["gates"]["n0_4_locked"])
+            self.assertEqual("l3-exact.r11.md", state["artifacts"]["exact_statement"])
+            self.assertIn("REVISE_EXACT_STATEMENT", state["decision_log"][-1]["action"])
+            log_text = (project / "validation.log").read_text(encoding="utf-8")
+            self.assertIn("REVISE_EXACT_STATEMENT round=3", log_text)
+
+    def test_rejects_locked_n0_4c_until_retract(self) -> None:
+        temporary_directory, project = self._n0_3_hold(novelty="N0-4C")
+        with temporary_directory:
+            completed = run_iph(
+                project,
+                "revise-exact-statement",
+                "--path",
+                "l3-exact.r11.md",
+                "--note",
+                "must retract first",
+                "--no-validate",
+            )
+            self.assertNotEqual(0, completed.returncode)
+            self.assertIn("retract-novelty", completed.stderr)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("N0_AUDIT", state["active_state"])
+            self.assertEqual(3, state["collision_round"])
+
+
+class KeepLayersCollisionTests(unittest.TestCase):
+    def _collision_ready(self):
+        temporary_directory, project = make_valid_project(
+            novelty_level="N0-3", validity_level="V0"
+        )
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = "N0_AUDIT"
+        state["resume_state"] = "N0_AUDIT"
+        state["novelty_level"] = "N0-3"
+        state["validity_level"] = "V0"
+        state["collision_round"] = 2
+        state["active_contribution"] = "M"
+        state["gates"]["n0_4_locked"] = False
+        for key in (
+            "scope_locked",
+            "prior_claims_drained",
+            "recent_frontier_complete",
+            "literature_registry_valid",
+            "l1_frozen",
+            "k_set_selected",
+            "l2_frozen",
+            "architecture_frozen",
+            "k_fulltext_complete",
+            "k_claims_complete",
+            "output_claims_traced",
+            "evidence_validated",
+        ):
+            state["gates"][key] = True
+        state["artifacts"].update(
+            {
+                "literature_registry": "near_neighbor_registry.json",
+                "claim_registry": "literature_claim_registry.json",
+                "output_support": "output_claim_support.json",
+                "current_evidence_scope": "current_evidence_scope.json",
+                "frontier_coverage": "frontier_coverage.json",
+            }
+        )
+        write_json(project / "workflow_state.json", state)
+        write_json(
+            project / "near_neighbor_registry.json",
+            {"current_collision_round": 2, "records": []},
+        )
+        write_json(
+            project / "literature_claim_registry.json",
+            {"current_collision_round": 2, "records": []},
+        )
+        write_json(
+            project / "output_claim_support.json",
+            {"current_collision_round": 2, "output_claims": []},
+        )
+        write_json(
+            project / "current_evidence_scope.json",
+            {
+                "schema_version": "2.0",
+                "collision_round": 2,
+                "fulltext_registry_ids": ["W-0001"],
+                "atomic_claim_ids": ["LC-0001"],
+            },
+        )
+        write_json(project / "frontier_coverage.json", {"schema_version": "2.0"})
+        return temporary_directory, project
+
+    def test_keep_layers_preserves_l1_l2_and_increments_round(self) -> None:
+        temporary_directory, project = self._collision_ready()
+        with temporary_directory:
+            completed = run_iph(
+                project,
+                "start-collision-round",
+                "--keep-layers",
+                "--note",
+                "same L1/L2; only refresh K after new neighbors",
+                "--no-validate",
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr + completed.stdout)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("PRIOR_CLAIM_DRAIN", state["active_state"])
+            self.assertEqual(3, state["collision_round"])
+            self.assertEqual("M", state["active_contribution"])
+            self.assertTrue(state["gates"]["l1_frozen"])
+            self.assertTrue(state["gates"]["l2_frozen"])
+            self.assertTrue(state["gates"]["architecture_frozen"])
+            self.assertTrue(state["gates"]["literature_registry_valid"])
+            self.assertFalse(state["gates"]["k_fulltext_complete"])
+            self.assertFalse(state["gates"]["k_claims_complete"])
+            self.assertFalse(state["gates"]["n0_4_locked"])
+            self.assertTrue(
+                (project / "rounds" / "round-3" / "near_neighbor_registry.json").is_file()
+            )
+
+    def test_default_collision_still_resets_layers(self) -> None:
+        temporary_directory, project = self._collision_ready()
+        with temporary_directory:
+            completed = run_iph(
+                project,
+                "start-collision-round",
+                "--note",
+                "program itself changed",
+                "--no-validate",
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr + completed.stdout)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("NONE", state["active_contribution"])
+            self.assertFalse(state["gates"]["l1_frozen"])
+            self.assertFalse(state["gates"]["l2_frozen"])
+            self.assertFalse(state["gates"]["architecture_frozen"])
+
+
 class InstanceProbeTests(unittest.TestCase):
     def test_authorize_and_register_on_n0_3(self) -> None:
         temporary_directory, project = make_valid_project(

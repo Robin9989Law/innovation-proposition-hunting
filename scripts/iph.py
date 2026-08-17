@@ -12,6 +12,7 @@ schema 3.0 起 active_track / active_layer / last_completed_state 不再持久�
   validate                运行完整校验套件（当前转发 validate_all.py）
   advance                 校验通过后推进状态并记账
   start-collision-round   从 N0-3 审计合规开启下一碰撞轮次
+  revise-exact-statement  只改 L3 精确句：同轮、保留 L1/L2/K，跳回综合
   retract-novelty         从 N0_AUDIT/N0-4C 合法撤回为 N0-3/N0-1/N0-2
   review                  subagent 登记 review 产物 hash 到 state（主 agent 只读）
   clear-lock              完成恢复动作后解除 STOP 锁
@@ -83,6 +84,31 @@ POSITIVE_STATE_SEQUENCE = (
 NEXT_POSITIVE_STATE = dict(zip(POSITIVE_STATE_SEQUENCE, POSITIVE_STATE_SEQUENCE[1:]))
 VALID_NOVELTY_LEVELS = {"N0-1", "N0-2", "N0-3", "N0-4C"}
 VALID_COMPUTE_STAGES = {"NOT_STARTED", "S0", "S1", "S2", "S3", "S4", "STOPPED"}
+LAYER_GATES = (
+    "l1_frozen",
+    "k_set_selected",
+    "l2_frozen",
+    "architecture_frozen",
+)
+LAYER_PREREQUISITE_GATES = (
+    "recent_frontier_complete",
+    "literature_registry_valid",
+)
+L3_ROUND_GATES = (
+    "k_fulltext_complete",
+    "k_claims_complete",
+    "output_claims_traced",
+    "evidence_validated",
+    "n0_4_locked",
+)
+STATEMENT_REVISION_GATES = (
+    "output_claims_traced",
+    "evidence_validated",
+    "n0_4_locked",
+)
+FULL_COLLISION_RESET_GATES = (
+    LAYER_GATES + LAYER_PREREQUISITE_GATES + L3_ROUND_GATES
+)
 
 # 状态 -> 所属轴（TRACK_STATES 是分区；BLOCKED/COMPLETE 不属于任何轴）。
 # 仅用于 handover 报表派生展示，不再写回 state（schema 3.0 派生字段）。
@@ -573,10 +599,11 @@ def cmd_start_collision_round(args: argparse.Namespace) -> int:
     state_path = Path(args.state).resolve()
     if not nonempty_string(args.note):
         raise SystemExit("start-collision-round 需要 --note 记录重开原因")
-    exit_code = run_validate_all(root, state_path, args.strict_new_checks, [])
-    if exit_code != int(ExitCode.READY):
-        print(f"start-collision-round aborted: validation exit={exit_code}")
-        return exit_code
+    if not args.no_validate:
+        exit_code = run_validate_all(root, state_path, args.strict_new_checks, [])
+        if exit_code != int(ExitCode.READY):
+            print(f"start-collision-round aborted: validation exit={exit_code}")
+            return exit_code
 
     state = _load_json_object(state_path, "workflow_state.json")
     if state.get("active_state") != "N0_AUDIT":
@@ -678,39 +705,38 @@ def cmd_start_collision_round(args: argparse.Namespace) -> int:
     # 决策日志哈希被后续 P1 追加破坏。
     _atomic_write_json(new_paths["frontier_coverage"], _load_json_object(paths["frontier_coverage"], "frontier coverage"))
 
+    keep_layers = bool(getattr(args, "keep_layers", False))
     state["collision_round"] = new_round
     state["active_state"] = "PRIOR_CLAIM_DRAIN"
     state["resume_state"] = "PRIOR_CLAIM_DRAIN"
     state["updated_at"] = now
     state_artifacts = state.setdefault("artifacts", {})
     state_artifacts.update(round_artifacts)
-    state["next_required_action"] = (
-        "Perform P1 recent-frontier search for collision round "
-        f"{new_round}; register every material hit before fulltext triage."
-    )
+    if keep_layers:
+        state["next_required_action"] = (
+            "Keep frozen L1/L2/architecture; drain unused prior-round claims, "
+            f"then refresh K fulltext for collision round {new_round} "
+            "without re-freezing the program cards."
+        )
+    else:
+        state["next_required_action"] = (
+            "Perform P1 recent-frontier search for collision round "
+            f"{new_round}; register every material hit before fulltext triage."
+        )
     gates = state.setdefault("gates", {})
-    for key in (
-        "l1_frozen",
-        "k_set_selected",
-        "l2_frozen",
-        "architecture_frozen",
-        "recent_frontier_complete",
-        "literature_registry_valid",
-        "k_fulltext_complete",
-        "k_claims_complete",
-        "output_claims_traced",
-        "evidence_validated",
-        "n0_4_locked",
-    ):
+    reset_keys = L3_ROUND_GATES if keep_layers else FULL_COLLISION_RESET_GATES
+    for key in reset_keys:
         gates[key] = False
     gates["prior_claims_drained"] = True
-    state["active_contribution"] = "NONE"
+    if not keep_layers:
+        state["active_contribution"] = "NONE"
+    keep_note = "keep-layers; " if keep_layers else ""
     entry = {
         "at": now,
         "state": "PRIOR_CLAIM_DRAIN",
         "action": (
-            f"Opened collision round {new_round} from N0-3 HOLD; all prior-round "
-            f"claims were drained before P1. {args.note.strip()}"
+            f"Opened collision round {new_round} from N0-3 HOLD; {keep_note}"
+            f"all prior-round claims were drained before P1. {args.note.strip()}"
         ),
     }
     state.setdefault("decision_log", []).append(entry)
@@ -718,13 +744,16 @@ def cmd_start_collision_round(args: argparse.Namespace) -> int:
     append_validation_log(
         root,
         f"START_COLLISION_ROUND {old_round} -> {new_round} "
+        f"keep_layers={str(keep_layers).lower()} "
         f"scope={round_artifacts['current_evidence_scope']} note={args.note.strip()}",
     )
     print(f"started collision round {old_round} -> {new_round}")
-    exit_code = run_validate_all(root, state_path, args.strict_new_checks, [])
-    if exit_code != int(ExitCode.READY):
-        print(f"post-start validation exit={exit_code}")
-    return exit_code
+    if not args.no_validate:
+        exit_code = run_validate_all(root, state_path, args.strict_new_checks, [])
+        if exit_code != int(ExitCode.READY):
+            print(f"post-start validation exit={exit_code}")
+            return exit_code
+    return int(ExitCode.READY)
 
 
 def cmd_retract_novelty(args: argparse.Namespace) -> int:
@@ -813,6 +842,95 @@ def cmd_retract_novelty(args: argparse.Namespace) -> int:
     return int(ExitCode.READY)
 
 
+def cmd_revise_exact_statement(args: argparse.Namespace) -> int:
+    """只改 L3 精确句：同轮、保留 L1/L2/K，跳回 SYNTHESIZE_COLLISION。
+
+    改目标链、基线或 O/I/A/T/C/R/B 对齐项仍须 start-collision-round。
+    已写入的 N0-4C 必须先 retract-novelty 到 N0-3。
+    """
+
+    root = Path(args.root).resolve()
+    state_path = Path(args.state).resolve()
+    if not nonempty_string(args.note):
+        raise SystemExit("revise-exact-statement 需要 --note 记录改句理由")
+    if not canonical_relative_path(args.path):
+        raise SystemExit(f"--path 必须是根内规范相对路径：{args.path!r}")
+    statement_path = root / args.path
+    if not statement_path.is_file() or statement_path.is_symlink():
+        raise SystemExit(f"--path 不存在或不是安全实体：{args.path}")
+    if not args.no_validate:
+        exit_code = run_validate_all(
+            root, state_path, args.strict_new_checks, []
+        )
+        if exit_code != int(ExitCode.READY):
+            print(f"revise-exact-statement aborted: validation exit={exit_code}")
+            return exit_code
+
+    state = _load_json_object(state_path, "workflow_state.json")
+    if state.get("active_state") != "N0_AUDIT":
+        raise SystemExit("只能从 N0_AUDIT 修订 L3 精确句")
+    if state.get("novelty_level") != "N0-3":
+        if state.get("novelty_level") == "N0-4C":
+            raise SystemExit("已锁定的 N0-4C 须先 retract-novelty 到 N0-3，再修订精确句")
+        raise SystemExit("只能在 N0-3 HOLD 修订 L3 精确句")
+    if state.get("validity_level") != "V0":
+        raise SystemExit("有效性已冻结后不得修订 L3 精确句；应新开 epoch")
+    if state.get("gates", {}).get("compute_authorized") is True:
+        raise SystemExit("计算已授权后不得修订 L3 精确句")
+
+    collision_round = state.get("collision_round")
+    if not isinstance(collision_round, int) or collision_round < 1:
+        raise SystemExit("workflow_state.collision_round 必须是正整数")
+
+    state_artifact_updates = parse_state_artifact_updates(
+        args.set_artifact or [], root
+    )
+    state_artifact_updates["exact_statement"] = args.path
+    now = utc_now()
+    state["active_state"] = "SYNTHESIZE_COLLISION"
+    state["resume_state"] = "SYNTHESIZE_COLLISION"
+    state["updated_at"] = now
+    gates = state.setdefault("gates", {})
+    for key in STATEMENT_REVISION_GATES:
+        gates[key] = False
+    apply_state_repairs(state, state_artifact_updates, args.next_action)
+    if not nonempty_string(state.get("next_required_action")) or args.next_action is None:
+        state["next_required_action"] = (
+            "Re-synthesize collision against the revised exact statement "
+            f"in collision round {collision_round}; do not reopen L1/L2/K."
+        )
+    entry = {
+        "at": now,
+        "state": "SYNTHESIZE_COLLISION",
+        "action": (
+            f"REVISE_EXACT_STATEMENT round={collision_round} "
+            f"path={args.path}. {args.note.strip()}"
+        ),
+        "artifacts": [
+            {"path": args.path, "sha256": file_sha256(statement_path)}
+        ],
+    }
+    state.setdefault("decision_log", []).append(entry)
+    atomic_write_state(state_path, state)
+    append_validation_log(
+        root,
+        f"REVISE_EXACT_STATEMENT round={collision_round} path={args.path} "
+        f"note={args.note.strip()}",
+    )
+    print(
+        f"revised exact statement in collision round {collision_round}; "
+        "returned to SYNTHESIZE_COLLISION"
+    )
+    if not args.no_validate:
+        exit_code = run_validate_all(
+            root, state_path, args.strict_new_checks, []
+        )
+        if exit_code != int(ExitCode.READY):
+            print(f"post-revise validation exit={exit_code}")
+            return exit_code
+    return int(ExitCode.READY)
+
+
 # ---------------------------------------------------------------------------
 # repair-collision-round / clear-lock / register-exploration / handover
 # ---------------------------------------------------------------------------
@@ -854,28 +972,16 @@ def cmd_repair_collision_round(args: argparse.Namespace) -> int:
         artifacts["frontier_coverage"] = round_coverage
 
     gates = state.setdefault("gates", {})
-    for key in (
-        "l1_frozen",
-        "k_set_selected",
-        "l2_frozen",
-        "architecture_frozen",
-        "recent_frontier_complete",
-        "literature_registry_valid",
-        "k_fulltext_complete",
-        "k_claims_complete",
-        "output_claims_traced",
-        "evidence_validated",
-        "n0_4_locked",
-    ):
+    # 只重置本轮 L3 门。L1/L2/架构若已由 --keep-layers 或既有冻结保留，不得打回。
+    for key in L3_ROUND_GATES:
         gates[key] = False
     gates["prior_claims_drained"] = True
-    state["active_contribution"] = "NONE"
     state["updated_at"] = utc_now()
     atomic_write_state(state_path, state)
     append_validation_log(
         root,
         "REPAIR_COLLISION_ROUND repaired current snapshot URL aliases and reset "
-        "new-round L1/L2/L3 gates before STOP-lock recovery",
+        "new-round L3 gates before STOP-lock recovery",
     )
     print("repaired collision-round snapshot; run clear-lock to validate recovery")
     return int(ExitCode.READY)
@@ -1166,6 +1272,12 @@ INSTANCE_PROBE_REGISTRY = "instance_probe_registry.json"
 MAX_INSTANCE_PROBES = 5
 INSTANCE_PROBE_PURPOSES = {"COUNTEREXAMPLE", "SUPPORT"}
 INSTANCE_PROBE_VERDICTS = {"SUCCESS", "FAIL", "UNDEFINED"}
+G4_ROLES = {
+    "OLD_STOP_STILL_SCORES",
+    "NEW_STOP_FAIL",
+    "DESIGN_WALKTHROUGH",
+    "NOT_A_THRESHOLD",
+}
 
 
 def _instance_probe_registry_path(root: Path, state: dict[str, Any]) -> Path:
@@ -1237,6 +1349,9 @@ def cmd_register_instance_probe(args: argparse.Namespace) -> int:
         raise SystemExit(f"--old-verdict 必须是 {sorted(INSTANCE_PROBE_VERDICTS)}")
     if args.old_verdict == "SUCCESS" and not nonempty_string(args.success_rule):
         raise SystemExit("old-verdict=SUCCESS 必须给出 --success-rule，且不得是数据集均值阈值")
+    g4_role = (args.g4_role or "").strip()
+    if g4_role and g4_role not in G4_ROLES:
+        raise SystemExit(f"--g4-role 必须是 {sorted(G4_ROLES)}")
     if not canonical_relative_path(args.output):
         raise SystemExit("--output 必须是根内规范相对路径")
     output_path = root / args.output
@@ -1276,6 +1391,8 @@ def cmd_register_instance_probe(args: argparse.Namespace) -> int:
         "output_sha256": file_sha256(output_path),
         "registered_at": utc_now(),
     }
+    if g4_role:
+        entry["g4_role"] = g4_role
     if replacing:
         probes[:] = [
             entry if isinstance(item, dict) and item.get("probe_id") == probe_id else item
@@ -1450,7 +1567,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_root_state(p)
     p.add_argument("--note", required=True)
+    p.add_argument(
+        "--keep-layers",
+        action="store_true",
+        help="L1/L2/架构未变时保留其冻结门，只重置本轮 L3/K/输出/证据门",
+    )
+    p.add_argument("--no-validate", action="store_true")
     p.set_defaults(func=cmd_start_collision_round)
+
+    p = sub.add_parser(
+        "revise-exact-statement",
+        help="只改 L3 精确句：同轮、保留 L1/L2/K，跳回 SYNTHESIZE_COLLISION",
+    )
+    add_root_state(p)
+    p.add_argument("--path", required=True, help="新的 hashed L3 精确句文件")
+    p.add_argument("--note", required=True)
+    p.add_argument("--set-artifact", action="append", metavar="KEY=PATH")
+    p.add_argument("--next-action")
+    p.add_argument("--no-validate", action="store_true")
+    p.set_defaults(func=cmd_revise_exact_statement)
 
     p = sub.add_parser(
         "retract-novelty",
@@ -1537,6 +1672,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--metric", required=True)
     p.add_argument("--value", required=True)
     p.add_argument("--old-verdict", required=True, choices=sorted(INSTANCE_PROBE_VERDICTS))
+    p.add_argument("--g4-role", choices=sorted(G4_ROLES))
     p.add_argument("--success-rule")
     p.add_argument("--boundary-lost", action="append")
     p.add_argument("--output", required=True)

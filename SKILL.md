@@ -98,8 +98,8 @@ BOOT → SCOPE_LOCK → PRIOR_CLAIM_DRAIN → RECENT_FRONTIER
 ```
 
 博士合同为 `THREE_ORGANIC_A_B_C`；期刊合同为 `ONE_MAIN_M`。L3 必须来自同一
-连续研究链中的 `K → U → Δ`，并对齐 O/I/A/T/C/R/B。改变 L3、目标链、关键基线
-或任一实质对齐项即开新碰撞轮次，并先耗尽 prior-round 观点。
+连续研究链中的 `K → U → Δ`，并对齐 O/I/A/T/C/R/B。只改 L3 精确句、不改 L1/L2/K
+时用 `iph revise-exact-statement`；改目标链、基线或对齐项才开新碰撞轮次。
 
 **主线是 L1→L2→L3 的逐层构建；文献管线是辅线，证据深度按层供给。**
 每个层级决策只取该层所需的证据深度，禁止提前做更深的取证
@@ -173,7 +173,10 @@ decision_log 记录裁决、占据/可推导证据与处置（关闭、吸收或
 继续进入 `CLAIM_FREEZE`。唯一写入口是 `iph retract-novelty --to N0-3|N0-1|N0-2`：
 仅允许 `N0_AUDIT + N0-4C + V0`，同一事务把 `n0_4_locked` 置假、登记新的
 novelty-audit，并保持 `active_state=N0_AUDIT`。有效性已冻结或计算已授权后
-不得撤回，只能新开 epoch。撤回后的 `N0-3` 才可以 `start-collision-round`。
+不得撤回，只能新开 epoch。撤回后的 `N0-3` 才可 `start-collision-round` 或
+`revise-exact-statement`。只改精确句不得开新轮；新轮且 L1/L2 未变时加
+`--keep-layers`。N0-4C 的停止轴必须来自已声明输入（`AXIS_NOT_IN_INPUT`），
+G4 走查不能单独支撑锁定，ALGORITHM/MIXED 还须 `composition_audit.json`。
 
 **证伪优先（falsification-first）**：任何候选被裁决为 N0-4C 之前，`novelty-audit.md`
 必须先完成证伪书（falsification ledger）——逐条列出"我尝试杀死这个候选的方式
@@ -460,6 +463,10 @@ INVALID（§9）。
 | R-ATOMIC-19 | 原子观点质量门槛：只有能改变候选存活判断的观点才登记；删除后 N0 裁决不变的，是读后感不登记。claim_type 是判断类型（OCCUPIES/ENABLES/CONTRADICTS/BOUNDS/NEUTRAL），表达"对候选存活的关系"而非"论文哪一章节"；负面判断只作 counter 不作 support | §3.1、evidence-pipeline §5 |
 
 | R-REVIEW-20 | review 是实质复核不是形式盖章：verdict=PASS 时 review_answers 四问（数据真实性/baseline 执行/措辞强度/证伪尝试）必须全部非空（`REVIEW_ANSWERS_INCOMPLETE`）；单 agent 环境 subagent review 是合法独立形式，产物主 agent 只读不写，事后改动即 `REVIEW_ARTIFACT_TAMPERED` | §5、templates §9 |
+| R-L3-21 | 只改 L3 精确句用 `iph revise-exact-statement`（同轮、保留 L1/L2/K、跳回 SYNTHESIZE_COLLISION）；N0-4C 须先 retract。新轮且层级未变时 `start-collision-round --keep-layers` | §3.1、templates §16 |
+| R-AXIS-22 | L3 停止轴必须是已声明输入的函数；`l3_contract.json` 的 `depends_on` 不得引用 `inputs` 外符号（`AXIS_NOT_IN_INPUT`） | §3.1、templates §16 |
+| R-G4-23 | 实例探针 G4 角色：`OLD_STOP_STILL_SCORES`/`NEW_STOP_FAIL`/`DESIGN_WALKTHROUGH`/`NOT_A_THRESHOLD`；走查或非阈值不得单独支撑 N0-4C（`G4_WALKTHROUGH_ONLY`） | §3.1、templates §12.1 |
+| R-COMP-24 | ALGORITHM/MIXED 锁定 N0-4C 前必须写 `composition_audit.json`：逐块给 mechanical_gap，且 `union_equals_candidate=false`（`COMPOSITION_REDUCES`） | §3.1、templates §17 |
 
 ## 12. 修改技能仓库的自律规则
 
