@@ -79,6 +79,17 @@ S0-SCREEN 只读现有工件，**不产生任何数值输出**（无脚本、无
 冻结工件；未登记的数值产物视为未授权计算
 （`UNREGISTERED_COMPUTE_ARTIFACT`）。
 
+N0-3 HOLD 若只需要查看少量已发表原文上的反例/支撑实例，不得伪装成 S0 预实验，
+也不得打开 COMPUTE。使用：
+
+```bash
+iph authorize-instance-probe --note "<用户明确允许小范围看实例>"
+iph register-instance-probe --probe-id IP-0001 ...
+```
+
+上限 5 条；每条必须有已发表原文、locator 和度量定义；`old_metric_verdict=SUCCESS`
+必须给出不是数据集均值的 `success_rule`。登记后的数字可以进入 novelty-audit。
+
 注：`workflow_state.json` 的 `compute_stage` 枚举保留 `S0` 值（schema 3.0
 枚举保持该值）；S0-SCREEN 是该阶段的语义名，强调"筛查、零数值产出"。
 

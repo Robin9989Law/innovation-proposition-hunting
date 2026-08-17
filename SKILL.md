@@ -364,9 +364,12 @@ FINAL_LOCK = N0-4C AND V4 AND current independent audit
 
 用户授权只是 `compute_authorized=true` 的必要条件，**不构成硬门旁路**：N0-4C
 与 V3 仍必须先满足，"用户指定/导师要求"不能替代其中任何一项。COMPUTE 门
-之前禁止任何产生数值输出的实验，包括自称"探索""可行性检验""预实验"的计算；
-探索性数据分析必须按 [compute-funnel.md](compute-funnel.md) 登记为永久探索级
-证据，其数值不得进入任何碰撞、审计或冻结工件。
+之前禁止数据集级或训练级数值实验。唯一例外是 `N0_AUDIT / N0-3 / V0` 下用户
+显式授权的实例探针：`iph authorize-instance-probe` 之后最多登记 5 条锚定已发表
+原文的单实例度量，用于查看反例或支撑；禁止把数据集总体分数当成单条成功阈值。
+探针数字登记在 `instance_probe_registry.json` 后可以进入 novelty-audit，但不打开
+`compute_authorized`，也不能代替 V3。其余数值预实验仍须当天登记
+`exploration_registry.json`，其数字不得进入冻结工件。
 
 `DIRECTION_LOCK` 只锁方向。计算按 S0-SCREEN–S4 逐级升级；只有 S4 完成且 state 中的
 `compute_evidence` 指向当前 epoch、当前哈希的计算证据，才能进入
@@ -438,7 +441,7 @@ INVALID（§9）。
 | RULE-ID | 规则 | 权威节 |
 |---|---|---|
 | R-AUTH-01 | 用户授权只是 `compute_authorized` 的必要条件，不构成硬门旁路：N0-4C 与 V3 仍须先满足 | §8 |
-| R-COMPUTE-02 | COMPUTE 门前禁止任何数值输出实验；S0-SCREEN 数值预实验必须当天登记 `exploration_registry.json`，其数字不得进入冻结工件（`UNREGISTERED_COMPUTE_ARTIFACT` / `EXPLORATION_LEAK`） | §8、compute-funnel §2、templates §12 |
+| R-COMPUTE-02 | COMPUTE 门前禁止数据集级或训练级数值实验。N0-3 下经 `iph authorize-instance-probe` 授权的实例探针（≤5 条、必须锚定已发表原文、不得把数据集均值当成功阈值）可以产生数值，登记后可进入 novelty-audit。其余数值仍须 `exploration_registry`，且不得进入冻结工件（`UNREGISTERED_COMPUTE_ARTIFACT` / `EXPLORATION_LEAK`） | §8、compute-funnel §2、templates §12 |
 | R-BLOCKED-03 | BLOCKED 期间仅允许：验证已有产物、记录唯一恢复动作、登记用户直接提供的解阻材料 | §9 |
 | R-LOG-04 | 每次状态完成必须追加 decision_log 条目（真实 UTC 时间、单调、gate 置真有对应条目）；`iph advance` 同时原子登记顶层 artifact 路径、日志哈希和下一动作，禁止手工回填 | §2、templates §1 |
 | R-N0-17 | 证伪优先且正负同严：候选裁决为 N0-4C 前必须在 novelty-audit.md 完成证伪书（falsification ledger），逐条列出杀死候选的尝试及失败原因；裁决为 N0-1/N0-2 时必须分别有占据证据/归约证据（`FALSIFICATION_LEDGER_MISSING`/`OCCUPATION_EVIDENCE_MISSING`/`REDUCTION_EVIDENCE_MISSING`）；负面终局与正面终局同价同严 | §3.1、templates §15 |

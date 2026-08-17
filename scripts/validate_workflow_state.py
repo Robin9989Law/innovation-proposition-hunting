@@ -220,6 +220,9 @@ NEW_CHECK_CODES = frozenset(
         "NEXT_ACTION_INCONSISTENT_WITH_STATE",
         "CAPABILITY_FLIPPED_WITHOUT_PROVENANCE",
         "ATOMIC_CLAIM_NO_ANCHOR",
+        "INSTANCE_PROBE_UNAUTHORIZED",
+        "INSTANCE_PROBE_LIMIT",
+        "INSTANCE_PROBE_MEAN_AS_THRESHOLD",
     }
 )
 
@@ -416,7 +419,65 @@ def count_current_evidence(
 
 
 # compute_authorized=false 时视为"未授权计算产物"的路径模式（根相对 glob）。
-COMPUTE_ARTIFACT_GLOBS = ("s0_*", "s0_outputs/**/*")
+# instance_probes/ 必须先经 iph authorize/register-instance-probe 登记。
+COMPUTE_ARTIFACT_GLOBS = ("s0_*", "s0_outputs/**/*", "instance_probes/**/*")
+MAX_INSTANCE_PROBES = 5
+MEAN_AS_THRESHOLD = re.compile(
+    r"dataset mean|dataset-level|总体均值|平均分当|figure\s*4.*threshold",
+    re.IGNORECASE,
+)
+
+
+def validate_instance_probe_registry(
+    root: Path, state: dict[str, Any], errors: list[str]
+) -> None:
+    """N0-3 实例探针：必须先授权、≤5 条、不得把数据集均值当成功阈值。"""
+
+    artifacts = state.get("artifacts")
+    raw = (
+        artifacts.get("instance_probe_registry")
+        if isinstance(artifacts, dict)
+        else None
+    )
+    relative = raw if isinstance(raw, str) and raw.strip() else "instance_probe_registry.json"
+    path = resolve_artifact(root, relative)
+    if path is None or not path.is_file():
+        return
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        add(errors, "INSTANCE_PROBE_UNAUTHORIZED", f"unreadable:{error}")
+        return
+    if not isinstance(payload, dict):
+        add(errors, "INSTANCE_PROBE_UNAUTHORIZED", "top_level_must_be_object")
+        return
+    if not nonempty(payload.get("authorization_note")):
+        add(errors, "INSTANCE_PROBE_UNAUTHORIZED", "authorization_note:missing")
+    probes = payload.get("probes")
+    if probes is None:
+        probes = []
+    if not isinstance(probes, list):
+        add(errors, "INSTANCE_PROBE_UNAUTHORIZED", "probes:not_list")
+        return
+    if len(probes) > MAX_INSTANCE_PROBES:
+        add(
+            errors,
+            "INSTANCE_PROBE_LIMIT",
+            f"count:{len(probes)}>max:{MAX_INSTANCE_PROBES}",
+        )
+    for index, probe in enumerate(probes):
+        item = f"probes[{index}]"
+        if not isinstance(probe, dict):
+            add(errors, "INSTANCE_PROBE_UNAUTHORIZED", f"{item}:not_object")
+            continue
+        if probe.get("old_metric_verdict") == "SUCCESS":
+            rule = probe.get("success_rule")
+            if not nonempty(rule) or MEAN_AS_THRESHOLD.search(str(rule)):
+                add(
+                    errors,
+                    "INSTANCE_PROBE_MEAN_AS_THRESHOLD",
+                    f"{item}:success_rule:{rule}",
+                )
 
 
 def find_unregistered_compute_artifacts(
@@ -444,6 +505,27 @@ def find_unregistered_compute_artifacts(
                         entry.get("path"), str
                     ):
                         registered.add(entry["path"])
+        probe_relative = (
+            artifacts.get("instance_probe_registry")
+            if isinstance(artifacts, dict)
+            else None
+        )
+        probe_path = root / (
+            probe_relative
+            if isinstance(probe_relative, str)
+            else "instance_probe_registry.json"
+        )
+        if probe_path.is_file():
+            registered.add(probe_path.relative_to(root).as_posix())
+            probes = json.loads(probe_path.read_text(encoding="utf-8")).get(
+                "probes"
+            )
+            if isinstance(probes, list):
+                for probe in probes:
+                    if isinstance(probe, dict) and isinstance(
+                        probe.get("output_file"), str
+                    ):
+                        registered.add(probe["output_file"])
     except (OSError, ValueError):
         pass
     found: list[str] = []
@@ -1290,6 +1372,7 @@ def validate(
     if not compute_authorized:
         for artifact in find_unregistered_compute_artifacts(root, state):
             add(errors, "UNREGISTERED_COMPUTE_ARTIFACT", f"path:{artifact}")
+    validate_instance_probe_registry(root, state, errors)
 
     # R-LAYER-13：证据深度按段供给；超段超量取证即主次颠倒。
     tier = evidence_tier(str(effective_state))

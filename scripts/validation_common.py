@@ -361,6 +361,7 @@ DEFAULT_ARTIFACT_PATHS = {
     "frontier_coverage": "frontier_coverage.json",
     "url_ledger": "near_neighbor_url_ledger.csv",
     "exploration_registry": "exploration_registry.json",
+    "instance_probe_registry": "instance_probe_registry.json",
     "manuscript": "manuscript.md",
     "validation_log": "validation.log",
 }

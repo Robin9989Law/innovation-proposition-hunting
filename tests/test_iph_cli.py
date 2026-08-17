@@ -899,6 +899,101 @@ class RetractNoveltyTests(unittest.TestCase):
             self.assertIn("有效性已冻结", completed.stderr)
 
 
+class InstanceProbeTests(unittest.TestCase):
+    def test_authorize_and_register_on_n0_3(self) -> None:
+        temporary_directory, project = make_valid_project(
+            novelty_level="N0-3", validity_level="V0"
+        )
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "N0_AUDIT"
+            state["resume_state"] = "N0_AUDIT"
+            state["novelty_level"] = "N0-3"
+            state["gates"]["n0_4_locked"] = False
+            state["gates"]["compute_authorized"] = False
+            write_json(project / "workflow_state.json", state)
+            denied = run_iph(
+                project,
+                "register-instance-probe",
+                "--probe-id",
+                "IP-0001",
+                "--purpose",
+                "COUNTEREXAMPLE",
+                "--source-work",
+                "W-0001",
+                "--locator",
+                "Figure 6",
+                "--published-text",
+                "Boy in side.",
+                "--metric",
+                "published_sentence_similarity",
+                "--value",
+                "0.8127",
+                "--old-verdict",
+                "UNDEFINED",
+                "--output",
+                "instance_probes/IP-0001.json",
+            )
+            self.assertNotEqual(0, denied.returncode)
+            self.assertIn("尚未 authorize-instance-probe", denied.stderr)
+            authorized = run_iph(
+                project,
+                "authorize-instance-probe",
+                "--note",
+                "user allowed small-scope instance inspect",
+            )
+            self.assertEqual(0, authorized.returncode, authorized.stderr)
+            (project / "instance_probes").mkdir()
+            (project / "instance_probes" / "IP-0001.json").write_text(
+                '{"value": 0.8127}\n', encoding="utf-8"
+            )
+            registered = run_iph(
+                project,
+                "register-instance-probe",
+                "--probe-id",
+                "IP-0001",
+                "--purpose",
+                "COUNTEREXAMPLE",
+                "--source-work",
+                "W-0001",
+                "--locator",
+                "Figure 6",
+                "--published-text",
+                "Logical Form 2 omits Patient; similarity 0.8127",
+                "--metric",
+                "published_sentence_similarity",
+                "--value",
+                "0.8127",
+                "--old-verdict",
+                "UNDEFINED",
+                "--output",
+                "instance_probes/IP-0001.json",
+            )
+            self.assertEqual(0, registered.returncode, registered.stderr)
+            registry = load_json(project / "instance_probe_registry.json")
+            self.assertEqual(1, len(registry["probes"]))
+            self.assertEqual(0.8127, registry["probes"][0]["value"])
+
+    def test_authorize_rejects_n0_4c(self) -> None:
+        temporary_directory, project = make_valid_project(
+            novelty_level="N0-4C", validity_level="V0"
+        )
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "N0_AUDIT"
+            state["resume_state"] = "N0_AUDIT"
+            state["gates"]["n0_4_locked"] = True
+            write_json(project / "workflow_state.json", state)
+            completed = run_iph(
+                project,
+                "authorize-instance-probe",
+                "--note",
+                "should fail",
+            )
+            self.assertNotEqual(0, completed.returncode)
+            self.assertIn("只能在 N0-3 HOLD", completed.stderr)
+
+
 class RegisterExplorationTests(unittest.TestCase):
     def test_register_and_update(self) -> None:
         temporary_directory, project = make_valid_project()

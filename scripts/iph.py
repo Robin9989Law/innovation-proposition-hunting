@@ -17,6 +17,8 @@ schema 3.0 起 active_track / active_layer / last_completed_state 不再持久�
   clear-lock              完成恢复动作后解除 STOP 锁
   repair-artifact-pointer 保留旧证据并原子切换到版本化修正版
   register-exploration    把探索性数据/产物登记为永久探索级证据
+  authorize-instance-probe  N0-3 下授权小范围实例探针（≤5 条）
+  register-instance-probe   登记一条已授权实例探针结果
   handover                按 SKILL.md §10 生成交接报告
 """
 
@@ -1160,6 +1162,137 @@ def cmd_register_exploration(args: argparse.Namespace) -> int:
     return int(ExitCode.READY)
 
 
+INSTANCE_PROBE_REGISTRY = "instance_probe_registry.json"
+MAX_INSTANCE_PROBES = 5
+INSTANCE_PROBE_PURPOSES = {"COUNTEREXAMPLE", "SUPPORT"}
+INSTANCE_PROBE_VERDICTS = {"SUCCESS", "FAIL", "UNDEFINED"}
+
+
+def _instance_probe_registry_path(root: Path, state: dict[str, Any]) -> Path:
+    artifacts = state.get("artifacts")
+    raw = artifacts.get("instance_probe_registry") if isinstance(artifacts, dict) else None
+    relative = raw if isinstance(raw, str) and canonical_relative_path(raw) else INSTANCE_PROBE_REGISTRY
+    return root / relative
+
+
+def cmd_authorize_instance_probe(args: argparse.Namespace) -> int:
+    """N0-3 HOLD 下授权查看少量反例/支撑实例；不打开 COMPUTE。"""
+
+    root = Path(args.root).resolve()
+    state_path = Path(args.state).resolve()
+    if not nonempty_string(args.note):
+        raise SystemExit("authorize-instance-probe 需要 --note 记录用户授权依据")
+    state = _load_json_object(state_path, "workflow_state.json")
+    if state.get("active_state") != "N0_AUDIT":
+        raise SystemExit("实例探针只能在 N0_AUDIT 授权")
+    if state.get("novelty_level") != "N0-3":
+        raise SystemExit("实例探针只能在 N0-3 HOLD 授权；N0-4C 应走正式 COMPUTE")
+    if state.get("validity_level") != "V0":
+        raise SystemExit("有效性冻结后不得改用实例探针绕过计算漏斗")
+    if state.get("gates", {}).get("compute_authorized") is True:
+        raise SystemExit("计算已授权时应走 S0–S4，而不是实例探针")
+
+    registry_path = _instance_probe_registry_path(root, state)
+    if registry_path.is_file():
+        registry = _load_json_object(registry_path, "instance_probe_registry")
+    else:
+        registry = {"schema_version": "2.0", "probes": []}
+    registry["schema_version"] = "2.0"
+    registry["authorization_note"] = args.note.strip()
+    registry["authorized_at"] = utc_now()
+    registry.setdefault("probes", [])
+    _atomic_write_json(registry_path, registry)
+    artifacts = state.setdefault("artifacts", {})
+    if not isinstance(artifacts, dict):
+        raise SystemExit("workflow_state.artifacts 必须是对象")
+    artifacts["instance_probe_registry"] = registry_path.relative_to(root).as_posix()
+    state["updated_at"] = utc_now()
+    atomic_write_state(state_path, state)
+    append_validation_log(
+        root,
+        f"AUTHORIZE_INSTANCE_PROBE note={args.note.strip()}",
+    )
+    print(
+        "authorized instance probes: max "
+        f"{MAX_INSTANCE_PROBES}; not COMPUTE; do not use dataset means as success"
+    )
+    return int(ExitCode.READY)
+
+
+def cmd_register_instance_probe(args: argparse.Namespace) -> int:
+    """登记一条实例探针。必须先 authorize-instance-probe。"""
+
+    root = Path(args.root).resolve()
+    state_path = Path(args.state).resolve()
+    state = _load_json_object(state_path, "workflow_state.json")
+    registry_path = _instance_probe_registry_path(root, state)
+    if not registry_path.is_file():
+        raise SystemExit("尚未 authorize-instance-probe")
+    registry = _load_json_object(registry_path, "instance_probe_registry")
+    if not nonempty_string(registry.get("authorization_note")):
+        raise SystemExit("实例探针登记簿缺少 authorization_note")
+    if args.purpose not in INSTANCE_PROBE_PURPOSES:
+        raise SystemExit(f"--purpose 必须是 {sorted(INSTANCE_PROBE_PURPOSES)}")
+    if args.old_verdict not in INSTANCE_PROBE_VERDICTS:
+        raise SystemExit(f"--old-verdict 必须是 {sorted(INSTANCE_PROBE_VERDICTS)}")
+    if args.old_verdict == "SUCCESS" and not nonempty_string(args.success_rule):
+        raise SystemExit("old-verdict=SUCCESS 必须给出 --success-rule，且不得是数据集均值阈值")
+    if not canonical_relative_path(args.output):
+        raise SystemExit("--output 必须是根内规范相对路径")
+    output_path = root / args.output
+    if not output_path.is_file():
+        raise SystemExit(f"--output 不存在：{args.output}")
+
+    probes = registry.setdefault("probes", [])
+    if not isinstance(probes, list):
+        raise SystemExit("instance_probe_registry.probes 必须是列表")
+    existing_ids = {
+        item.get("probe_id")
+        for item in probes
+        if isinstance(item, dict)
+    }
+    probe_id = args.probe_id.strip()
+    replacing = probe_id in existing_ids
+    if not replacing and len(probes) >= MAX_INSTANCE_PROBES:
+        raise SystemExit(f"实例探针已达上限 {MAX_INSTANCE_PROBES}")
+
+    try:
+        value = float(args.value)
+    except ValueError as error:
+        raise SystemExit(f"--value 必须是数字：{args.value}") from error
+
+    entry = {
+        "probe_id": probe_id,
+        "purpose": args.purpose,
+        "source_registry_id": args.source_work.strip(),
+        "locator": args.locator.strip(),
+        "published_text": args.published_text.strip(),
+        "metric": args.metric.strip(),
+        "value": value,
+        "old_metric_verdict": args.old_verdict,
+        "success_rule": (args.success_rule or "").strip(),
+        "boundary_lost": [item.strip() for item in (args.boundary_lost or []) if item.strip()],
+        "output_file": args.output,
+        "output_sha256": file_sha256(output_path),
+        "registered_at": utc_now(),
+    }
+    if replacing:
+        probes[:] = [
+            entry if isinstance(item, dict) and item.get("probe_id") == probe_id else item
+            for item in probes
+        ]
+    else:
+        probes.append(entry)
+    _atomic_write_json(registry_path, registry)
+    append_validation_log(
+        root,
+        f"REGISTER_INSTANCE_PROBE {probe_id} value={value} "
+        f"source={args.source_work} output={args.output}",
+    )
+    print(f"registered instance probe {probe_id}: {args.output}")
+    return int(ExitCode.READY)
+
+
 def _count_records(payload: Any, keys: tuple[str, ...]) -> int | None:
     if isinstance(payload, dict):
         for key in keys:
@@ -1382,6 +1515,32 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--path", required=True)
     p.add_argument("--desc", required=True)
     p.set_defaults(func=cmd_register_exploration)
+
+    p = sub.add_parser(
+        "authorize-instance-probe",
+        help="N0-3 下授权小范围实例探针（不打开 COMPUTE）",
+    )
+    add_root_state(p)
+    p.add_argument("--note", required=True)
+    p.set_defaults(func=cmd_authorize_instance_probe)
+
+    p = sub.add_parser(
+        "register-instance-probe",
+        help="登记一条已授权实例探针结果",
+    )
+    add_root_state(p)
+    p.add_argument("--probe-id", required=True)
+    p.add_argument("--purpose", required=True, choices=sorted(INSTANCE_PROBE_PURPOSES))
+    p.add_argument("--source-work", required=True)
+    p.add_argument("--locator", required=True)
+    p.add_argument("--published-text", required=True)
+    p.add_argument("--metric", required=True)
+    p.add_argument("--value", required=True)
+    p.add_argument("--old-verdict", required=True, choices=sorted(INSTANCE_PROBE_VERDICTS))
+    p.add_argument("--success-rule")
+    p.add_argument("--boundary-lost", action="append")
+    p.add_argument("--output", required=True)
+    p.set_defaults(func=cmd_register_instance_probe)
 
     p = sub.add_parser("handover", help="按 SKILL.md §10 生成交接报告")
     p.add_argument("--root", type=Path, required=True)

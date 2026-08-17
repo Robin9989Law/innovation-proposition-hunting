@@ -625,6 +625,40 @@ Markdown、claim 相关 JSON、manuscript）中，即使注明"探索"也不行�
 只允许定性转述。违反报 `EXPLORATION_LEAK`（`validate_exploration_firewall.py`）。
 有 E1/E2 出处的文献数字（出现在 `near_neighbor_registry.json` /
 `literature_claim_registry.json` 中的 token）豁免，因为其 provenance 独立。
+经授权的实例探针数字（`instance_probe_registry.json`）同样豁免，可以进入
+novelty-audit；它们不是探索级泄漏。
+
+## 12.1 `instance_probe_registry.json`
+
+仅 `N0_AUDIT / N0-3 / V0` 且用户已 `iph authorize-instance-probe`。最多 5 条。
+不打开 `compute_authorized`。
+
+```json
+{
+  "schema_version": "2.0",
+  "authorization_note": "<用户允许小范围看实例的依据>",
+  "authorized_at": "<ISO-8601 UTC>",
+  "probes": [
+    {
+      "probe_id": "IP-0001",
+      "purpose": "COUNTEREXAMPLE",
+      "source_registry_id": "W-0007",
+      "locator": "Figure 6",
+      "published_text": "<已发表原句或作者给出的 informalised 句>",
+      "metric": "quan_sentence_similarity",
+      "value": 0.8127,
+      "old_metric_verdict": "UNDEFINED",
+      "success_rule": "",
+      "boundary_lost": ["condition"],
+      "output_file": "instance_probes/IP-0001.json",
+      "output_sha256": "<sha256>"
+    }
+  ]
+}
+```
+
+`old_metric_verdict=SUCCESS` 时 `success_rule` 必填，且不得把数据集总体分数 /
+Figure 4 均值当成单条阈值（`INSTANCE_PROBE_MEAN_AS_THRESHOLD`）。
 
 ## 13. `scope_lock.md`
 

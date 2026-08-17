@@ -1117,6 +1117,10 @@ OC-0001 → LC-0001 → W-0001 → page 7/table 2
 先运行 `iph retract-novelty --to N0-3`（登记新的 novelty-audit），再开新碰撞。
 不得手改 `novelty_level`，也不得在已证伪的 N0-4C 上进入 `CLAIM_FREEZE`。
 
+N0-3 若只缺少量实例级数字，先问用户是否授权实例探针，再运行
+`iph authorize-instance-probe` 与 `iph register-instance-probe`（最多 5 条，
+必须锚到已发表原文）。这不是 COMPUTE，不能用来跑整集评测。
+
 只补页码、证据级、版本别名（alias）或措辞不增加轮次。
 
 ### 12.2 用户只说“继续”时
