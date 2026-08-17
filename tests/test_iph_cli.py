@@ -1059,7 +1059,7 @@ class KeepLayersCollisionTests(unittest.TestCase):
             state = load_json(project / "workflow_state.json")
             self.assertEqual("PRIOR_CLAIM_DRAIN", state["active_state"])
             self.assertEqual(3, state["collision_round"])
-            self.assertEqual("M", state["active_contribution"])
+            self.assertEqual("NONE", state["active_contribution"])
             self.assertTrue(state["gates"]["l1_frozen"])
             self.assertTrue(state["gates"]["l2_frozen"])
             self.assertTrue(state["gates"]["architecture_frozen"])

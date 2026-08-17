@@ -728,8 +728,9 @@ def cmd_start_collision_round(args: argparse.Namespace) -> int:
     for key in reset_keys:
         gates[key] = False
     gates["prior_claims_drained"] = True
-    if not keep_layers:
-        state["active_contribution"] = "NONE"
+    # PRIOR_CLAIM_DRAIN 属 L1 段，active_contribution 必须是 NONE。
+    # --keep-layers 只保留 L1/L2 门，不保留 L3 贡献编号。
+    state["active_contribution"] = "NONE"
     keep_note = "keep-layers; " if keep_layers else ""
     entry = {
         "at": now,
@@ -976,6 +977,7 @@ def cmd_repair_collision_round(args: argparse.Namespace) -> int:
     for key in L3_ROUND_GATES:
         gates[key] = False
     gates["prior_claims_drained"] = True
+    state["active_contribution"] = "NONE"
     state["updated_at"] = utc_now()
     atomic_write_state(state_path, state)
     append_validation_log(

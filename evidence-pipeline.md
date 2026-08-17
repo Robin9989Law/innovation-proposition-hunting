@@ -58,7 +58,9 @@ python3 <skill>/scripts/iph.py start-collision-round \
 ```
 
 L1/L2/架构未变时加 `--keep-layers`：保留这些冻结门及其文献前置门，只重置本轮
-K/输出/证据门。默认（不加该旗标）仍会打回 L1/L2，仅在研究程序本身变化时使用。
+K/输出/证据门。落地仍是 `PRIOR_CLAIM_DRAIN`（L1 段），`active_contribution`
+必须清为 `NONE`；跨回 L3 时由 `iph advance` 再激活 M/A/B/C。默认（不加该旗标）
+仍会打回 L1/L2，仅在研究程序本身变化时使用。
 
 该命令仅接受 `N0_AUDIT / N0-3 / V0`。它先严格验证、确认所有旧观点已耗尽，再将
 `collision_round` 与三本全局账本的 current 指针对齐，创建空的
