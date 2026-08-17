@@ -169,6 +169,12 @@ decision_log 记录裁决、占据/可推导证据与处置（关闭、吸收或
 `next_required_action` 写明终局去向。不得为抵达 `COMPLETE` 而硬撑候选、补做
 无关计算或把 N0-2 包装成 N0-4C——`COMPLETE` 只属于 FINAL_LOCK 路径。
 
+若用户或独立复核证伪已经写入的 `N0-4C`，不得手改 `novelty_level`，也不得
+继续进入 `CLAIM_FREEZE`。唯一写入口是 `iph retract-novelty --to N0-3|N0-1|N0-2`：
+仅允许 `N0_AUDIT + N0-4C + V0`，同一事务把 `n0_4_locked` 置假、登记新的
+novelty-audit，并保持 `active_state=N0_AUDIT`。有效性已冻结或计算已授权后
+不得撤回，只能新开 epoch。撤回后的 `N0-3` 才可以 `start-collision-round`。
+
 **证伪优先（falsification-first）**：任何候选被裁决为 N0-4C 之前，`novelty-audit.md`
 必须先完成证伪书（falsification ledger）——逐条列出"我尝试杀死这个候选的方式
 以及每种方式为何失败"（直接占据、机械归约、换名检测至少各一条；确无某类路径时

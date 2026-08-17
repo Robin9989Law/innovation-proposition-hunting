@@ -784,6 +784,121 @@ class AdvanceTests(unittest.TestCase):
             self.assertEqual("A", state["active_contribution"])
 
 
+class RetractNoveltyTests(unittest.TestCase):
+    def _n0_audit_project(self, *, novelty: str, validity: str, state_name: str):
+        temporary_directory, project = make_valid_project(
+            novelty_level=novelty, validity_level=validity
+        )
+        state = load_json(project / "workflow_state.json")
+        state["active_state"] = state_name
+        state["resume_state"] = state_name
+        state["validity_level"] = validity
+        state["novelty_level"] = novelty
+        state["gates"]["n0_4_locked"] = novelty == "N0-4C"
+        state["gates"]["compute_authorized"] = False
+        write_json(project / "workflow_state.json", state)
+        (project / "novelty-audit.retracted.md").write_text(
+            "# Novelty Audit\n\nHOLD after retract.\n",
+            encoding="utf-8",
+        )
+        return temporary_directory, project
+
+    def test_retracts_n0_4c_to_n0_3(self) -> None:
+        temporary_directory, project = self._n0_audit_project(
+            novelty="N0-4C", validity="V0", state_name="N0_AUDIT"
+        )
+        with temporary_directory:
+            completed = run_iph(
+                project,
+                "retract-novelty",
+                "--to",
+                "N0-3",
+                "--note",
+                "instance witness used a dataset mean as a threshold",
+                "--artifact",
+                "novelty-audit.retracted.md",
+                "--set-artifact",
+                "hierarchy_novelty_audit=novelty-audit.retracted.md",
+                "--next-action",
+                "HOLD at N0-3; do not compute.",
+                "--no-validate",
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("N0_AUDIT", state["active_state"])
+            self.assertEqual("N0-3", state["novelty_level"])
+            self.assertFalse(state["gates"]["n0_4_locked"])
+            self.assertEqual(
+                "HOLD at N0-3; do not compute.",
+                state["next_required_action"],
+            )
+            self.assertEqual(
+                "novelty-audit.retracted.md",
+                state["artifacts"]["hierarchy_novelty_audit"],
+            )
+            entry = state["decision_log"][-1]
+            self.assertEqual("N0_AUDIT", entry["state"])
+            self.assertIn("RETRACT_NOVELTY N0-4C -> N0-3", entry["action"])
+            self.assertEqual(64, len(entry["artifacts"][0]["sha256"]))
+            log_text = (project / "validation.log").read_text(encoding="utf-8")
+            self.assertIn("RETRACT_NOVELTY N0-4C -> N0-3", log_text)
+
+    def test_rejects_unless_n0_audit_n0_4c_v0(self) -> None:
+        temporary_directory, project = self._n0_audit_project(
+            novelty="N0-4C", validity="V0", state_name="CLAIM_FREEZE"
+        )
+        with temporary_directory:
+            completed = run_iph(
+                project,
+                "retract-novelty",
+                "--to",
+                "N0-3",
+                "--note",
+                "wrong state",
+                "--artifact",
+                "novelty-audit.retracted.md",
+                "--no-validate",
+            )
+            self.assertNotEqual(0, completed.returncode)
+            self.assertIn("只能从 N0_AUDIT", completed.stderr)
+
+        temporary_directory, project = self._n0_audit_project(
+            novelty="N0-3", validity="V0", state_name="N0_AUDIT"
+        )
+        with temporary_directory:
+            completed = run_iph(
+                project,
+                "retract-novelty",
+                "--to",
+                "N0-3",
+                "--note",
+                "already hold",
+                "--artifact",
+                "novelty-audit.retracted.md",
+                "--no-validate",
+            )
+            self.assertNotEqual(0, completed.returncode)
+            self.assertIn("只能撤回 N0-4C", completed.stderr)
+
+        temporary_directory, project = self._n0_audit_project(
+            novelty="N0-4C", validity="V1", state_name="N0_AUDIT"
+        )
+        with temporary_directory:
+            completed = run_iph(
+                project,
+                "retract-novelty",
+                "--to",
+                "N0-3",
+                "--note",
+                "validity already frozen",
+                "--artifact",
+                "novelty-audit.retracted.md",
+                "--no-validate",
+            )
+            self.assertNotEqual(0, completed.returncode)
+            self.assertIn("有效性已冻结", completed.stderr)
+
+
 class RegisterExplorationTests(unittest.TestCase):
     def test_register_and_update(self) -> None:
         temporary_directory, project = make_valid_project()

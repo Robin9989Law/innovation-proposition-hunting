@@ -12,6 +12,7 @@ schema 3.0 起 active_track / active_layer / last_completed_state 不再持久�
   validate                运行完整校验套件（当前转发 validate_all.py）
   advance                 校验通过后推进状态并记账
   start-collision-round   从 N0-3 审计合规开启下一碰撞轮次
+  retract-novelty         从 N0_AUDIT/N0-4C 合法撤回为 N0-3/N0-1/N0-2
   review                  subagent 登记 review 产物 hash 到 state（主 agent 只读）
   clear-lock              完成恢复动作后解除 STOP 锁
   repair-artifact-pointer 保留旧证据并原子切换到版本化修正版
@@ -724,6 +725,92 @@ def cmd_start_collision_round(args: argparse.Namespace) -> int:
     return exit_code
 
 
+def cmd_retract_novelty(args: argparse.Namespace) -> int:
+    """把已写入的 N0-4C 撤回为合法 HOLD 或负终局，而不手改 state。
+
+    用户或独立复核证伪 N0-4C 时，CLI 此前没有写入口：不能 advance 回
+    N0_AUDIT，也不能从 N0-4C 开新碰撞。本命令只允许
+    N0_AUDIT + N0-4C + V0，并在同一事务中把 novelty_level / n0_4_locked
+    与新的 novelty-audit 指针对齐。
+    """
+
+    root = Path(args.root).resolve()
+    state_path = Path(args.state).resolve()
+    target = args.to
+    if target not in {"N0-1", "N0-2", "N0-3"}:
+        raise SystemExit("retract-novelty 只能撤回为 N0-1、N0-2 或 N0-3")
+    if not nonempty_string(args.note):
+        raise SystemExit("retract-novelty 需要 --note 记录撤回理由")
+    if not args.no_validate:
+        exit_code = run_validate_all(
+            root, state_path, args.strict_new_checks, []
+        )
+        if exit_code != int(ExitCode.READY):
+            print(f"retract-novelty aborted: validation exit={exit_code}")
+            return exit_code
+
+    state = _load_json_object(state_path, "workflow_state.json")
+    if state.get("active_state") != "N0_AUDIT":
+        raise SystemExit("只能从 N0_AUDIT 撤回 N0 裁决")
+    if state.get("novelty_level") != "N0-4C":
+        raise SystemExit("只能撤回 N0-4C；当前不是可撤回的锁定裁决")
+    if state.get("validity_level") != "V0":
+        raise SystemExit("有效性已冻结后不得撤回 N0；应新开 epoch 而不是降级新颖性")
+    if state.get("gates", {}).get("compute_authorized") is True:
+        raise SystemExit("计算已授权后不得撤回 N0-4C")
+
+    artifact_paths: list[str] = []
+    for raw in args.artifact or []:
+        if not canonical_relative_path(raw):
+            raise SystemExit(f"--artifact 必须是根内规范相对路径：{raw!r}")
+        if not (root / raw).is_file():
+            raise SystemExit(f"--artifact 不存在：{raw}")
+        artifact_paths.append(raw)
+    if not artifact_paths:
+        raise SystemExit("retract-novelty 必须用 --artifact 登记新的 novelty-audit")
+
+    state_artifact_updates = parse_state_artifact_updates(
+        args.set_artifact or [], root
+    )
+    now = utc_now()
+    state["novelty_level"] = target
+    state["updated_at"] = now
+    gates = state.setdefault("gates", {})
+    gates["n0_4_locked"] = False
+    apply_state_repairs(state, state_artifact_updates, args.next_action)
+    artifacts: list[dict[str, str]] = []
+    for relative in artifact_paths:
+        artifacts.append(
+            {"path": relative, "sha256": file_sha256(root / relative)}
+        )
+    entry = {
+        "at": now,
+        "state": "N0_AUDIT",
+        "action": (
+            f"RETRACT_NOVELTY N0-4C -> {target}. {args.note.strip()}"
+        ),
+        "artifacts": artifacts,
+    }
+    state.setdefault("decision_log", []).append(entry)
+    atomic_write_state(state_path, state)
+    append_validation_log(
+        root,
+        f"RETRACT_NOVELTY N0-4C -> {target} "
+        f"artifacts={len(artifacts)} "
+        f"state_artifacts={state_artifact_updates or '-'} "
+        f"note={args.note.strip()}",
+    )
+    print(f"retracted novelty: N0-4C -> {target}")
+    if not args.no_validate:
+        exit_code = run_validate_all(
+            root, state_path, args.strict_new_checks, []
+        )
+        if exit_code != int(ExitCode.READY):
+            print(f"post-retract validation exit={exit_code}")
+            return exit_code
+    return int(ExitCode.READY)
+
+
 # ---------------------------------------------------------------------------
 # repair-collision-round / clear-lock / register-exploration / handover
 # ---------------------------------------------------------------------------
@@ -1231,6 +1318,19 @@ def build_parser() -> argparse.ArgumentParser:
     add_root_state(p)
     p.add_argument("--note", required=True)
     p.set_defaults(func=cmd_start_collision_round)
+
+    p = sub.add_parser(
+        "retract-novelty",
+        help="从 N0_AUDIT/N0-4C 合法撤回为 N0-3/N0-1/N0-2",
+    )
+    add_root_state(p)
+    p.add_argument("--to", required=True, choices=["N0-1", "N0-2", "N0-3"])
+    p.add_argument("--note", required=True)
+    p.add_argument("--artifact", action="append", metavar="PATH", required=True)
+    p.add_argument("--set-artifact", action="append", metavar="KEY=PATH")
+    p.add_argument("--next-action")
+    p.add_argument("--no-validate", action="store_true")
+    p.set_defaults(func=cmd_retract_novelty)
 
     p = sub.add_parser(
         "repair-collision-round", help="仅修复 STOP 锁中的新碰撞轮次快照"
