@@ -123,8 +123,9 @@ seed 采用递增策略，例如 `2 → 3 → 5`。S2 只有在两个初始 seed
 
 只有 S3 通过后才写 S4 预注册。S3 只许点名封存来源，不得把封存 AST 写进
 开发 runner。S4 必须使用独立 `sealed_runner`，每条 sealed `per_run` 必须带
-`unseen_fingerprint`、非空 `inventory_atoms`，并打中冻结句的一条 FAIL-*
-合取。空清单上的多余原子失败不算确认。终态窗口协议仍写
+8–64 字符标识符指纹（该词令须在 sealed runner 内、按词令边界未见）、非空
+`inventory_atoms`，并打中已声明的一条 FAIL-* 合取。ALGORITHM 冻结句未声明
+合取不得确认。空清单上的多余原子失败不算确认。终态窗口协议仍写
 `NOT_YET_ACCESSED` 是常驻 INVALID。完整硬门见 hard-gates.md。
 
 ### S4 后的强制回路

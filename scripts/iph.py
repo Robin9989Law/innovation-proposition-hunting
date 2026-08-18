@@ -271,9 +271,9 @@ def apply_transition_semantics(
             )
         if note_lacks_compute_grant(args.authorization_note):
             raise SystemExit(
-                "计算授权依据不足：authorization-note 必须引用用户明确授权"
-                "计算的原句，并含「计算」或 compute；「推进到 N0-4C」"
-                "「继续直到所有完成」「完成全流程」不是计算授权"
+                "计算授权依据不足：authorization-note 必须同时含授权动词"
+                "（授权/authorize）与计算对象（计算/compute），且不能只剩套话；"
+                "「推进到 N0-4C」「继续直到所有完成」「完成全流程」不是计算授权"
             )
         gate_updates["compute_authorized"] = True
         state["compute_stage"] = "S0"
@@ -290,8 +290,8 @@ def apply_transition_semantics(
             )
         if note_lacks_acceptance_grant(args.acceptance_note):
             raise SystemExit(
-                "最终锁定接受依据不足：acceptance-note 必须引用用户明确"
-                "接受本次 COMPLETE 的原句，并含「接受」「锁定」或 complete；"
+                "最终锁定接受依据不足：acceptance-note 必须同时含接受动词"
+                "（接受/accept）与锁定对象（锁定/complete/最终），且不能只剩套话；"
                 "计算授权或「完成全流程」不够"
             )
         state["final_acceptance"] = {
@@ -1096,10 +1096,13 @@ def cmd_review(args: argparse.Namespace) -> int:
                 "PASS 的 review 产物必须含非空 review_answers 四问"
                 "（data_authenticity/baseline_execution/claim_strength/falsification_attempt）"
             )
-        if not has_review_locator(str(review_answers.get("falsification_attempt") or "")):
+        if not has_review_locator(
+            str(review_answers.get("falsification_attempt") or ""),
+            root=root,
+        ):
             raise SystemExit(
-                "PASS 的 falsification_attempt 必须引用 path:line 或 64 位哈希；"
-                "不得把硬 FAIL 写成 limitation 后盖章"
+                "PASS 的 falsification_attempt 必须引用项目内真实 path:line "
+                "或 manifest 中的 64 位哈希；不得把硬 FAIL 写成 limitation 后盖章"
             )
         hard_fails = collect_sealed_hard_fail_details(root, state)
         if hard_fails:

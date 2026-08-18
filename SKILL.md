@@ -463,8 +463,8 @@ INVALID（§9）。
 |---|---|---|
 | R-AUTH-01 | 用户授权只是 `compute_authorized` 的必要条件，不构成硬门旁路：N0-4C 与 V3 仍须先满足；「推进到 N0-4C / 完成全流程」不是计算授权 | §8 |
 | R-SEAL-25 | 终态窗口协议不得仍写 `NOT_YET_ACCESSED`；常驻 INVALID | hard-gates §3 |
-| R-SEAL-26 | S4 须有未见指纹，不得出现在测试、实现或开发 runner | hard-gates §3 |
-| R-SEAL-29 | sealed 清单不得空；dev/sealed runner 必须互异；须打中冻结合取 | hard-gates §3 |
+| R-SEAL-26 | S4 指纹须是 sealed runner 内标识符词令，不得出现在测试、实现或开发 runner | hard-gates §3 |
+| R-SEAL-29 | sealed 清单不得空；dev/sealed runner 必须互异；须先声明并打中冻结合取 | hard-gates §3 |
 | R-ACCEPT-27 | COMPLETE 必须登记用户接受原句；计算授权不够 | hard-gates §1 |
 | R-REVIEW-28 | 硬 FAIL 表成立时 review PASS 必须拒绝 | hard-gates §2 |
 | R-ALIGN-30 | inventory 冻结句须在 exact 中，或 NARROWER 且不背书宽句 | hard-gates §4 |

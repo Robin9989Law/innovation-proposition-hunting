@@ -101,10 +101,32 @@ def _validate_identity_fields(audit: dict[str, Any], *, required: bool) -> list[
     return issues
 
 
+def _manifest_hashes(manifest: dict[str, Any], state: dict[str, Any]) -> set[str]:
+    hashes: set[str] = set()
+    for key in ("claim_bundle_sha256",):
+        value = state.get(key)
+        if valid_sha256(value):
+            hashes.add(str(value).lower())
+        value = manifest.get(key)
+        if valid_sha256(value):
+            hashes.add(str(value).lower())
+    entries = manifest.get("entries")
+    if isinstance(entries, list):
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            digest = entry.get("sha256")
+            if valid_sha256(digest):
+                hashes.add(str(digest).lower())
+    return hashes
+
+
 def validate(
     state: dict[str, Any],
     manifest: dict[str, Any],
     audit: dict[str, Any],
+    *,
+    root: Path | None = None,
 ) -> list[Issue]:
     validity_level = state.get("validity_level")
     state_audit = state.get("independent_audit")
@@ -227,14 +249,16 @@ def validate(
                         )
                     )
                 elif key == "falsification_attempt" and not has_review_locator(
-                    str(value)
+                    str(value),
+                    root=root,
+                    known_hashes=_manifest_hashes(manifest, state),
                 ):
                     issues.append(
                         Issue(
                             "REVIEW_ANSWER_NO_LOCATOR",
                             "INVALID",
                             "independent_audit",
-                            "review_answers.falsification_attempt:no_path_line_or_hash",
+                            "review_answers.falsification_attempt:locator_not_in_project",
                         )
                     )
 
@@ -311,7 +335,7 @@ def validate_with_context(
         ):
             raise
         audit = {"schema_version": "2.0", "capability_available": False}
-    issues = validate(ctx.state, manifest, audit)
+    issues = validate(ctx.state, manifest, audit, root=ctx.root)
 
     # R-REVIEW-20：review 产物主 agent 只读不写。state 里登记的 review 产物
     # sha256 与磁盘文件实际 hash 不符，即主 agent 事后改写了 review 产物。

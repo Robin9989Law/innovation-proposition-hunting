@@ -274,6 +274,27 @@ class AuditInvalidationTests(unittest.TestCase):
         self.assertEqual(1, result.returncode, result.stdout + result.stderr)
         self.assertIn("REVIEW_ANSWER_NO_LOCATOR", result.stdout)
 
+    def test_pass_audit_rejects_unresolved_locator(self) -> None:
+        project = self.make_project()
+        audit = load_json(project / AUDIT)
+        audit["review_answers"] = {
+            "data_authenticity": "real",
+            "baseline_execution": "real",
+            "claim_strength": "real",
+            "falsification_attempt": "tried kill at ghost-file.md:1",
+        }
+        write_json(project / AUDIT, audit)
+        missing = run_script("validate_audit_provenance.py", project)
+        self.assertEqual(1, missing.returncode, missing.stdout + missing.stderr)
+        self.assertIn("REVIEW_ANSWER_NO_LOCATOR", missing.stdout)
+        audit["review_answers"]["falsification_attempt"] = (
+            "tried kill at manuscript.md:999"
+        )
+        write_json(project / AUDIT, audit)
+        oob = run_script("validate_audit_provenance.py", project)
+        self.assertEqual(1, oob.returncode, oob.stdout + oob.stderr)
+        self.assertIn("REVIEW_ANSWER_NO_LOCATOR", oob.stdout)
+
     def test_capability_unavailable_is_blocked_without_false_invalidity(self) -> None:
         project = self.make_project()
         state = load_json(project / "workflow_state.json")

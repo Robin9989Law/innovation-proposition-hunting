@@ -19,8 +19,10 @@ iph advance --to COMPLETE \
 
 下列用语不是接受：「推进到 N0-4C」「继续推进」「继续直到所有完成」
 「完成全流程」「用户要求完成全流程」。计算授权不是最终锁定接受。
-授权 note 必须含「计算」或 `compute`；接受 note 必须含「接受」「锁定」
-或 `complete`。
+授权 note 必须同时含动词（授权 / authorize）与对象（计算 / compute），
+去掉这些词后还要剩下可辨认的用户原句。接受 note 必须同时含动词
+（接受 / accept）与对象（锁定 / complete / 最终）。「authorized compute」
+这种只剩标记的句子不够。
 
 `workflow_state.final_acceptance` 由同一事务写入 `{note, at}`。缺对象、
 空 note 或套话即 `COMPLETE_REQUIRES_USER_ACCEPTANCE`（常驻 INVALID）。
@@ -33,31 +35,35 @@ iph advance --to COMPLETE \
 | 条件 | 码 |
 |---|---|
 | 已登记 sealed 运行且协议仍为 `NOT_YET_ACCESSED`（终态窗口） | `PROTOCOL_SEALED_ACCESS_CONTRADICTION` |
-| sealed 行缺 `unseen_fingerprint` 或指纹出现在计算前测试、实现、开发 runner、`compute/`/`checks/`/`implementation/` 下除 `sealed_runner` 外的 `.py` | `SEALED_UNIT_FINGERPRINT_MISSING` / `SEALED_UNIT_SEEN_IN_PRECOMPUTE` |
+| sealed 行缺合格指纹（8–64 位标识符，词令边界）或指纹出现在计算前测试、实现、开发 runner、`compute/`/`checks/`/`implementation/` 下除 `sealed_runner` 外的 `.py` | `SEALED_UNIT_FINGERPRINT_MISSING` / `SEALED_UNIT_SEEN_IN_PRECOMPUTE` |
+| 合格指纹未出现在 `sealed_runner` | `SEALED_UNIT_FINGERPRINT_NOT_IN_RUNNER` |
 | sealed 行 `inventory_atoms` 为空 | `SEALED_INVENTORY_EMPTY` |
 | `dev_runner` 与 `sealed_runner` 缺一或路径相同 | `SEALED_RUNNER_NOT_INDEPENDENT` |
-| 冻结句或 `s4_conjuncts` 声明了 FAIL-* 停止合取，但无一 sealed 行以非空清单打中 | `SEALED_CONJUNCT_NOT_HIT` |
+| 有 sealed 运行且存在冻结 ALGORITHM 主张，却未声明 `s4_conjuncts` 也未在冻结句写 FAIL-* | `S4_CONJUNCTS_UNDECLARED` |
+| 已声明 FAIL-* 合取，但无一 sealed 行以非空清单打中 | `SEALED_CONJUNCT_NOT_HIT` |
 
 四问非空仍是必要的，不是充分的。`verdict=PASS` 时
-`falsification_attempt` 必须含 `path:line` 或 64 位哈希
-（`REVIEW_ANSWER_NO_LOCATOR`）。不得把上表写成 limitation 后盖章。
+`falsification_attempt` 必须引用**项目内真实文件**的 `path:line`，或
+audit_manifest 里已有的 64 位哈希（`REVIEW_ANSWER_NO_LOCATOR`）。
+编造 `ghost.md:1` 或越界行号不算。不得把上表写成 limitation 后盖章。
 
 ## 3. S4 确认资格（R-SEAL-26 / R-SEAL-29）
 
 封存运行一旦出现在 `compute_evidence`：
 
-- 每条 `split=sealed` 必须有 ≥4 字符 `unseen_fingerprint`，且不得出现在
-  计算前测试、实现、`dev_runner`，以及 `compute/`、`checks/`、
+- 每条 `split=sealed` 必须有 8–64 字符标识符指纹（`[A-Za-z_][A-Za-z0-9_-]*`），
+  按词令边界匹配，不得当子串；该词令必须出现在 `sealed_runner`，且不得
+  出现在计算前测试、实现、`dev_runner`，以及 `compute/`、`checks/`、
   `implementation/` 下除 `sealed_runner` 外的 `.py`。
 - `inventory_atoms` 必须是非空字符串列表。空清单上的
   `FAIL-SPURIOUS-ATOM` 不算确认。
 - 顶层必须声明互异的 `dev_runner` 与 `sealed_runner`（规范相对路径，
   且文件存在）。S3 只许点名封存来源，不许把封存 AST 写进开发 runner。
-- 冻结句或 `claims[].s4_conjuncts` 若写出 `FAIL-OMISSION` /
-  `FAIL-AMBIGUOUS` / `FAIL-COLLAPSE` / `FAIL-SPURIOUS-ATOM`，至少一条
-  sealed 行的 `decision`（或同值的 `algorithm`）必须打中其中一条，且
-  清单非空。只 ACCEPT、或只在空清单上多余原子，都是
-  `SEALED_CONJUNCT_NOT_HIT`。
+- 只要出现 sealed 运行且存在冻结 ALGORITHM 主张，就必须声明
+  `s4_conjuncts` 或在冻结句写出 FAIL-* 停止合取。缺声明即
+  `S4_CONJUNCTS_UNDECLARED`。声明之后，至少一条 sealed 行的
+  `decision`（或同值 `algorithm`）必须打中其中一条 FAIL-*，且清单非空。
+  只 ACCEPT、或只在空清单上多余原子，都是 `SEALED_CONJUNCT_NOT_HIT`。
 
 `PROTOCOL_SEALED_ACCESS_CONTRADICTION` 在
 `FINAL_VALIDITY_AUDIT` / `FINAL_LOCK` / `COMPLETE` 为常驻 INVALID。
@@ -94,5 +100,6 @@ iph advance --to COMPLETE \
 `WIRING_NOT_ATTEMPTED`、`WIRING_STILL_ALIVE`、`SEPARATION_NOT_WHOLE`、
 `COMPOSITION_AUDIT_MISSING`、
 `SEALED_INVENTORY_EMPTY`、`SEALED_RUNNER_NOT_INDEPENDENT`、
+`SEALED_UNIT_FINGERPRINT_NOT_IN_RUNNER`、`S4_CONJUNCTS_UNDECLARED`、
 `SEALED_CONJUNCT_NOT_HIT`、`COMPLETE_REQUIRES_USER_ACCEPTANCE`、
 `EXACT_INVENTORY_MISMATCH`、`REVIEW_ANSWER_NO_LOCATOR`。

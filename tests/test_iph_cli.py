@@ -1531,6 +1531,20 @@ class ReviewCommandTests(unittest.TestCase):
             )
             self.assertNotEqual(0, denied_marker.returncode)
             self.assertIn("计算授权依据不足", denied_marker.stderr)
+            marker_only = run_iph(
+                project,
+                "advance",
+                "--to",
+                "COMPUTE",
+                "--note",
+                "open compute",
+                "--authorize-compute",
+                "--authorization-note",
+                "authorized compute",
+                "--no-validate",
+            )
+            self.assertNotEqual(0, marker_only.returncode)
+            self.assertIn("计算授权依据不足", marker_only.stderr)
 
     def test_complete_requires_user_acceptance_quote(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V4")

@@ -133,8 +133,10 @@ INSUFFICIENT_USER_GRANT_NOTES = frozenset(
         "继续推进",
     }
 )
-COMPUTE_GRANT_MARKERS = ("计算", "compute")
-ACCEPTANCE_GRANT_MARKERS = ("接受", "锁定", "complete")
+COMPUTE_GRANT_VERBS = ("授权", "authorize")
+COMPUTE_GRANT_OBJECTS = ("计算", "compute")
+ACCEPTANCE_GRANT_VERBS = ("接受", "accept")
+ACCEPTANCE_GRANT_OBJECTS = ("锁定", "complete", "最终")
 PROTOCOL_CONTRADICTION_STATES = frozenset(
     {"FINAL_VALIDITY_AUDIT", "FINAL_LOCK", "COMPLETE"}
 )
@@ -147,9 +149,9 @@ SEALED_STOP_TOKENS = frozenset(
         "ACCEPT",
     }
 )
-REVIEW_LOCATOR_RE = re.compile(
-    r"(?:[A-Za-z0-9_./-]+\.[A-Za-z0-9]+:\d+|[a-fA-F0-9]{64})"
-)
+FINGERPRINT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{7,63}$")
+REVIEW_PATH_LINE_RE = re.compile(r"([A-Za-z0-9_./-]+\.[A-Za-z0-9]+):(\d+)")
+REVIEW_HASH_RE = re.compile(r"\b[a-fA-F0-9]{64}\b")
 
 
 def normalize_claim_text(text: str) -> str:
@@ -161,22 +163,74 @@ def is_insufficient_user_grant(note: str) -> bool:
     return text in INSUFFICIENT_USER_GRANT_NOTES
 
 
-def note_lacks_compute_grant(note: str) -> bool:
+def _note_lacks_verb_object(
+    note: str, verbs: tuple[str, ...], objects: tuple[str, ...]
+) -> bool:
     if is_insufficient_user_grant(note):
         return True
     text = note.casefold()
-    return not any(marker in text for marker in COMPUTE_GRANT_MARKERS)
+    if not any(verb in text for verb in verbs):
+        return True
+    if not any(obj in text for obj in objects):
+        return True
+    leftover = text
+    for marker in verbs + objects:
+        leftover = leftover.replace(marker, " ")
+    return len(" ".join(leftover.split())) < 2
+
+
+def note_lacks_compute_grant(note: str) -> bool:
+    return _note_lacks_verb_object(note, COMPUTE_GRANT_VERBS, COMPUTE_GRANT_OBJECTS)
 
 
 def note_lacks_acceptance_grant(note: str) -> bool:
-    if is_insufficient_user_grant(note):
-        return True
-    text = note.casefold()
-    return not any(marker in text for marker in ACCEPTANCE_GRANT_MARKERS)
+    return _note_lacks_verb_object(
+        note, ACCEPTANCE_GRANT_VERBS, ACCEPTANCE_GRANT_OBJECTS
+    )
 
 
-def has_review_locator(text: str) -> bool:
-    return bool(REVIEW_LOCATOR_RE.search(text or ""))
+def fingerprint_token_ok(token: str) -> bool:
+    return bool(FINGERPRINT_RE.fullmatch(token))
+
+
+def token_occurs(token: str, text: str) -> bool:
+    return (
+        re.search(
+            r"(?<![A-Za-z0-9_])" + re.escape(token) + r"(?![A-Za-z0-9_])",
+            text,
+        )
+        is not None
+    )
+
+
+def has_review_locator(
+    text: str,
+    *,
+    root: Path | None = None,
+    known_hashes: set[str] | None = None,
+) -> bool:
+    payload = text or ""
+    if root is not None:
+        for match in REVIEW_PATH_LINE_RE.finditer(payload):
+            relative, line_text = match.group(1), match.group(2)
+            if not canonical_relative_path(relative):
+                continue
+            path = root / relative
+            if not path.is_file():
+                continue
+            try:
+                lines = path.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                continue
+            line_no = int(line_text)
+            if 1 <= line_no <= max(len(lines), 1):
+                return True
+        if known_hashes:
+            for match in REVIEW_HASH_RE.finditer(payload):
+                if match.group(0).lower() in known_hashes:
+                    return True
+        return False
+    return bool(REVIEW_PATH_LINE_RE.search(payload) or REVIEW_HASH_RE.search(payload))
 
 
 def sealed_decision(run: dict[str, Any]) -> str | None:
@@ -212,6 +266,20 @@ def required_sealed_stop_tokens(inventory: dict[str, Any] | None) -> set[str]:
     }
     fail_tokens = tokens - {"ACCEPT"}
     return fail_tokens or tokens
+
+
+def has_frozen_algorithm_claim(inventory: dict[str, Any] | None) -> bool:
+    if not isinstance(inventory, dict):
+        return False
+    claims = inventory.get("claims")
+    if not isinstance(claims, list):
+        return False
+    return any(
+        isinstance(claim, dict)
+        and claim.get("status") == "FROZEN"
+        and claim.get("claim_type") in ALGORITHM_CLAIM_TYPES
+        for claim in claims
+    )
 
 
 def positive_integer(value: Any) -> bool:

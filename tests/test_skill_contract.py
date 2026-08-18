@@ -47,6 +47,8 @@ class SkillContractTests(unittest.TestCase):
             "COMPLETE_REQUIRES_USER_ACCEPTANCE",
             "SEALED_INVENTORY_EMPTY",
             "SEALED_RUNNER_NOT_INDEPENDENT",
+            "SEALED_UNIT_FINGERPRINT_NOT_IN_RUNNER",
+            "S4_CONJUNCTS_UNDECLARED",
             "SEALED_CONJUNCT_NOT_HIT",
             "REVIEW_ANSWER_NO_LOCATOR",
             "EXACT_INVENTORY_MISMATCH",

@@ -113,8 +113,8 @@ CLAIM_FREEZE -> VALIDITY_AUDIT:
 VALIDITY_AUDIT -> INDEPENDENT_REVIEW: CLI 派生 V2
 DIRECTION_LOCK -> COMPUTE:
   --authorize-compute --authorization-note <用户明确授权计算的原句>（CLI 派生 S0；
-  必须含「计算」或 compute；「推进到 N0-4C」「继续直到所有完成」
-  「完成全流程」会被拒绝）
+  必须同时含授权动词与计算对象；「推进到 N0-4C」「继续直到所有完成」
+  「完成全流程」「authorized compute」会被拒绝）
 COMPUTE -> POSTCOMPUTE_CLAIM_FREEZE:
   --compute-evidence compute_evidence.json（必须声明 S4）
 POSTCOMPUTE_CLAIM_FREEZE -> FINAL_VALIDITY_AUDIT:
@@ -129,7 +129,7 @@ iph review --verdict PASS：镜像 independent_audit 并升 V3/V4；
 COMPUTE 内：iph advance-compute-stage --to S1|S2|S3|S4
 FINAL_LOCK -> COMPLETE:
   --accept-complete --acceptance-note <用户接受本次锁定的原句>
-  （必须含「接受」「锁定」或 complete）
+  （必须同时含接受动词与锁定对象）
 ```
 
 N0-1/N0-2/N0-3 时 `n0_4_locked=false`；只有 N0-4C 才为 true。CLI 拒绝跳态、
@@ -229,8 +229,8 @@ term 与行文本均先 `casefold()`；行文本再把连续空白折叠为单�
 `CLAIM_FREEZE` 及之后，若登记了 `artifacts.exact_statement`，冻结句必须出现在
 该文件中，或 inventory 声明 `exact_alignment.status=NARROWER` 且
 `does_not_underwrite_exact=true`，由 `validity_source` 兑现（hard-gates.md）。
-算法冻结句若含 `FAIL-OMISSION` / `FAIL-COLLAPSE` 等停止合取，或显式写
-`s4_conjuncts`，S4 必须打中其中一条（hard-gates.md）。
+只要出现 sealed 运行，冻结 ALGORITHM 主张就必须声明 `s4_conjuncts` 或在
+statement 写出 FAIL-* 合取；S4 必须打中其中一条（hard-gates.md）。
 
 ## 3. `theory_obligation_registry.json`
 
@@ -552,9 +552,9 @@ BLOCKED；不得伪造 reviewer、thread、PASS 或 bundle。
 `verdict=PASS` 且 `capability_available=true` 时，`review_answers` 四个键
 （`data_authenticity` / `baseline_execution` / `claim_strength` /
 `falsification_attempt`）必须全部非空，缺一即 `REVIEW_ANSWERS_INCOMPLETE`。
-`falsification_attempt` 还必须含 `path:line` 或 64 位哈希，否则
-`REVIEW_ANSWER_NO_LOCATOR`。这四问是实质复核，不是形式核对；写"已确认通过"
-"8/8 通过"等空话等于未答。
+`falsification_attempt` 必须引用项目内真实 `path:line`，或 audit_manifest
+已有的 64 位哈希，否则 `REVIEW_ANSWER_NO_LOCATOR`。这四问是实质复核，不是
+形式核对；写"已确认通过""8/8 通过"等空话等于未答。
 
 `INDEPENDENT_REVIEW` / `FINAL_VALIDITY_AUDIT` 刚进入且 state 中
 `independent_audit={}` 时表示 reviewer pending：作者 bundle 继续严格验证，但审计
@@ -584,12 +584,12 @@ S4 完成后的计算证据文件可采用：
 `COMPUTE_DATA_SOURCE_UNSPECIFIED`。manuscript 声称了真实数据集名但
 `data_sources` 无对应非合成条目即 `MANUSCRIPT_DATASET_UNVERIFIED`。
 
-`split=sealed` 的每条 `per_run` 必须有 `unseen_fingerprint`（≥4 字符）、非空
-`inventory_atoms`，以及打中冻结合取的 `decision`（或同值 `algorithm`）。
-顶层必须声明互异的 `dev_runner` 与 `sealed_runner`。指纹不得出现在计算前
-测试、实现、开发 runner 或 `compute/`/`checks/`/`implementation/` 下除
-`sealed_runner` 外的 `.py`。终态窗口协议不得仍为 `NOT_YET_ACCESSED`。
-见 hard-gates.md。
+`split=sealed` 的每条 `per_run` 必须有 8–64 字符标识符 `unseen_fingerprint`
+（词令边界，且该词令出现在 `sealed_runner`）、非空 `inventory_atoms`，以及
+打中已声明冻结合取的 `decision`（或同值 `algorithm`）。顶层必须声明互异的
+`dev_runner` 与 `sealed_runner`。指纹不得出现在计算前测试、实现、开发
+runner 或 `compute/`/`checks/`/`implementation/` 下除 `sealed_runner` 外的
+`.py`。终态窗口协议不得仍为 `NOT_YET_ACCESSED`。见 hard-gates.md。
 
 进入 `POSTCOMPUTE_CLAIM_FREEZE` 时，`workflow_state.json` 还必须增加 validator 实际
 读取的 pointer；artifact hash 必须是上面文件的当前 SHA-256：

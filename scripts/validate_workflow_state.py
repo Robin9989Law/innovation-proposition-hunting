@@ -15,6 +15,8 @@ from validation_common import (
     PROTOCOL_CONTRADICTION_STATES,
     canonical_relative_path,
     choose_exit,
+    fingerprint_token_ok,
+    has_frozen_algorithm_claim,
     note_lacks_acceptance_grant,
     nonempty_string,
     normalize_claim_text,
@@ -25,6 +27,7 @@ from validation_common import (
     required_sealed_stop_tokens,
     sealed_decision,
     strict_json_load_bytes,
+    token_occurs,
 )
 from validate_artifact_hashes import valid_sha256
 from validate_schema_v2 import validate as validate_schema_v2
@@ -1193,17 +1196,28 @@ def collect_sealed_hard_fail_details(
         sealed_runner,
     )
 
-    required_tokens = required_sealed_stop_tokens(
-        load_json_if_present(
-            root,
-            (
-                artifacts.get("claim_inventory")
-                if isinstance(artifacts, dict) and artifacts.get("claim_inventory")
-                else "claim_inventory.json"
-            ),
-        )
+    inventory = load_json_if_present(
+        root,
+        (
+            artifacts.get("claim_inventory")
+            if isinstance(artifacts, dict) and artifacts.get("claim_inventory")
+            else "claim_inventory.json"
+        ),
     )
+    required_tokens = required_sealed_stop_tokens(inventory)
+    if has_frozen_algorithm_claim(inventory) and not required_tokens:
+        problems.append(
+            (
+                "S4_CONJUNCTS_UNDECLARED",
+                "frozen ALGORITHM claim missing s4_conjuncts or FAIL-* tokens",
+            )
+        )
     hit_required = False
+    sealed_text = (
+        _read_text_if_present(root, sealed_runner)
+        if canonical_relative_path(sealed_runner)
+        else None
+    )
 
     for run in sealed_runs:
         unit = run.get("unit")
@@ -1216,12 +1230,19 @@ def collect_sealed_hard_fail_details(
                 ("SEALED_INVENTORY_EMPTY", f"unit:{unit}")
             )
         fingerprint = run.get("unseen_fingerprint")
-        if not nonempty_string(fingerprint) or len(str(fingerprint).strip()) < 4:
+        token = str(fingerprint).strip() if nonempty_string(fingerprint) else ""
+        if not fingerprint_token_ok(token):
             problems.append(("SEALED_UNIT_FINGERPRINT_MISSING", f"unit:{unit}"))
         else:
-            token = str(fingerprint).strip()
+            if sealed_text is not None and not token_occurs(token, sealed_text):
+                problems.append(
+                    (
+                        "SEALED_UNIT_FINGERPRINT_NOT_IN_RUNNER",
+                        f"unit:{unit};fingerprint:{token}",
+                    )
+                )
             for source, text in precompute_texts:
-                if token in text:
+                if token_occurs(token, text):
                     problems.append(
                         (
                             "SEALED_UNIT_SEEN_IN_PRECOMPUTE",
