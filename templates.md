@@ -112,13 +112,17 @@ CLAIM_FREEZE -> VALIDITY_AUDIT:
   --claim-bundle-manifest audit_manifest.json（CLI 派生 V1 并登记当前 epoch bundle）
 VALIDITY_AUDIT -> INDEPENDENT_REVIEW: CLI 派生 V2
 DIRECTION_LOCK -> COMPUTE:
-  --authorize-compute --authorization-note <用户授权依据>（CLI 派生 S0）
+  --authorize-compute --authorization-note <用户明确授权计算的原句>（CLI 派生 S0；
+  「推进到 N0-4C」「继续直到所有完成」「完成全流程」会被拒绝）
 COMPUTE -> POSTCOMPUTE_CLAIM_FREEZE:
   --compute-evidence compute_evidence.json（必须声明 S4）
 POSTCOMPUTE_CLAIM_FREEZE -> FINAL_VALIDITY_AUDIT:
   --claim-bundle-manifest audit_manifest.json（manifest epoch 必须恰好 +1）
 INDEPENDENT_REVIEW FAIL:
   iph reopen-validity-epoch（epoch+1，退回 CLAIM_FREEZE，N0 不变）
+用户否决 FINAL_LOCK / COMPLETE / V4：
+  iph reopen-validity-epoch --user-reject-complete
+  （epoch+1，退回 CLAIM_FREEZE，关闭计算，N0 不变；可用 --set-artifact 切到新 epoch 产物）
 iph review --verdict PASS：镜像 independent_audit 并升 V3/V4
 COMPUTE 内：iph advance-compute-stage --to S1|S2|S3|S4
 ```
@@ -567,6 +571,12 @@ S4 完成后的计算证据文件可采用：
 （`SYNTHETIC_DATA_NAMED_AS_REAL`）。缺 `data_sources` 即
 `COMPUTE_DATA_SOURCE_UNSPECIFIED`。manuscript 声称了真实数据集名但
 `data_sources` 无对应非合成条目即 `MANUSCRIPT_DATASET_UNVERIFIED`。
+
+`split=sealed` 的每条 `per_run` 必须有 `unseen_fingerprint`（≥4 字符），且该
+指纹不得出现在 `claim_code_trace` 已登记的计算前可执行测试中
+（`SEALED_UNIT_FINGERPRINT_MISSING` / `SEALED_UNIT_SEEN_IN_PRECOMPUTE`）。
+`compute_stage=S4` 或已登记 sealed 运行后，`protocol.sealed_confirmation_data`
+不得为 `NOT_YET_ACCESSED`（`PROTOCOL_SEALED_ACCESS_CONTRADICTION`）。
 
 进入 `POSTCOMPUTE_CLAIM_FREEZE` 时，`workflow_state.json` 还必须增加 validator 实际
 读取的 pointer；artifact hash 必须是上面文件的当前 SHA-256：

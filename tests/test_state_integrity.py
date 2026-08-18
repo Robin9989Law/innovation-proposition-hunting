@@ -650,6 +650,93 @@ class L3ContractG4CompositionTests(unittest.TestCase):
                 "COMPLETE_REQUIRES_FINAL_LOCK_CONDITIONS", completed.stdout
             )
 
+    def test_protocol_sealed_access_contradiction(self) -> None:
+        temporary_directory, project = make_valid_project(claim_profile="ALGORITHM")
+        with temporary_directory:
+            protocol = load_json(project / "protocol_contract.json")
+            protocol["sealed_confirmation_data"] = "NOT_YET_ACCESSED"
+            write_json(project / "protocol_contract.json", protocol)
+            write_json(
+                project / "compute_evidence.json",
+                {
+                    "schema_version": "2.0",
+                    "compute_stage": "S4",
+                    "verdict": "PASS",
+                    "data_sources": [
+                        {"name": "synthetic-dev", "synthetic": True, "provenance": "unit"}
+                    ],
+                    "B_X": {
+                        "per_run": [
+                            {
+                                "unit": "held-out-collapse",
+                                "split": "sealed",
+                                "algorithm": "FAIL",
+                                "comparator": "ACCEPT",
+                                "unseen_fingerprint": "never-seen-token-xyz",
+                            }
+                        ]
+                    },
+                },
+            )
+            state = load_json(project / "workflow_state.json")
+            state["compute_stage"] = "S4"
+            state["gates"]["compute_authorized"] = True
+            state["compute_evidence"] = {
+                "status": "COMPLETED",
+                "validation_epoch": 1,
+                "artifact_path": "compute_evidence.json",
+                "artifact_sha256": "0" * 64,
+            }
+            write_json(project / "workflow_state.json", state)
+            completed = run_script(
+                "validate_workflow_state.py",
+                project,
+                ["--current-year", "2026", "--strict-new-checks"],
+            )
+            self.assertIn("PROTOCOL_SEALED_ACCESS_CONTRADICTION", completed.stdout)
+
+    def test_sealed_unit_seen_in_precompute(self) -> None:
+        temporary_directory, project = make_valid_project(claim_profile="ALGORITHM")
+        with temporary_directory:
+            write_json(
+                project / "compute_evidence.json",
+                {
+                    "schema_version": "2.0",
+                    "compute_stage": "S4",
+                    "verdict": "PASS",
+                    "data_sources": [
+                        {"name": "synthetic-dev", "synthetic": True, "provenance": "unit"}
+                    ],
+                    "B_X": {
+                        "per_run": [
+                            {
+                                "unit": "held-out-collapse",
+                                "split": "sealed",
+                                "algorithm": "FAIL",
+                                "comparator": "ACCEPT",
+                                "unseen_fingerprint": "evaluate_online",
+                            }
+                        ]
+                    },
+                },
+            )
+            state = load_json(project / "workflow_state.json")
+            state["compute_stage"] = "S4"
+            state["gates"]["compute_authorized"] = True
+            state["compute_evidence"] = {
+                "status": "COMPLETED",
+                "validation_epoch": 1,
+                "artifact_path": "compute_evidence.json",
+                "artifact_sha256": "0" * 64,
+            }
+            write_json(project / "workflow_state.json", state)
+            completed = run_script(
+                "validate_workflow_state.py",
+                project,
+                ["--current-year", "2026", "--strict-new-checks"],
+            )
+            self.assertIn("SEALED_UNIT_SEEN_IN_PRECOMPUTE", completed.stdout)
+
 class StopLockTests(unittest.TestCase):
     """STOP 锁：写入、拦截、推进检测、解锁。"""
 

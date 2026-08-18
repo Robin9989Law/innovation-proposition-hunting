@@ -238,6 +238,9 @@ NEW_CHECK_CODES = frozenset(
         "WIRING_NOT_ATTEMPTED",
         "WIRING_STILL_ALIVE",
         "SEPARATION_NOT_WHOLE",
+        "PROTOCOL_SEALED_ACCESS_CONTRADICTION",
+        "SEALED_UNIT_FINGERPRINT_MISSING",
+        "SEALED_UNIT_SEEN_IN_PRECOMPUTE",
     }
 )
 
@@ -1090,6 +1093,110 @@ def _data_sources_from_evidence(evidence_text: str) -> tuple[list[dict], list[st
     return data_sources, []
 
 
+def iter_sealed_runs(payload: Any) -> list[dict[str, Any]]:
+    """收集 compute_evidence 中 split=sealed 的运行行。"""
+
+    found: list[dict[str, Any]] = []
+    if isinstance(payload, dict):
+        if payload.get("split") == "sealed" and isinstance(payload.get("unit"), str):
+            found.append(payload)
+        for value in payload.values():
+            found.extend(iter_sealed_runs(value))
+    elif isinstance(payload, list):
+        for item in payload:
+            found.extend(iter_sealed_runs(item))
+    return found
+
+
+def load_json_if_present(root: Path, relative: Any) -> dict[str, Any] | None:
+    if not canonical_relative_path(relative):
+        return None
+    path = root / relative
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def validate_sealed_confirmation(
+    root: Path, state: dict[str, Any], errors: list[str]
+) -> None:
+    """S4/封存运行必须与协议一致，且不得复用计算前测试构造。"""
+
+    artifacts = state.get("artifacts")
+    protocol_rel = (
+        artifacts.get("protocol_contract")
+        if isinstance(artifacts, dict) and artifacts.get("protocol_contract")
+        else "protocol_contract.json"
+    )
+    protocol = load_json_if_present(root, protocol_rel)
+    sealed_role = (
+        protocol.get("sealed_confirmation_data") if isinstance(protocol, dict) else None
+    )
+
+    evidence_payload: dict[str, Any] | None = None
+    evidence = state.get("compute_evidence")
+    if isinstance(evidence, dict) and evidence.get("status") == "COMPLETED":
+        evidence_payload = load_json_if_present(root, evidence.get("artifact_path"))
+    sealed_runs = iter_sealed_runs(evidence_payload) if evidence_payload else []
+    compute_reached_s4 = state.get("compute_stage") == "S4" or bool(sealed_runs)
+
+    if compute_reached_s4 and sealed_role == "NOT_YET_ACCESSED":
+        add(
+            errors,
+            "PROTOCOL_SEALED_ACCESS_CONTRADICTION",
+            "protocol.sealed_confirmation_data=NOT_YET_ACCESSED after sealed compute",
+        )
+
+    if not sealed_runs:
+        return
+
+    test_texts: list[str] = []
+    trace_rel = (
+        artifacts.get("claim_code_trace")
+        if isinstance(artifacts, dict) and artifacts.get("claim_code_trace")
+        else "claim_code_trace.json"
+    )
+    trace = load_json_if_present(root, trace_rel)
+    traces = trace.get("traces") if isinstance(trace, dict) else None
+    if isinstance(traces, list):
+        for item in traces:
+            if not isinstance(item, dict):
+                continue
+            test_rel = item.get("executable_test_relative_path")
+            if not canonical_relative_path(test_rel):
+                continue
+            test_path = root / test_rel
+            if test_path.is_file():
+                try:
+                    test_texts.append(test_path.read_text(encoding="utf-8"))
+                except OSError:
+                    continue
+
+    for run in sealed_runs:
+        unit = run.get("unit")
+        fingerprint = run.get("unseen_fingerprint")
+        if not nonempty_string(fingerprint) or len(str(fingerprint).strip()) < 4:
+            add(
+                errors,
+                "SEALED_UNIT_FINGERPRINT_MISSING",
+                f"unit:{unit}",
+            )
+            continue
+        token = str(fingerprint).strip()
+        for text in test_texts:
+            if token in text:
+                add(
+                    errors,
+                    "SEALED_UNIT_SEEN_IN_PRECOMPUTE",
+                    f"unit:{unit};fingerprint:{token}",
+                )
+                break
+
+
 def validate_data_sources(
     root: Path, state: dict[str, Any], errors: list[str]
 ) -> None:
@@ -1904,6 +2011,8 @@ def validate(
 
     # R-N0-17：novelty-audit 必须含与 novelty_level 对应的裁决证据（正面/负面同价）。
     validate_novelty_verdict_evidence(root, state, errors)
+
+    validate_sealed_confirmation(root, state, errors)
 
     # COMPLETE 是终态，必须满足与 FINAL_LOCK 等价的条件。
     if effective_state == "COMPLETE":

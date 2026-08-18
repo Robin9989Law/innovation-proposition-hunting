@@ -15,7 +15,7 @@ schema 3.0 起 active_track / active_layer / last_completed_state 不再持久�
   revise-exact-statement  只改 L3 精确句：同轮、保留 L1/L2/K，跳回综合
   retract-novelty         从 N0_AUDIT/N0-4C 合法撤回为 N0-3/N0-1/N0-2
   review                  subagent 登记 review 产物；PASS 时原子升 V3/V4
-  reopen-validity-epoch   FAIL 复核后新开 validity epoch，退回 CLAIM_FREEZE
+  reopen-validity-epoch   FAIL 复核或用户否决 COMPLETE/V4 后新开 epoch，退回 CLAIM_FREEZE
   advance-compute-stage   COMPUTE 内只向前升级 S0→S1→S2→S3→S4
   clear-lock              完成恢复动作后解除 STOP 锁
   repair-artifact-pointer 保留旧证据并原子切换到版本化修正版
@@ -264,6 +264,12 @@ def apply_transition_semantics(
             raise SystemExit(
                 "进入 COMPUTE 必须有显式用户授权："
                 "--authorize-compute --authorization-note <授权依据>"
+            )
+        if is_insufficient_compute_authorization(args.authorization_note):
+            raise SystemExit(
+                "计算授权依据不足：authorization-note 必须引用用户明确授权"
+                "计算的原句；「推进到 N0-4C」「继续直到所有完成」"
+                "「完成全流程」不是计算授权"
             )
         gate_updates["compute_authorized"] = True
         state["compute_stage"] = "S0"
@@ -1093,14 +1099,39 @@ def cmd_review(args: argparse.Namespace) -> int:
 COMPUTE_STAGE_ORDER = ("S0", "S1", "S2", "S3", "S4")
 
 
+USER_REJECT_COMPLETE_STATES = frozenset({"FINAL_LOCK", "COMPLETE"})
+INSUFFICIENT_COMPUTE_AUTHORIZATION = frozenset(
+    {
+        "推进到 n0-4c",
+        "推进到n0-4c",
+        "推进到4c",
+        "继续推进到 n0-4c",
+        "继续推进到n0-4c",
+        "继续推进到4c",
+        "继续直到所有完成",
+        "用户要求完成全流程",
+        "完成全流程",
+        "继续推进",
+    }
+)
+
+
+def is_insufficient_compute_authorization(note: str) -> bool:
+    """新颖性轴推进词不是计算授权。"""
+
+    text = " ".join(note.casefold().replace("：", ":").split())
+    return text in INSUFFICIENT_COMPUTE_AUTHORIZATION
+
+
 def cmd_reopen_validity_epoch(args: argparse.Namespace) -> int:
-    """FAIL 复核后新开 validity epoch，不改 N0，不打开计算。"""
+    """FAIL 复核或用户否决 COMPLETE/V4 后新开 validity epoch，不改 N0，不打开计算。"""
 
     root = Path(args.root).resolve()
     state_path = Path(args.state).resolve()
     if not nonempty_string(args.note):
         raise SystemExit("reopen-validity-epoch 需要 --note")
-    if not args.no_validate:
+    user_reject = bool(getattr(args, "user_reject_complete", False))
+    if not args.no_validate and not user_reject:
         exit_code = run_validate_all(
             root, state_path, args.strict_new_checks, []
         )
@@ -1110,38 +1141,59 @@ def cmd_reopen_validity_epoch(args: argparse.Namespace) -> int:
 
     state = _load_json_object(state_path, "workflow_state.json")
     active = state.get("active_state")
-    if active not in {"INDEPENDENT_REVIEW", "FINAL_VALIDITY_AUDIT"}:
-        raise SystemExit("只能从 INDEPENDENT_REVIEW 或 FINAL_VALIDITY_AUDIT 重开 epoch")
-    if state.get("gates", {}).get("compute_authorized") is True and active == "INDEPENDENT_REVIEW":
-        raise SystemExit("计算已授权后不得从独立复核重开 epoch")
-    if state.get("validity_level") not in {"V2", "V3", "V4"}:
-        raise SystemExit("validity 尚未冻结，无需 reopen-validity-epoch")
+    if user_reject:
+        if active not in USER_REJECT_COMPLETE_STATES:
+            raise SystemExit(
+                "--user-reject-complete 只能从 FINAL_LOCK 或 COMPLETE 重开"
+            )
+        if state.get("validity_level") not in {"V3", "V4"}:
+            raise SystemExit("用户否决 COMPLETE 需要已冻结的 V3/V4")
+        if state.get("novelty_level") != "N0-4C":
+            raise SystemExit("用户否决 COMPLETE 不清 N0-4C；当前不是 N0-4C")
+        resume = "CLAIM_FREEZE"
+        origin = "USER_REJECT_COMPLETE"
+    else:
+        if active not in {"INDEPENDENT_REVIEW", "FINAL_VALIDITY_AUDIT"}:
+            raise SystemExit(
+                "只能从 INDEPENDENT_REVIEW 或 FINAL_VALIDITY_AUDIT 重开 epoch；"
+                "否决 COMPLETE/V4 请加 --user-reject-complete"
+            )
+        if (
+            state.get("gates", {}).get("compute_authorized") is True
+            and active == "INDEPENDENT_REVIEW"
+        ):
+            raise SystemExit("计算已授权后不得从独立复核重开 epoch")
+        if state.get("validity_level") not in {"V2", "V3", "V4"}:
+            raise SystemExit("validity 尚未冻结，无需 reopen-validity-epoch")
 
-    artifacts = state.get("artifacts")
-    audit_relative = (
-        artifacts.get("independent_audit")
-        if isinstance(artifacts, dict) and artifacts.get("independent_audit")
-        else "independent_audit.json"
-    )
-    audit_path = root / audit_relative
-    if not audit_path.is_file():
-        raise SystemExit("缺少独立复核产物，不能重开 epoch")
-    audit = _load_json_object(audit_path, "independent_audit")
-    if audit.get("verdict") != "FAIL":
-        raise SystemExit("只有 verdict=FAIL 的复核才能重开 validity epoch")
-    expected_hash = state.get("review_artifact_sha256")
-    if expected_hash != file_sha256(audit_path):
-        raise SystemExit("review 产物哈希与登记不一致，不能重开")
+        artifacts = state.get("artifacts")
+        audit_relative = (
+            artifacts.get("independent_audit")
+            if isinstance(artifacts, dict) and artifacts.get("independent_audit")
+            else "independent_audit.json"
+        )
+        audit_path = root / audit_relative
+        if not audit_path.is_file():
+            raise SystemExit("缺少独立复核产物，不能重开 epoch")
+        audit = _load_json_object(audit_path, "independent_audit")
+        if audit.get("verdict") != "FAIL":
+            raise SystemExit("只有 verdict=FAIL 的复核才能重开 validity epoch")
+        expected_hash = state.get("review_artifact_sha256")
+        if expected_hash != file_sha256(audit_path):
+            raise SystemExit("review 产物哈希与登记不一致，不能重开")
+        resume = (
+            "CLAIM_FREEZE" if active == "INDEPENDENT_REVIEW" else "POSTCOMPUTE_CLAIM_FREEZE"
+        )
+        origin = "FAIL"
 
     old_epoch = state.get("validation_epoch")
     if not isinstance(old_epoch, int) or old_epoch < 1:
         raise SystemExit("validation_epoch 必须是正整数")
     new_epoch = old_epoch + 1
     now = utc_now()
-    if active == "INDEPENDENT_REVIEW":
-        resume = "CLAIM_FREEZE"
-    else:
-        resume = "POSTCOMPUTE_CLAIM_FREEZE"
+    artifact_updates = parse_state_artifact_updates(
+        getattr(args, "set_artifact", None) or [], root
+    )
     state["active_state"] = resume
     state["resume_state"] = resume
     state["validation_epoch"] = new_epoch
@@ -1149,11 +1201,23 @@ def cmd_reopen_validity_epoch(args: argparse.Namespace) -> int:
     state["claim_bundle_sha256"] = ""
     state["independent_audit"] = {}
     state.pop("review_artifact_sha256", None)
+    if user_reject:
+        gates = state.setdefault("gates", {})
+        if not isinstance(gates, dict):
+            raise SystemExit("workflow_state.gates 必须是对象")
+        gates["compute_authorized"] = False
+        state["compute_stage"] = "NOT_STARTED"
+        state.pop("compute_evidence", None)
     state["updated_at"] = now
-    apply_state_repairs(state, {}, args.next_action)
+    apply_state_repairs(state, artifact_updates, args.next_action)
     if not nonempty_string(state.get("next_required_action")) or args.next_action is None:
+        reason = (
+            "user rejected COMPLETE/V4"
+            if user_reject
+            else "FAIL review"
+        )
         state["next_required_action"] = (
-            f"Rebuild epoch {new_epoch} inventory and form artifacts after FAIL review."
+            f"Rebuild epoch {new_epoch} inventory and form artifacts after {reason}."
         )
     state.setdefault("decision_log", []).append(
         {
@@ -1161,7 +1225,7 @@ def cmd_reopen_validity_epoch(args: argparse.Namespace) -> int:
             "state": resume,
             "action": (
                 f"REOPEN_VALIDITY_EPOCH {old_epoch}->{new_epoch} "
-                f"from {active} FAIL. {args.note.strip()}"
+                f"from {active} {origin}. {args.note.strip()}"
             ),
         }
     )
@@ -1169,7 +1233,7 @@ def cmd_reopen_validity_epoch(args: argparse.Namespace) -> int:
     append_validation_log(
         root,
         f"REOPEN_VALIDITY_EPOCH {old_epoch}->{new_epoch} from={active} "
-        f"note={args.note.strip()}",
+        f"origin={origin} note={args.note.strip()}",
     )
     print(f"reopened validity epoch {old_epoch} -> {new_epoch}; state={resume}")
     if not args.no_validate:
@@ -1870,10 +1934,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser(
         "reopen-validity-epoch",
-        help="FAIL 复核后新开 validity epoch，退回 CLAIM_FREEZE 或计算后冻结",
+        help="FAIL 复核或用户否决 COMPLETE/V4 后新开 validity epoch",
     )
     add_root_state(p)
     p.add_argument("--note", required=True)
+    p.add_argument(
+        "--user-reject-complete",
+        action="store_true",
+        help="用户否决 FINAL_LOCK/COMPLETE/V4：退回 CLAIM_FREEZE，关闭计算，保留 N0-4C",
+    )
+    p.add_argument(
+        "--set-artifact",
+        action="append",
+        metavar="KEY=PATH",
+        help="同一事务切换到新 epoch 的版本化产物指针",
+    )
     p.add_argument("--next-action")
     p.add_argument("--no-validate", action="store_true")
     p.set_defaults(func=cmd_reopen_validity_epoch)

@@ -1449,6 +1449,75 @@ class ReviewCommandTests(unittest.TestCase):
             self.assertEqual("", state["claim_bundle_sha256"])
             self.assertEqual({}, state["independent_audit"])
 
+    def test_reopen_user_reject_complete(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V4")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "COMPLETE"
+            state["resume_state"] = "COMPLETE"
+            state["novelty_level"] = "N0-4C"
+            state["validity_level"] = "V4"
+            state["validation_epoch"] = 3
+            state["compute_stage"] = "S4"
+            state["gates"]["n0_4_locked"] = True
+            state["gates"]["compute_authorized"] = True
+            state["compute_evidence"] = {
+                "status": "COMPLETED",
+                "validation_epoch": 3,
+                "artifact_path": "compute_evidence.json",
+                "artifact_sha256": "0" * 64,
+            }
+            write_json(project / "workflow_state.json", state)
+            rejected = run_iph(
+                project,
+                "reopen-validity-epoch",
+                "--note",
+                "user rejected S4 reuse and unauthorized compute",
+                "--no-validate",
+            )
+            self.assertNotEqual(0, rejected.returncode)
+            self.assertIn("user-reject-complete", rejected.stderr)
+            reopened = run_iph(
+                project,
+                "reopen-validity-epoch",
+                "--user-reject-complete",
+                "--note",
+                "user rejected COMPLETE: S4 was seen in pre-compute tests",
+                "--no-validate",
+            )
+            self.assertEqual(0, reopened.returncode, reopened.stdout + reopened.stderr)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("CLAIM_FREEZE", state["active_state"])
+            self.assertEqual("V0", state["validity_level"])
+            self.assertEqual(4, state["validation_epoch"])
+            self.assertEqual("N0-4C", state["novelty_level"])
+            self.assertFalse(state["gates"]["compute_authorized"])
+            self.assertEqual("NOT_STARTED", state["compute_stage"])
+            self.assertNotIn("compute_evidence", state)
+            self.assertEqual({}, state["independent_audit"])
+
+    def test_compute_rejects_insufficient_authorization(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V3")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "DIRECTION_LOCK"
+            state["resume_state"] = "DIRECTION_LOCK"
+            write_json(project / "workflow_state.json", state)
+            denied = run_iph(
+                project,
+                "advance",
+                "--to",
+                "COMPUTE",
+                "--note",
+                "open compute",
+                "--authorize-compute",
+                "--authorization-note",
+                "用户要求完成全流程",
+                "--no-validate",
+            )
+            self.assertNotEqual(0, denied.returncode)
+            self.assertIn("计算授权依据不足", denied.stderr)
+
     def test_review_rejects_pass_without_answers(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V3")
         with temporary_directory:

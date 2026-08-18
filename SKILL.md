@@ -174,13 +174,16 @@ decision_log 记录裁决、占据/可推导证据与处置（关闭、吸收或
 仅允许 `N0_AUDIT + N0-4C + V0`，同一事务把 `n0_4_locked` 置假、登记新的
 novelty-audit，并保持 `active_state=N0_AUDIT`。有效性已冻结或计算已授权后
 不得撤回新颖性。独立复核 `verdict=FAIL` 时，唯一修主张/实现的写入口是
-`iph reopen-validity-epoch`：`validation_epoch += 1`，validity 回到 V0，
-状态退回 `CLAIM_FREEZE`（计算后 FAIL 则退回 `POSTCOMPUTE_CLAIM_FREEZE`），
-不清 N0-4C，不打开计算。撤回后的 `N0-3` 才可 `start-collision-round` 或
-`revise-exact-statement`。只改精确句不得开新轮；新轮且 L1/L2 未变时加
-`--keep-layers`。N0-4C 须先杀死组合表三种必做接线（后贴标签 /
-schema-extension / 换名）；有未尝试或仍活接线不得锁。用户要 4C 不是授权。
-停止轴可依赖输入或 `generated`（如 `p`）。G4 走查/推断不能单独支撑锁定。
+`iph reopen-validity-epoch`：`epoch += 1`，validity 回 V0，退回
+`CLAIM_FREEZE`（计算后 FAIL 则退回 `POSTCOMPUTE_CLAIM_FREEZE`），不清
+N0-4C，不打开计算。用户否决 `FINAL_LOCK`/`COMPLETE`/V4 时不得手改
+state 或把 PASS 改写成 FAIL，走
+`iph reopen-validity-epoch --user-reject-complete`。撤回后的 `N0-3` 才可
+`start-collision-round` 或 `revise-exact-statement`。只改精确句不得开新轮；
+新轮且 L1/L2 未变时加 `--keep-layers`。N0-4C 须先杀死组合表三种必做接线
+（后贴标签 / schema-extension / 换名）；有未尝试或仍活接线不得锁。用户要
+4C 不是授权，也不是计算授权。停止轴可依赖输入或 `generated`（如 `p`）。
+G4 走查/推断不能单独支撑锁定。
 
 **证伪优先（falsification-first）**：任何候选被裁决为 N0-4C 之前，`novelty-audit.md`
 必须先完成证伪书（falsification ledger）——逐条列出"我尝试杀死这个候选的方式
@@ -372,19 +375,23 @@ FINAL_LOCK = N0-4C AND V4 AND current independent audit
 ```
 
 用户授权只是 `compute_authorized=true` 的必要条件，**不构成硬门旁路**：N0-4C
-与 V3 仍必须先满足，"用户指定/导师要求"不能替代其中任何一项。COMPUTE 门
-之前禁止数据集级或训练级数值实验。唯一例外是 `N0_AUDIT / N0-3 / V0` 下用户
-显式授权的实例探针：`iph authorize-instance-probe` 之后最多登记 5 条锚定已发表
-原文的单实例度量，用于查看反例或支撑；禁止把数据集总体分数当成单条成功阈值。
-探针数字登记在 `instance_probe_registry.json` 后可以进入 novelty-audit，但不打开
-`compute_authorized`，也不能代替 V3。其余数值预实验仍须当天登记
+与 V3 仍必须先满足。"用户指定/导师要求"不能替代其中任何一项。
+`--authorization-note` 必须引用用户明确授权**计算**的原句；「推进到 N0-4C」
+「继续直到所有完成」「完成全流程」不是计算授权。COMPUTE 门前禁止数据集级
+或训练级数值实验。唯一例外是 `N0_AUDIT / N0-3 / V0` 下用户显式授权的实例
+探针：`iph authorize-instance-probe` 之后最多登记 5 条锚定已发表原文的单
+实例度量；禁止把数据集总体分数当成单条成功阈值。探针数字可进 novelty-audit，
+但不打开 `compute_authorized`，也不能代替 V3。其余数值预实验须当天登记
 `exploration_registry.json`，其数字不得进入冻结工件。
 
 `DIRECTION_LOCK` 只锁方向。计算按 S0-SCREEN–S4 逐级升级：`iph advance-compute-stage
---to S1|S2|S3|S4` 只允许前进一步并登记阶段产物。只有 S4 完成且 state 中的
-`compute_evidence` 指向当前 epoch、当前哈希的计算证据，才能进入
-`POSTCOMPUTE_CLAIM_FREEZE`。计算结果改变主张、强度或适用边界时必须新开 epoch；
-随后完成 `FINAL_VALIDITY_AUDIT`，由不同 agent 对新 bundle 复核，才可 `FINAL_LOCK`。
+--to S1|S2|S3|S4` 只允许前进一步并登记阶段产物。S4 封存单元必须带
+`unseen_fingerprint`，不得复用测试/开发已见 AST。S4 或已登记 sealed 运行后，
+协议不得仍写 `NOT_YET_ACCESSED`（阻止 V4，不是 bookkeeping）。只有 S4 完成
+且 `compute_evidence` 指向当前 epoch/哈希，才能进入
+`POSTCOMPUTE_CLAIM_FREEZE`。计算结果改变主张、强度或适用边界时必须新开
+epoch；随后完成 `FINAL_VALIDITY_AUDIT`，由不同 agent 对新 bundle 复核，才可
+`FINAL_LOCK`。
 
 ## 9. 校验器与四个退出码
 
@@ -455,7 +462,9 @@ INVALID（§9）。
 
 | RULE-ID | 规则 | 权威节 |
 |---|---|---|
-| R-AUTH-01 | 用户授权只是 `compute_authorized` 的必要条件，不构成硬门旁路：N0-4C 与 V3 仍须先满足 | §8 |
+| R-AUTH-01 | 用户授权只是 `compute_authorized` 的必要条件，不构成硬门旁路：N0-4C 与 V3 仍须先满足；「推进到 N0-4C / 完成全流程」不是计算授权 | §8 |
+| R-SEAL-25 | S4 或已登记 sealed 运行后，协议不得仍写 `NOT_YET_ACCESSED`；该矛盾阻止 V4 | §8、compute-funnel §4 |
+| R-SEAL-26 | S4 封存单元须有未见指纹，不得复用计算前测试/开发 AST | §8、compute-funnel §4 |
 | R-COMPUTE-02 | COMPUTE 门前禁止数据集级或训练级数值实验。N0-3 下经 `iph authorize-instance-probe` 授权的实例探针（≤5 条、必须锚定已发表原文、不得把数据集均值当成功阈值）可以产生数值，登记后可进入 novelty-audit。其余数值仍须 `exploration_registry`，且不得进入冻结工件（`UNREGISTERED_COMPUTE_ARTIFACT` / `EXPLORATION_LEAK`） | §8、compute-funnel §2、templates §12 |
 | R-BLOCKED-03 | BLOCKED 期间仅允许：验证已有产物、记录唯一恢复动作、登记用户直接提供的解阻材料 | §9 |
 | R-LOG-04 | 每次状态完成必须追加 decision_log 条目（真实 UTC 时间、单调、gate 置真有对应条目）；`iph advance` 同时原子登记顶层 artifact 路径、日志哈希和下一动作，禁止手工回填 | §2、templates §1 |
@@ -473,7 +482,6 @@ INVALID（§9）。
 | R-LOG-16 | decision_log 只锚定不可变产物（可变文件由 state 指针对账）；epoch 失效后重建日志须保留 `.superseded` 快照、条目标注 replay 标签、`at` 用重建时刻真实 UTC，不得回填虚构历史时刻 | templates §1 |
 | R-L2-18 | 危险近邻表是 L2 唯一硬产出：l2-card.md 对每个严肃近邻记三列（覆盖什么/关闭的浅层主张/打开的深层问题），L2_TRIAGE 凭此表裁决而非全文/观点计数 | §3.1、case-lessons §5 |
 | R-ATOMIC-19 | 原子观点质量门槛：只有能改变候选存活判断的观点才登记；删除后 N0 裁决不变的，是读后感不登记。claim_type 是判断类型（OCCUPIES/ENABLES/CONTRADICTS/BOUNDS/NEUTRAL），表达"对候选存活的关系"而非"论文哪一章节"；负面判断只作 counter 不作 support | §3.1、evidence-pipeline §5 |
-
 | R-REVIEW-20 | review 是实质复核不是形式盖章：verdict=PASS 时 review_answers 四问（数据真实性/baseline 执行/措辞强度/证伪尝试）必须全部非空（`REVIEW_ANSWERS_INCOMPLETE`）；单 agent 环境 subagent review 是合法独立形式，产物主 agent 只读不写，事后改动即 `REVIEW_ARTIFACT_TAMPERED` | §5、templates §9 |
 | R-L3-21 | 只改 L3 精确句用 `iph revise-exact-statement`（同轮、保留 L1/L2/K、跳回 SYNTHESIZE_COLLISION）；N0-4C 须先 retract。新轮且层级未变时 `start-collision-round --keep-layers` | §3.1、templates §16 |
 | R-AXIS-22 | 停止轴必须是已声明 `inputs` 或 `generated` 的函数；exact 句写了 `p_loc` 却未声明 `p` 即 `AXIS_NOT_IN_INPUT` | §3.1、templates §16 |
@@ -482,17 +490,11 @@ INVALID（§9）。
 
 ## 12. 修改技能仓库的自律规则
 
-项目 agent 在实战中允许修改本技能仓库（修 bug、补检查、加迁移助手），但修改
-按技能自身的工程纪律执行（2026-08 三项目实战复盘的教训：某 agent 留下未提交
-的功能半成品与风格不一的英文 docstring，靠人工评审兜底才收敛）：
+项目 agent 在实战中允许修改本技能仓库，但必须按工程纪律执行：
 
-- **不留未提交改动**：修改完成后必须 commit 并推送（或明确移交用户处理）；
-  工作区残留半成品即流程违规，下一个续跑者不得在此基础上继续。
-- **测试全绿是提交门槛**：`python3 -m pytest tests/ -q` 全过才可提交；红测试
-  不得进入 main。
-- **文档同步同 commit**：行为变更必须在同一提交内更新 SKILL.md、templates.md
-  及相关资源文件；实现、测试、文档不齐视为未完成。
-- **风格跟随所在文件**：docstring、注释、段落的语言与格式跟既有内容一致
-  （本仓库正文为中文），不引入新风格。
-- **动机留痕**：commit message 写明是哪个项目实战暴露的问题、修复策略与
-  已知残余风险，便于后续审计。
+- **不留未提交改动**：改完必须 commit；工作区残留半成品即流程违规。
+- **测试全绿是提交门槛**：`python3 -m pytest tests/ -q` 全过才可提交。
+- **文档同步同 commit**：行为变更必须同提交更新 SKILL.md、templates.md
+  及相关资源文件。
+- **风格跟随所在文件**：正文为中文，不引入新风格。
+- **动机留痕**：commit message 写明项目实战暴露的问题、修复与残余风险。

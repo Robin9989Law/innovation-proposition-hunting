@@ -436,6 +436,23 @@ MI、copula、Shapley、counterfactual credit、profile matching 等均已有；
 > 不可机械推出的 Δ。L1 可以宽，L2 可以是域；博士三个贡献形成架构，期刊一个
 > 主贡献形成闭环，但每个真正创新责任都必须是一小步、可证伪、可关闭。
 
+## 2026-08-18：机器 COMPLETE 不是最终锁定（谓词映射）
+
+- **症状**：`d8594a9` 账面 `COMPLETE / N0-4C / V4`，默认与 `--strict-new-checks`
+  均为 READY，人审拒绝最终锁定。
+- **根因**：S4 封存单元是计算前测试里已经出现的 collapse AST
+  （`check_r17_mapping_stop_e2.py:78`）；`protocol_contract.e3.json` 仍写
+  `sealed_confirmation_data=NOT_YET_ACCESSED`，但 `compute_evidence.json` 已
+  登记 sealed 运行；独立复核把该矛盾降为 bookkeeping 仍给 PASS。计算授权依据
+  是「用户要求完成全流程」，而用户当轮只授权推进到 N0-4C。
+- **修复合同**：用户否决 COMPLETE/V4 走 `iph reopen-validity-epoch
+  --user-reject-complete`，保留 N0-4C，关闭计算。协议与 sealed 访问矛盾、
+  测试中见过的 S4 构造、以及「推进到 N0-4C / 完成全流程」类授权，均不得再
+  支撑 V4。冻结主张以 `manuscript.e2.md` 算法句为准，不以仍写 V0 的
+  `l3-exact.r17.md` 为准。
+- **执行纪律**：READY 不是论证成功。S4 必须是代码、测试和开发阶段都未见的
+  单元。没有可核验的计算授权原句，不得打开 COMPUTE。
+
 ## 2026-08-18：只杀死弱接线就锁 N0-4C（谓词映射）
 
 - **症状**：`54b6841` 在 `--strict-new-checks` 下 READY，组合表也写了
