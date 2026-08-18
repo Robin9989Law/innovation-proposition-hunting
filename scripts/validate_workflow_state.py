@@ -17,6 +17,7 @@ from validation_common import (
     choose_exit,
     fingerprint_token_ok,
     has_frozen_algorithm_claim,
+    long_string_constants,
     note_lacks_acceptance_grant,
     nonempty_string,
     normalize_claim_text,
@@ -27,6 +28,7 @@ from validation_common import (
     required_sealed_stop_tokens,
     sealed_decision,
     strict_json_load_bytes,
+    substantial_ast_dumps,
     token_occurs,
 )
 from validate_artifact_hashes import valid_sha256
@@ -1218,6 +1220,27 @@ def collect_sealed_hard_fail_details(
         if canonical_relative_path(sealed_runner)
         else None
     )
+    if sealed_text is not None:
+        sealed_dumps = substantial_ast_dumps(sealed_text)
+        sealed_strings = long_string_constants(sealed_text)
+        for source, text in precompute_texts:
+            if sealed_strings and any(literal in text for literal in sealed_strings):
+                problems.append(
+                    (
+                        "SEALED_UNIT_STRUCTURAL_CLONE",
+                        f"string_literal;seen_in:{source}",
+                    )
+                )
+                break
+            other = substantial_ast_dumps(text)
+            if sealed_dumps and sealed_dumps.intersection(other):
+                problems.append(
+                    (
+                        "SEALED_UNIT_STRUCTURAL_CLONE",
+                        f"normalized_ast;seen_in:{source}",
+                    )
+                )
+                break
 
     for run in sealed_runs:
         unit = run.get("unit")

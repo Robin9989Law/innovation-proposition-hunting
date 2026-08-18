@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from enum import IntEnum
+import ast
+import copy
 import errno
 import hashlib
 import json
@@ -135,8 +137,19 @@ INSUFFICIENT_USER_GRANT_NOTES = frozenset(
 )
 COMPUTE_GRANT_VERBS = ("授权", "authorize")
 COMPUTE_GRANT_OBJECTS = ("计算", "compute")
+COMPUTE_GRANT_CONFIRMATION = (
+    "s4",
+    "sealed",
+    "封存",
+    "未见",
+    "hold-out",
+    "holdout",
+    "held-out",
+    "确认",
+)
 ACCEPTANCE_GRANT_VERBS = ("接受", "accept")
 ACCEPTANCE_GRANT_OBJECTS = ("锁定", "complete", "最终")
+ACCEPTANCE_GRANT_THIS = ("本次", "this", "该次", "这次", "此次")
 PROTOCOL_CONTRADICTION_STATES = frozenset(
     {"FINAL_VALIDITY_AUDIT", "FINAL_LOCK", "COMPLETE"}
 )
@@ -180,13 +193,19 @@ def _note_lacks_verb_object(
 
 
 def note_lacks_compute_grant(note: str) -> bool:
-    return _note_lacks_verb_object(note, COMPUTE_GRANT_VERBS, COMPUTE_GRANT_OBJECTS)
+    if _note_lacks_verb_object(note, COMPUTE_GRANT_VERBS, COMPUTE_GRANT_OBJECTS):
+        return True
+    text = note.casefold()
+    return not any(token in text for token in COMPUTE_GRANT_CONFIRMATION)
 
 
 def note_lacks_acceptance_grant(note: str) -> bool:
-    return _note_lacks_verb_object(
+    if _note_lacks_verb_object(
         note, ACCEPTANCE_GRANT_VERBS, ACCEPTANCE_GRANT_OBJECTS
-    )
+    ):
+        return True
+    text = note.casefold()
+    return not any(token in text for token in ACCEPTANCE_GRANT_THIS)
 
 
 def fingerprint_token_ok(token: str) -> bool:
@@ -201,6 +220,85 @@ def token_occurs(token: str, text: str) -> bool:
         )
         is not None
     )
+
+
+class _AnonNames(ast.NodeTransformer):
+    def visit_Name(self, node: ast.Name) -> ast.Name:
+        self.generic_visit(node)
+        return ast.copy_location(ast.Name(id="_", ctx=node.ctx), node)
+
+    def visit_arg(self, node: ast.arg) -> ast.arg:
+        node = self.generic_visit(node)
+        return ast.copy_location(ast.arg(arg="_", annotation=node.annotation), node)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
+        node = self.generic_visit(node)
+        node.name = "_"
+        return node
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AsyncFunctionDef:
+        node = self.generic_visit(node)
+        node.name = "_"
+        return node
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> ast.ClassDef:
+        node = self.generic_visit(node)
+        node.name = "_"
+        return node
+
+
+def substantial_ast_dumps(source: str) -> set[str]:
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+    dumps: set[str] = set()
+    for stmt in tree.body:
+        try:
+            dumped = ast.dump(
+                _AnonNames().visit(copy.deepcopy(stmt)), annotate_fields=False
+            )
+        except Exception:
+            continue
+        if len(dumped) >= 80:
+            dumps.add(dumped)
+    return dumps
+
+
+def long_string_constants(source: str) -> set[str]:
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and len(node.value) >= 16
+        ):
+            found.add(node.value)
+    return found
+
+
+def line_quoted_in_answer(answer: str, line: str) -> bool:
+    needle = " ".join((line or "").split())
+    if not needle:
+        return False
+    haystack = " ".join((answer or "").split()).casefold()
+    folded = needle.casefold()
+    if folded in haystack:
+        return True
+    stripped = folded.lstrip("#/; ").strip()
+    if stripped and stripped in haystack:
+        return True
+    window = 8 if len(folded) >= 8 else len(folded)
+    if len(folded) < window:
+        return False
+    for index in range(0, len(folded) - window + 1):
+        if folded[index : index + window] in haystack:
+            return True
+    return False
 
 
 def has_review_locator(
@@ -223,7 +321,9 @@ def has_review_locator(
             except OSError:
                 continue
             line_no = int(line_text)
-            if 1 <= line_no <= max(len(lines), 1):
+            if not (1 <= line_no <= max(len(lines), 1)):
+                continue
+            if line_quoted_in_answer(payload, lines[line_no - 1]):
                 return True
         if known_hashes:
             for match in REVIEW_HASH_RE.finditer(payload):

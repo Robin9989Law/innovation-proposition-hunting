@@ -113,8 +113,8 @@ CLAIM_FREEZE -> VALIDITY_AUDIT:
 VALIDITY_AUDIT -> INDEPENDENT_REVIEW: CLI 派生 V2
 DIRECTION_LOCK -> COMPUTE:
   --authorize-compute --authorization-note <用户明确授权计算的原句>（CLI 派生 S0；
-  必须同时含授权动词与计算对象；「推进到 N0-4C」「继续直到所有完成」
-  「完成全流程」「authorized compute」会被拒绝）
+  必须同时含授权动词、计算对象和 S4/封存/未见；「推进到 N0-4C」
+  「继续直到所有完成」「完成全流程」「authorized compute」会被拒绝）
 COMPUTE -> POSTCOMPUTE_CLAIM_FREEZE:
   --compute-evidence compute_evidence.json（必须声明 S4）
 POSTCOMPUTE_CLAIM_FREEZE -> FINAL_VALIDITY_AUDIT:
@@ -129,7 +129,7 @@ iph review --verdict PASS：镜像 independent_audit 并升 V3/V4；
 COMPUTE 内：iph advance-compute-stage --to S1|S2|S3|S4
 FINAL_LOCK -> COMPLETE:
   --accept-complete --acceptance-note <用户接受本次锁定的原句>
-  （必须同时含接受动词与锁定对象）
+  （必须同时含接受动词、锁定对象和本次/this）
 ```
 
 N0-1/N0-2/N0-3 时 `n0_4_locked=false`；只有 N0-4C 才为 true。CLI 拒绝跳态、
@@ -552,9 +552,9 @@ BLOCKED；不得伪造 reviewer、thread、PASS 或 bundle。
 `verdict=PASS` 且 `capability_available=true` 时，`review_answers` 四个键
 （`data_authenticity` / `baseline_execution` / `claim_strength` /
 `falsification_attempt`）必须全部非空，缺一即 `REVIEW_ANSWERS_INCOMPLETE`。
-`falsification_attempt` 必须引用项目内真实 `path:line`，或 audit_manifest
-已有的 64 位哈希，否则 `REVIEW_ANSWER_NO_LOCATOR`。这四问是实质复核，不是
-形式核对；写"已确认通过""8/8 通过"等空话等于未答。
+`falsification_attempt` 必须引用项目内真实 `path:line` 并摘引该行原文，或
+audit_manifest 已有的 64 位哈希，否则 `REVIEW_ANSWER_NO_LOCATOR`。这四问是
+实质复核，不是形式核对；写"已确认通过""8/8 通过"等空话等于未答。
 
 `INDEPENDENT_REVIEW` / `FINAL_VALIDITY_AUDIT` 刚进入且 state 中
 `independent_audit={}` 时表示 reviewer pending：作者 bundle 继续严格验证，但审计
@@ -589,7 +589,9 @@ S4 完成后的计算证据文件可采用：
 打中已声明冻结合取的 `decision`（或同值 `algorithm`）。顶层必须声明互异的
 `dev_runner` 与 `sealed_runner`。指纹不得出现在计算前测试、实现、开发
 runner 或 `compute/`/`checks/`/`implementation/` 下除 `sealed_runner` 外的
-`.py`。终态窗口协议不得仍为 `NOT_YET_ACCESSED`。见 hard-gates.md。
+`.py`。改名后仍同构，或 ≥16 字符字面量泄漏，报
+`SEALED_UNIT_STRUCTURAL_CLONE`。终态窗口协议不得仍为 `NOT_YET_ACCESSED`。
+见 hard-gates.md。
 
 进入 `POSTCOMPUTE_CLAIM_FREEZE` 时，`workflow_state.json` 还必须增加 validator 实际
 读取的 pointer；artifact hash 必须是上面文件的当前 SHA-256：

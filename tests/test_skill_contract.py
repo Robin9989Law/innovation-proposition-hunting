@@ -48,6 +48,7 @@ class SkillContractTests(unittest.TestCase):
             "SEALED_INVENTORY_EMPTY",
             "SEALED_RUNNER_NOT_INDEPENDENT",
             "SEALED_UNIT_FINGERPRINT_NOT_IN_RUNNER",
+            "SEALED_UNIT_STRUCTURAL_CLONE",
             "S4_CONJUNCTS_UNDECLARED",
             "SEALED_CONJUNCT_NOT_HIT",
             "REVIEW_ANSWER_NO_LOCATOR",

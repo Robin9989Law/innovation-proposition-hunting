@@ -15,6 +15,6 @@
     "data_authenticity": "fixture: synthetic data declared as synthetic, manuscript matches.",
     "baseline_execution": "fixture: all comparators have non-empty per_run.",
     "claim_strength": "fixture: claim wording matches ALGORITHM profile.",
-    "falsification_attempt": "fixture: attempted occupation kill at manuscript.md:3; failed."
+    "falsification_attempt": "fixture: attempted occupation kill at manuscript.md:3 (Theorem 1); failed."
   }
 }

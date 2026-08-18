@@ -19,10 +19,10 @@ iph advance --to COMPLETE \
 
 下列用语不是接受：「推进到 N0-4C」「继续推进」「继续直到所有完成」
 「完成全流程」「用户要求完成全流程」。计算授权不是最终锁定接受。
-授权 note 必须同时含动词（授权 / authorize）与对象（计算 / compute），
-去掉这些词后还要剩下可辨认的用户原句。接受 note 必须同时含动词
-（接受 / accept）与对象（锁定 / complete / 最终）。「authorized compute」
-这种只剩标记的句子不够。
+授权 note 必须同时含动词（授权 / authorize）、计算对象（计算 / compute）
+和确认对象（S4 / sealed / 封存 / 未见 / 确认）。接受 note 必须同时含动词
+（接受 / accept）、锁定对象（锁定 / complete / 最终）和本次指示
+（本次 / this / 这次）。「authorized compute」或「我授权打开计算」不够。
 
 `workflow_state.final_acceptance` 由同一事务写入 `{note, at}`。缺对象、
 空 note 或套话即 `COMPLETE_REQUIRES_USER_ACCEPTANCE`（常驻 INVALID）。
@@ -37,15 +37,16 @@ iph advance --to COMPLETE \
 | 已登记 sealed 运行且协议仍为 `NOT_YET_ACCESSED`（终态窗口） | `PROTOCOL_SEALED_ACCESS_CONTRADICTION` |
 | sealed 行缺合格指纹（8–64 位标识符，词令边界）或指纹出现在计算前测试、实现、开发 runner、`compute/`/`checks/`/`implementation/` 下除 `sealed_runner` 外的 `.py` | `SEALED_UNIT_FINGERPRINT_MISSING` / `SEALED_UNIT_SEEN_IN_PRECOMPUTE` |
 | 合格指纹未出现在 `sealed_runner` | `SEALED_UNIT_FINGERPRINT_NOT_IN_RUNNER` |
+| sealed runner 的归一化 AST 或 ≥16 字符字面量出现在计算前 `.py` | `SEALED_UNIT_STRUCTURAL_CLONE` |
 | sealed 行 `inventory_atoms` 为空 | `SEALED_INVENTORY_EMPTY` |
 | `dev_runner` 与 `sealed_runner` 缺一或路径相同 | `SEALED_RUNNER_NOT_INDEPENDENT` |
 | 有 sealed 运行且存在冻结 ALGORITHM 主张，却未声明 `s4_conjuncts` 也未在冻结句写 FAIL-* | `S4_CONJUNCTS_UNDECLARED` |
 | 已声明 FAIL-* 合取，但无一 sealed 行以非空清单打中 | `SEALED_CONJUNCT_NOT_HIT` |
 
 四问非空仍是必要的，不是充分的。`verdict=PASS` 时
-`falsification_attempt` 必须引用**项目内真实文件**的 `path:line`，或
-audit_manifest 里已有的 64 位哈希（`REVIEW_ANSWER_NO_LOCATOR`）。
-编造 `ghost.md:1` 或越界行号不算。不得把上表写成 limitation 后盖章。
+`falsification_attempt` 必须引用**项目内真实文件**的 `path:line` 并摘引
+该行原文，或 audit_manifest 里已有的 64 位哈希（`REVIEW_ANSWER_NO_LOCATOR`）。
+只写行号、编造 `ghost.md:1` 或越界行号都不算。不得把上表写成 limitation 后盖章。
 
 ## 3. S4 确认资格（R-SEAL-26 / R-SEAL-29）
 
@@ -54,7 +55,9 @@ audit_manifest 里已有的 64 位哈希（`REVIEW_ANSWER_NO_LOCATOR`）。
 - 每条 `split=sealed` 必须有 8–64 字符标识符指纹（`[A-Za-z_][A-Za-z0-9_-]*`），
   按词令边界匹配，不得当子串；该词令必须出现在 `sealed_runner`，且不得
   出现在计算前测试、实现、`dev_runner`，以及 `compute/`、`checks/`、
-  `implementation/` 下除 `sealed_runner` 外的 `.py`。
+  `implementation/` 下除 `sealed_runner` 外的 `.py`。把封存单元改名后
+  仍与计算前脚本同构，或把 ≥16 字符字面量留在计算前脚本，报
+  `SEALED_UNIT_STRUCTURAL_CLONE`。
 - `inventory_atoms` 必须是非空字符串列表。空清单上的
   `FAIL-SPURIOUS-ATOM` 不算确认。
 - 顶层必须声明互异的 `dev_runner` 与 `sealed_runner`（规范相对路径，
@@ -100,6 +103,7 @@ audit_manifest 里已有的 64 位哈希（`REVIEW_ANSWER_NO_LOCATOR`）。
 `WIRING_NOT_ATTEMPTED`、`WIRING_STILL_ALIVE`、`SEPARATION_NOT_WHOLE`、
 `COMPOSITION_AUDIT_MISSING`、
 `SEALED_INVENTORY_EMPTY`、`SEALED_RUNNER_NOT_INDEPENDENT`、
-`SEALED_UNIT_FINGERPRINT_NOT_IN_RUNNER`、`S4_CONJUNCTS_UNDECLARED`、
-`SEALED_CONJUNCT_NOT_HIT`、`COMPLETE_REQUIRES_USER_ACCEPTANCE`、
-`EXACT_INVENTORY_MISMATCH`、`REVIEW_ANSWER_NO_LOCATOR`。
+`SEALED_UNIT_FINGERPRINT_NOT_IN_RUNNER`、`SEALED_UNIT_STRUCTURAL_CLONE`、
+`S4_CONJUNCTS_UNDECLARED`、`SEALED_CONJUNCT_NOT_HIT`、
+`COMPLETE_REQUIRES_USER_ACCEPTANCE`、`EXACT_INVENTORY_MISMATCH`、
+`REVIEW_ANSWER_NO_LOCATOR`。

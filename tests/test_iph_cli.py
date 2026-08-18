@@ -670,7 +670,7 @@ class AdvanceTests(unittest.TestCase):
                 "authorized compute entry",
                 "--authorize-compute",
                 "--authorization-note",
-                "user explicitly authorized this bounded compute test",
+                "user explicitly authorized this bounded compute S4 on unseen sealed units",
                 "--no-validate",
             )
             self.assertEqual(0, authorized.returncode, authorized.stderr)
@@ -1350,7 +1350,7 @@ class ReviewCommandTests(unittest.TestCase):
                 "data_authenticity": "real",
                 "baseline_execution": "real",
                 "claim_strength": "real",
-                "falsification_attempt": "tried occupation at manuscript.md:3",
+                "falsification_attempt": "tried occupation at manuscript.md:3 (Theorem 1)",
             }
             write_json(audit_path, audit)
 
@@ -1390,7 +1390,7 @@ class ReviewCommandTests(unittest.TestCase):
                 "data_authenticity": "no compute dataset is claimed",
                 "baseline_execution": "comparator ran on published Example 5",
                 "claim_strength": "wording matches decide_mapping",
-                "falsification_attempt": "tried SAT absence at implementation/online_algorithm.py:1",
+                "falsification_attempt": "tried SAT absence at implementation/online_algorithm.py:1 (C-ALGORITHM-1)",
             }
             write_json(audit_path, audit)
             review = run_iph(
@@ -1545,6 +1545,20 @@ class ReviewCommandTests(unittest.TestCase):
             )
             self.assertNotEqual(0, marker_only.returncode)
             self.assertIn("计算授权依据不足", marker_only.stderr)
+            no_confirm = run_iph(
+                project,
+                "advance",
+                "--to",
+                "COMPUTE",
+                "--note",
+                "open compute",
+                "--authorize-compute",
+                "--authorization-note",
+                "我授权打开本次计算实验并跑完全部单元",
+                "--no-validate",
+            )
+            self.assertNotEqual(0, no_confirm.returncode)
+            self.assertIn("计算授权依据不足", no_confirm.stderr)
 
     def test_complete_requires_user_acceptance_quote(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V4")

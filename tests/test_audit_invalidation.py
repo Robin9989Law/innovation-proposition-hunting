@@ -252,7 +252,7 @@ class AuditInvalidationTests(unittest.TestCase):
             "data_authenticity": "real",
             "baseline_execution": "real",
             "claim_strength": "real",
-            "falsification_attempt": "tried occupation at manuscript.md:3",
+            "falsification_attempt": "tried occupation at manuscript.md:3 (Theorem 1)",
         }
         write_json(project / AUDIT, audit)
         result = run_script("validate_audit_provenance.py", project)
@@ -294,6 +294,13 @@ class AuditInvalidationTests(unittest.TestCase):
         oob = run_script("validate_audit_provenance.py", project)
         self.assertEqual(1, oob.returncode, oob.stdout + oob.stderr)
         self.assertIn("REVIEW_ANSWER_NO_LOCATOR", oob.stdout)
+        audit["review_answers"]["falsification_attempt"] = (
+            "tried kill at manuscript.md:3 without quoting the line"
+        )
+        write_json(project / AUDIT, audit)
+        unquoted = run_script("validate_audit_provenance.py", project)
+        self.assertEqual(1, unquoted.returncode, unquoted.stdout + unquoted.stderr)
+        self.assertIn("REVIEW_ANSWER_NO_LOCATOR", unquoted.stdout)
 
     def test_capability_unavailable_is_blocked_without_false_invalidity(self) -> None:
         project = self.make_project()
