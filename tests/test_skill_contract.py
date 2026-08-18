@@ -61,6 +61,8 @@ class SkillContractTests(unittest.TestCase):
             "audit_manifest.json",
             "independent_audit.json",
             "compute_evidence.json",
+            "l3_contract.json",
+            "composition_audit.json",
         ):
             with self.subTest(artifact=artifact):
                 self.assertIn(artifact, text)
@@ -130,6 +132,7 @@ class SkillContractTests(unittest.TestCase):
             "nonzero nuisance",
             "empirical-to-theorem",
             "stale audit",
+            "schema-extension",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, text)

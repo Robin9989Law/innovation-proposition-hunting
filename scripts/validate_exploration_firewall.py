@@ -38,10 +38,11 @@ NUMBER_PATTERN = re.compile(r"[-−–]?\d+\.\d+%?")
 MIN_SIGNIFICANT_DIGITS = 3
 
 # 文献 provenance 文件：其中出现的数字视为有出处，豁免防火墙。
-PROVENANCE_KEYS = ("literature_registry", "claim_registry")
+PROVENANCE_KEYS = ("literature_registry", "claim_registry", "instance_probe_registry")
 # 不作为冻结工件扫描的 artifacts 键（登记簿自身、日志、provenance 源）。
 FROZEN_EXCLUDED_KEYS = {
     "exploration_registry",
+    "instance_probe_registry",
     "validation_log",
     "literature_registry",
     "claim_registry",

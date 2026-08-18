@@ -297,6 +297,302 @@ class NewCheckSemanticsTests(unittest.TestCase):
                     )
                     self.assertIn(f"INVALID\t{code}", completed.stdout)
 
+
+def _killed_wirings() -> list[dict]:
+    return [
+        {
+            "wiring_id": kind.lower(),
+            "kind": kind,
+            "procedure": f"attempt {kind}",
+            "status": "KILLED",
+            "kill_claim_ids": [f"LC-{index:04d}"],
+            "whole_mapping_separates": True,
+        }
+        for index, kind in enumerate(
+            ("POSTHOC_LABEL", "SCHEMA_EXTENSION", "RENAME"), start=1
+        )
+    ]
+
+
+class L3ContractG4CompositionTests(unittest.TestCase):
+    def _algorithm_n0_4c(self):
+        temporary_directory, project = make_valid_project(
+            claim_profile="ALGORITHM", novelty_level="N0-4C", validity_level="V0"
+        )
+        state = load_json(project / "workflow_state.json")
+        state["claim_profile"] = "ALGORITHM"
+        state["novelty_level"] = "N0-4C"
+        write_json(project / "workflow_state.json", state)
+        return temporary_directory, project
+
+    def test_axis_not_in_input_warns_then_strict_invalid(self) -> None:
+        temporary_directory, project = self._algorithm_n0_4c()
+        with temporary_directory:
+            write_json(
+                project / "l3_contract.json",
+                {
+                    "schema_version": "2.0",
+                    "inputs": ["s"],
+                    "stop_axes": [
+                        {"name": "identity", "depends_on": ["s", "I"]},
+                    ],
+                },
+            )
+            write_json(
+                project / "composition_audit.json",
+                {
+                    "schema_version": "2.0",
+                    "components": [
+                        {
+                            "component_id": "inventory",
+                            "mechanical_gap": "source-first inventory is not post-hoc labeling",
+                        }
+                    ],
+                    "union_equals_candidate": False,
+                    "reduction_failed_because": "conjunction does not yield the accept token",
+                },
+            )
+            default = run_script(
+                "validate_workflow_state.py", project, ["--current-year", "2026"]
+            )
+            self.assertEqual(0, default.returncode, default.stdout)
+            self.assertIn("WARNING\tAXIS_NOT_IN_INPUT", default.stdout)
+            self.assertIn("axis:identity;dep:I", default.stdout)
+            strict = run_script(
+                "validate_workflow_state.py",
+                project,
+                ["--current-year", "2026", "--strict-new-checks"],
+            )
+            self.assertEqual(1, strict.returncode, strict.stdout)
+            self.assertIn("INVALID\tAXIS_NOT_IN_INPUT", strict.stdout)
+
+    def test_walkthrough_only_cannot_lock_n0_4c(self) -> None:
+        temporary_directory, project = self._algorithm_n0_4c()
+        with temporary_directory:
+            write_json(
+                project / "l3_contract.json",
+                {
+                    "schema_version": "2.0",
+                    "inputs": ["s", "I"],
+                    "stop_axes": [{"name": "identity", "depends_on": ["s", "I"]}],
+                },
+            )
+            write_json(
+                project / "composition_audit.json",
+                {
+                    "schema_version": "2.0",
+                    "components": [
+                        {
+                            "component_id": "inventory",
+                            "mechanical_gap": "source-first inventory is not post-hoc labeling",
+                        }
+                    ],
+                    "union_equals_candidate": False,
+                    "reduction_failed_because": "conjunction does not yield the accept token",
+                },
+            )
+            write_json(
+                project / "instance_probe_registry.json",
+                {
+                    "schema_version": "2.0",
+                    "authorization_note": "inspect published figure",
+                    "probes": [
+                        {
+                            "probe_id": "IP-0001",
+                            "purpose": "SUPPORT",
+                            "g4_role": "DESIGN_WALKTHROUGH",
+                            "old_metric_verdict": "UNDEFINED",
+                        }
+                    ],
+                },
+            )
+            completed = run_script(
+                "validate_workflow_state.py",
+                project,
+                ["--current-year", "2026", "--strict-new-checks"],
+            )
+            self.assertIn("INVALID\tG4_WALKTHROUGH_ONLY", completed.stdout)
+
+    def test_not_a_threshold_cannot_be_counterexample(self) -> None:
+        temporary_directory, project = self._algorithm_n0_4c()
+        with temporary_directory:
+            write_json(
+                project / "instance_probe_registry.json",
+                {
+                    "schema_version": "2.0",
+                    "authorization_note": "inspect table 1",
+                    "probes": [
+                        {
+                            "probe_id": "IP-0002",
+                            "purpose": "COUNTEREXAMPLE",
+                            "g4_role": "NOT_A_THRESHOLD",
+                            "old_metric_verdict": "FAIL",
+                        }
+                    ],
+                },
+            )
+            completed = run_script(
+                "validate_workflow_state.py", project, ["--current-year", "2026"]
+            )
+            self.assertIn("WARNING\tG4_NOT_A_THRESHOLD_AS_COUNTEREXAMPLE", completed.stdout)
+
+    def test_composition_union_blocks_n0_4c(self) -> None:
+        temporary_directory, project = self._algorithm_n0_4c()
+        with temporary_directory:
+            write_json(
+                project / "l3_contract.json",
+                {
+                    "schema_version": "2.0",
+                    "inputs": ["s", "I"],
+                    "stop_axes": [{"name": "identity", "depends_on": ["s", "I"]}],
+                },
+            )
+            write_json(
+                project / "composition_audit.json",
+                {
+                    "schema_version": "2.0",
+                    "components": [
+                        {
+                            "component_id": "all_neighbors",
+                            "mechanical_gap": "none; the union is the candidate",
+                        }
+                    ],
+                    "union_equals_candidate": True,
+                    "reduction_failed_because": "it does reduce",
+                },
+            )
+            completed = run_script(
+                "validate_workflow_state.py",
+                project,
+                ["--current-year", "2026", "--strict-new-checks"],
+            )
+            self.assertIn("INVALID\tCOMPOSITION_REDUCES", completed.stdout)
+
+    def test_theory_profile_does_not_require_algorithm_contracts(self) -> None:
+        temporary_directory, project = make_valid_project(
+            claim_profile="THEORY", novelty_level="N0-4C", validity_level="V0"
+        )
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["gates"]["n0_4_locked"] = True
+            write_json(project / "workflow_state.json", state)
+            completed = run_script(
+                "validate_workflow_state.py", project, ["--current-year", "2026"]
+            )
+            self.assertNotIn("L3_CONTRACT_MISSING", completed.stdout)
+            self.assertNotIn("COMPOSITION_AUDIT_MISSING", completed.stdout)
+
+    def test_weak_posthoc_wiring_cannot_lock_n0_4c(self) -> None:
+        """只杀死后贴标签、未打 schema-extension，strict 不得 N0-4C。"""
+        temporary_directory, project = self._algorithm_n0_4c()
+        with temporary_directory:
+            write_json(
+                project / "l3_contract.json",
+                {
+                    "schema_version": "2.0",
+                    "inputs": ["s", "I"],
+                    "generated": ["p"],
+                    "stop_axes": [
+                        {"name": "two_sided_certificate", "depends_on": ["s", "p"]}
+                    ],
+                },
+            )
+            write_json(
+                project / "composition_audit.json",
+                {
+                    "schema_version": "2.0",
+                    "components": [
+                        {
+                            "component_id": "posthoc",
+                            "mechanical_gap": "labels after extraction are not the stop",
+                        }
+                    ],
+                    "wirings": [
+                        {
+                            "wiring_id": "posthoc_label",
+                            "kind": "POSTHOC_LABEL",
+                            "procedure": "run neighbor then glue labels",
+                            "status": "KILLED",
+                            "kill_claim_ids": ["LC-0001"],
+                            "whole_mapping_separates": True,
+                        }
+                    ],
+                    "strongest_remaining": "SCHEMA_EXTENSION",
+                    "union_equals_candidate": False,
+                    "reduction_failed_because": "posthoc labels are not the candidate",
+                },
+            )
+            completed = run_script(
+                "validate_workflow_state.py",
+                project,
+                ["--current-year", "2026", "--strict-new-checks"],
+            )
+            self.assertEqual(1, completed.returncode, completed.stdout)
+            self.assertIn("INVALID\tWIRING_KIND_MISSING", completed.stdout)
+            self.assertIn("kind:SCHEMA_EXTENSION", completed.stdout)
+            self.assertIn("INVALID\tWIRING_STILL_ALIVE", completed.stdout)
+
+    def test_generated_output_may_be_a_stop_dependency(self) -> None:
+        temporary_directory, project = self._algorithm_n0_4c()
+        with temporary_directory:
+            write_json(
+                project / "l3_contract.json",
+                {
+                    "schema_version": "2.0",
+                    "inputs": ["s", "I"],
+                    "generated": ["p"],
+                    "stop_axes": [
+                        {"name": "two_sided_certificate", "depends_on": ["s", "p"]}
+                    ],
+                },
+            )
+            write_json(
+                project / "composition_audit.json",
+                {
+                    "schema_version": "2.0",
+                    "components": [
+                        {
+                            "component_id": "inventory",
+                            "mechanical_gap": "source-first inventory is not post-hoc labeling",
+                        }
+                    ],
+                    "wirings": _killed_wirings(),
+                    "strongest_remaining": "",
+                    "union_equals_candidate": False,
+                    "reduction_failed_because": "required wirings killed on whole-mapping separations",
+                },
+            )
+            completed = run_script(
+                "validate_workflow_state.py", project, ["--current-year", "2026"]
+            )
+            self.assertNotIn("AXIS_NOT_IN_INPUT", completed.stdout)
+            self.assertNotIn("WIRING_KIND_MISSING", completed.stdout)
+
+    def test_p_loc_in_exact_statement_requires_generated_p(self) -> None:
+        temporary_directory, project = self._algorithm_n0_4c()
+        with temporary_directory:
+            (project / "l3-exact.md").write_text(
+                "Each item needs a two-sided certificate (src_span, p_loc).\n",
+                encoding="utf-8",
+            )
+            write_json(
+                project / "l3_contract.json",
+                {
+                    "schema_version": "2.0",
+                    "inputs": ["s", "I"],
+                    "stop_axes": [{"name": "identity", "depends_on": ["s", "I"]}],
+                },
+            )
+            state = load_json(project / "workflow_state.json")
+            state["artifacts"]["exact_statement"] = "l3-exact.md"
+            state["artifacts"]["l3_contract"] = "l3_contract.json"
+            write_json(project / "workflow_state.json", state)
+            completed = run_script(
+                "validate_workflow_state.py", project, ["--current-year", "2026"]
+            )
+            self.assertIn("WARNING\tAXIS_NOT_IN_INPUT", completed.stdout)
+            self.assertIn("dep:p", completed.stdout)
+
     def test_negative_terminal_evidence_present_passes(self) -> None:
         """R-N0-17：占据/归约证据节存在时不报缺失。"""
         temporary_directory, project = make_valid_project()
@@ -353,6 +649,93 @@ class NewCheckSemanticsTests(unittest.TestCase):
             self.assertIn(
                 "COMPLETE_REQUIRES_FINAL_LOCK_CONDITIONS", completed.stdout
             )
+
+    def test_protocol_sealed_access_contradiction(self) -> None:
+        temporary_directory, project = make_valid_project(claim_profile="ALGORITHM")
+        with temporary_directory:
+            protocol = load_json(project / "protocol_contract.json")
+            protocol["sealed_confirmation_data"] = "NOT_YET_ACCESSED"
+            write_json(project / "protocol_contract.json", protocol)
+            write_json(
+                project / "compute_evidence.json",
+                {
+                    "schema_version": "2.0",
+                    "compute_stage": "S4",
+                    "verdict": "PASS",
+                    "data_sources": [
+                        {"name": "synthetic-dev", "synthetic": True, "provenance": "unit"}
+                    ],
+                    "B_X": {
+                        "per_run": [
+                            {
+                                "unit": "held-out-collapse",
+                                "split": "sealed",
+                                "algorithm": "FAIL",
+                                "comparator": "ACCEPT",
+                                "unseen_fingerprint": "never-seen-token-xyz",
+                            }
+                        ]
+                    },
+                },
+            )
+            state = load_json(project / "workflow_state.json")
+            state["compute_stage"] = "S4"
+            state["gates"]["compute_authorized"] = True
+            state["compute_evidence"] = {
+                "status": "COMPLETED",
+                "validation_epoch": 1,
+                "artifact_path": "compute_evidence.json",
+                "artifact_sha256": "0" * 64,
+            }
+            write_json(project / "workflow_state.json", state)
+            completed = run_script(
+                "validate_workflow_state.py",
+                project,
+                ["--current-year", "2026", "--strict-new-checks"],
+            )
+            self.assertIn("PROTOCOL_SEALED_ACCESS_CONTRADICTION", completed.stdout)
+
+    def test_sealed_unit_seen_in_precompute(self) -> None:
+        temporary_directory, project = make_valid_project(claim_profile="ALGORITHM")
+        with temporary_directory:
+            write_json(
+                project / "compute_evidence.json",
+                {
+                    "schema_version": "2.0",
+                    "compute_stage": "S4",
+                    "verdict": "PASS",
+                    "data_sources": [
+                        {"name": "synthetic-dev", "synthetic": True, "provenance": "unit"}
+                    ],
+                    "B_X": {
+                        "per_run": [
+                            {
+                                "unit": "held-out-collapse",
+                                "split": "sealed",
+                                "algorithm": "FAIL",
+                                "comparator": "ACCEPT",
+                                "unseen_fingerprint": "evaluate_online",
+                            }
+                        ]
+                    },
+                },
+            )
+            state = load_json(project / "workflow_state.json")
+            state["compute_stage"] = "S4"
+            state["gates"]["compute_authorized"] = True
+            state["compute_evidence"] = {
+                "status": "COMPLETED",
+                "validation_epoch": 1,
+                "artifact_path": "compute_evidence.json",
+                "artifact_sha256": "0" * 64,
+            }
+            write_json(project / "workflow_state.json", state)
+            completed = run_script(
+                "validate_workflow_state.py",
+                project,
+                ["--current-year", "2026", "--strict-new-checks"],
+            )
+            self.assertIn("SEALED_UNIT_SEEN_IN_PRECOMPUTE", completed.stdout)
 
 class StopLockTests(unittest.TestCase):
     """STOP 锁：写入、拦截、推进检测、解锁。"""
@@ -608,6 +991,31 @@ class EvidenceDepthBudgetTests(unittest.TestCase):
         self.write_registries(fulltext=8, claims=40)
         result = self.run_state("--current-year", "2026")
         self.assertNotIn("EVIDENCE_DEPTH_EXCEEDS_LAYER", result.stdout)
+
+    def test_l3_waiver_allows_user_authorized_overage(self) -> None:
+        self.set_tier("L3")
+        self.write_registries(fulltext=21, claims=40)
+        state = load_json(self.project / "workflow_state.json")
+        state.setdefault("decision_log", []).append(
+            {
+                "at": "2026-08-18T00:00:00Z",
+                "state": "N0_AUDIT",
+                "action": (
+                    "EVIDENCE_DEPTH_WAIVER fulltext<=24 claims<=65 "
+                    "reason=user authorized extra K to kill invert-pi wiring"
+                ),
+            }
+        )
+        write_json(self.project / "workflow_state.json", state)
+        result = self.run_state("--current-year", "2026")
+        self.assertNotIn("EVIDENCE_DEPTH_EXCEEDS_LAYER", result.stdout)
+
+    def test_l3_without_waiver_still_blocks_overage(self) -> None:
+        self.set_tier("L3")
+        self.write_registries(fulltext=21, claims=40)
+        result = self.run_state("--current-year", "2026")
+        self.assertIn("INVALID\tEVIDENCE_DEPTH_EXCEEDS_LAYER", result.stdout)
+        self.assertIn("tier:L3;fulltext:21>budget:20", result.stdout)
 
     def test_missing_registries_do_not_crash(self) -> None:
         self.set_tier("L3")

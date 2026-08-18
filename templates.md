@@ -90,7 +90,9 @@ POSIX path；所有 SHA-256 均为 64 位小写十六进制；`validation_epoch`
 并用 `--next-action` 替换上一状态的恢复动作；日志有哈希不等于顶层已有路径。
 旧版推进若因此在 post-validation 进入 STOP，只能用
 `iph clear-lock --set-artifact key=path --next-action "..." --recovery-note "..."`
-受控修复后重验，不得直接编辑 `workflow_state.json`。
+受控修复后重验，不得直接编辑 `workflow_state.json`。漏写机械完成门时，同一
+命令可加 `--set-gate output_claims_traced=true` 或 `evidence_validated=true`，
+且 decision_log 必须已有对应完成状态；不得用此入口改 `n0_4_locked`。
 若外部阻塞本身已经由 operator 修复且 `active_state=BLOCKED`，必须显式使用
 `iph clear-lock --resume-blocked --next-action "..." --recovery-note "..."` 原子恢复
 到 `resume_state`；恢复校验失败时 CLI 会逐字节还原 state、STOP 锁与 validation log。
@@ -110,11 +112,19 @@ CLAIM_FREEZE -> VALIDITY_AUDIT:
   --claim-bundle-manifest audit_manifest.json（CLI 派生 V1 并登记当前 epoch bundle）
 VALIDITY_AUDIT -> INDEPENDENT_REVIEW: CLI 派生 V2
 DIRECTION_LOCK -> COMPUTE:
-  --authorize-compute --authorization-note <用户授权依据>（CLI 派生 S0）
+  --authorize-compute --authorization-note <用户明确授权计算的原句>（CLI 派生 S0；
+  「推进到 N0-4C」「继续直到所有完成」「完成全流程」会被拒绝）
 COMPUTE -> POSTCOMPUTE_CLAIM_FREEZE:
   --compute-evidence compute_evidence.json（必须声明 S4）
 POSTCOMPUTE_CLAIM_FREEZE -> FINAL_VALIDITY_AUDIT:
   --claim-bundle-manifest audit_manifest.json（manifest epoch 必须恰好 +1）
+INDEPENDENT_REVIEW FAIL:
+  iph reopen-validity-epoch（epoch+1，退回 CLAIM_FREEZE，N0 不变）
+用户否决 FINAL_LOCK / COMPLETE / V4：
+  iph reopen-validity-epoch --user-reject-complete
+  （epoch+1，退回 CLAIM_FREEZE，关闭计算，N0 不变；可用 --set-artifact 切到新 epoch 产物）
+iph review --verdict PASS：镜像 independent_audit 并升 V3/V4
+COMPUTE 内：iph advance-compute-stage --to S1|S2|S3|S4
 ```
 
 N0-1/N0-2/N0-3 时 `n0_4_locked=false`；只有 N0-4C 才为 true。CLI 拒绝跳态、
@@ -562,6 +572,12 @@ S4 完成后的计算证据文件可采用：
 `COMPUTE_DATA_SOURCE_UNSPECIFIED`。manuscript 声称了真实数据集名但
 `data_sources` 无对应非合成条目即 `MANUSCRIPT_DATASET_UNVERIFIED`。
 
+`split=sealed` 的每条 `per_run` 必须有 `unseen_fingerprint`（≥4 字符），且该
+指纹不得出现在 `claim_code_trace` 已登记的计算前可执行测试中
+（`SEALED_UNIT_FINGERPRINT_MISSING` / `SEALED_UNIT_SEEN_IN_PRECOMPUTE`）。
+`compute_stage=S4` 或已登记 sealed 运行后，`protocol.sealed_confirmation_data`
+不得为 `NOT_YET_ACCESSED`（`PROTOCOL_SEALED_ACCESS_CONTRADICTION`）。
+
 进入 `POSTCOMPUTE_CLAIM_FREEZE` 时，`workflow_state.json` 还必须增加 validator 实际
 读取的 pointer；artifact hash 必须是上面文件的当前 SHA-256：
 
@@ -625,6 +641,56 @@ Markdown、claim 相关 JSON、manuscript）中，即使注明"探索"也不行�
 只允许定性转述。违反报 `EXPLORATION_LEAK`（`validate_exploration_firewall.py`）。
 有 E1/E2 出处的文献数字（出现在 `near_neighbor_registry.json` /
 `literature_claim_registry.json` 中的 token）豁免，因为其 provenance 独立。
+经授权的实例探针数字（`instance_probe_registry.json`）同样豁免，可以进入
+novelty-audit；它们不是探索级泄漏。
+
+## 12.1 `instance_probe_registry.json`
+
+仅 `N0_AUDIT / N0-3 / V0` 且用户已 `iph authorize-instance-probe`。最多 5 条。
+不打开 `compute_authorized`。
+
+```json
+{
+  "schema_version": "2.0",
+  "authorization_note": "<用户允许小范围看实例的依据>",
+  "authorized_at": "<ISO-8601 UTC>",
+  "probes": [
+    {
+      "probe_id": "IP-0001",
+      "purpose": "COUNTEREXAMPLE",
+      "source_registry_id": "W-0007",
+      "locator": "Figure 6",
+      "published_text": "<已发表原句或作者给出的 informalised 句>",
+      "metric": "quan_sentence_similarity",
+      "value": 0.8127,
+      "old_metric_verdict": "UNDEFINED",
+      "success_rule": "",
+      "boundary_lost": ["condition"],
+      "g4_role": "OLD_STOP_STILL_SCORES",
+      "output_file": "instance_probes/IP-0001.json",
+      "output_sha256": "<sha256>"
+    }
+  ]
+}
+```
+
+`old_metric_verdict=SUCCESS` 时 `success_rule` 必填，且不得把数据集总体分数 /
+Figure 4 均值当成单条阈值（`INSTANCE_PROBE_MEAN_AS_THRESHOLD`）。
+
+`g4_role` 仅允许：
+
+```text
+OLD_STOP_STILL_SCORES   旧停止规则在该实例上仍给出分数/输出
+NEW_STOP_FAIL           新停止规则在该实例上失败
+DESIGN_WALKTHROUGH      设计走查，不能单独支撑 N0-4C
+NOT_A_THRESHOLD         已发表数字不是成功阈值（如表中 POSSIBLE）
+RECONSTRUCTION          跨系统推断（如「另一方法也会接受」），不能单独支撑 N0-4C
+```
+
+N0-4C 下已登记探针必须带角色；全部为 `DESIGN_WALKTHROUGH` /
+`NOT_A_THRESHOLD` / `RECONSTRUCTION` 即 `G4_WALKTHROUGH_ONLY`。
+`purpose=COUNTEREXAMPLE` 不得使用 `NOT_A_THRESHOLD`。登记入口：
+`iph register-instance-probe --g4-role ...`。
 
 ## 13. `scope_lock.md`
 
@@ -720,3 +786,94 @@ validator 识别标记：`证伪书`/`falsification`、`占据证据`/`occupatio
 `归约证据`/`reduction evidence` 三类标题，且各自标题后至少一条对应条目。
 缺对应节分别报 `FALSIFICATION_LEDGER_MISSING` / `OCCUPATION_EVIDENCE_MISSING` /
 `REDUCTION_EVIDENCE_MISSING`（默认 WARNING，`--strict-new-checks` 升 INVALID）。
+
+只改 L3 精确句、不改 L1/L2/K 时，不得 `start-collision-round`。唯一写入口：
+
+```bash
+python3 <skill>/scripts/iph.py revise-exact-statement \
+  --root <研究目录> --state <研究目录>/workflow_state.json \
+  --path l3-exact.rN.md --note "<改句理由>"
+```
+
+仅接受 `N0_AUDIT / N0-3 / V0`。同轮保留 L1/L2/K 门，只重置输出/证据/`n0_4_locked`，
+并把 `artifacts.exact_statement` 指到新文件，状态跳回 `SYNTHESIZE_COLLISION`。
+已锁定的 N0-4C 须先 `retract-novelty`。
+
+## 16. `l3_contract.json`
+
+ALGORITHM / MIXED 锁定 N0-4C 前必须声明：每个停止轴是哪些输入或生成物的函数。
+缺文件报 `L3_CONTRACT_MISSING`；`depends_on` 不在 `inputs ∪ generated` 报
+`AXIS_NOT_IN_INPUT`。`p` 是映射输出，应列入 `generated`，不得冒充输入。
+exact 句出现 `p_loc` / `(src_span` 却未声明 `p`，同样报 `AXIS_NOT_IN_INPUT`。
+
+```json
+{
+  "schema_version": "2.0",
+  "inputs": ["s", "I"],
+  "generated": ["p"],
+  "stop_axes": [
+    {"name": "identity", "depends_on": ["s", "I"]},
+    {"name": "two_sided_certificate", "depends_on": ["s", "p"]}
+  ]
+}
+```
+
+身份若只写输入 `s`、却依赖词表 `I`，不得声称可执行。空输入上的恒等不得 PASS。
+
+## 17. `composition_audit.json`
+
+ALGORITHM / MIXED 锁定 N0-4C 前必须拆开候选，并登记三种必做接线。只杀死
+「后贴标签」一种弱接线不得锁。缺文件报 `COMPOSITION_AUDIT_MISSING`；
+`union_equals_candidate=true` 报 `COMPOSITION_REDUCES`。
+
+```json
+{
+  "schema_version": "2.0",
+  "candidate_id": "M",
+  "components": [
+    {
+      "component_id": "source_inventory",
+      "neighbor_ids": ["W-0004"],
+      "neighbor_fragment": "post-hoc factuality labels on extracted triples",
+      "mechanical_gap": "source-first inventory is not post-hoc labeling of extracted triples"
+    }
+  ],
+  "wirings": [
+    {
+      "wiring_id": "posthoc_label",
+      "kind": "POSTHOC_LABEL",
+      "procedure": "run the neighbor then glue labels",
+      "status": "KILLED",
+      "kill_claim_ids": ["LC-0001"],
+      "whole_mapping_separates": true
+    },
+    {
+      "wiring_id": "schema_extension",
+      "kind": "SCHEMA_EXTENSION",
+      "procedure": "add fields to the output schema and reuse neighbor provenance",
+      "status": "KILLED",
+      "kill_claim_ids": ["LC-0002"],
+      "whole_mapping_separates": true
+    },
+    {
+      "wiring_id": "rename",
+      "kind": "RENAME",
+      "procedure": "reverse the neighbor provenance pair",
+      "status": "KILLED",
+      "kill_claim_ids": ["LC-0003"],
+      "whole_mapping_separates": true
+    }
+  ],
+  "strongest_remaining": "",
+  "union_equals_candidate": false,
+  "reduction_failed_because": "each required wiring was killed on a whole-mapping published separation"
+}
+```
+
+`kind` 必做：`POSTHOC_LABEL` / `SCHEMA_EXTENSION` / `RENAME`。`status` 为
+`KILLED | ALIVE | NOT_ATTEMPTED`。N0-4C 时任一种未尝试、仍活、或
+`strongest_remaining` 非空，报 `WIRING_NOT_ATTEMPTED` / `WIRING_STILL_ALIVE`，
+`iph advance --novelty-level N0-4C` 直接拒绝。`KILLED` 必须有非空
+`kill_claim_ids` 且 `whole_mapping_separates=true`，否则 `SEPARATION_NOT_WHOLE`。
+单轴 NA 或「若缺字段则 FAIL」的设计例子不算整体分离。每块仍须非空
+`mechanical_gap`。只写「合取不是相同词语」不算完成。

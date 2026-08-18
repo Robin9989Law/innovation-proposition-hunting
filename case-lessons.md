@@ -436,6 +436,37 @@ MI、copula、Shapley、counterfactual credit、profile matching 等均已有；
 > 不可机械推出的 Δ。L1 可以宽，L2 可以是域；博士三个贡献形成架构，期刊一个
 > 主贡献形成闭环，但每个真正创新责任都必须是一小步、可证伪、可关闭。
 
+## 2026-08-18：机器 COMPLETE 不是最终锁定（谓词映射）
+
+- **症状**：`d8594a9` 账面 `COMPLETE / N0-4C / V4`，默认与 `--strict-new-checks`
+  均为 READY，人审拒绝最终锁定。
+- **根因**：S4 封存单元是计算前测试里已经出现的 collapse AST
+  （`check_r17_mapping_stop_e2.py:78`）；`protocol_contract.e3.json` 仍写
+  `sealed_confirmation_data=NOT_YET_ACCESSED`，但 `compute_evidence.json` 已
+  登记 sealed 运行；独立复核把该矛盾降为 bookkeeping 仍给 PASS。计算授权依据
+  是「用户要求完成全流程」，而用户当轮只授权推进到 N0-4C。
+- **修复合同**：用户否决 COMPLETE/V4 走 `iph reopen-validity-epoch
+  --user-reject-complete`，保留 N0-4C，关闭计算。协议与 sealed 访问矛盾、
+  测试中见过的 S4 构造、以及「推进到 N0-4C / 完成全流程」类授权，均不得再
+  支撑 V4。冻结主张以 `manuscript.e2.md` 算法句为准，不以仍写 V0 的
+  `l3-exact.r17.md` 为准。
+- **执行纪律**：READY 不是论证成功。S4 必须是代码、测试和开发阶段都未见的
+  单元。没有可核验的计算授权原句，不得打开 COMPUTE。
+
+## 2026-08-18：只杀死弱接线就锁 N0-4C（谓词映射）
+
+- **症状**：`54b6841` 在 `--strict-new-checks` 下 READY，组合表也写了
+  `union_equals_candidate=false`，人审仍撤回为 N0-3。
+- **根因**：审计只构造「近邻跑完再贴标签」一种弱接线并证明它不等于 Δ，却把
+  结论写成任意机械组合都得不到 Δ。更强的 schema-extension（新字段 + 沿用
+  近邻 provenance + 按必需字段接受）从未上场。`(src_span, p_loc)` 相对
+  `π(τ,e)` 主要是方向改写；Figure 6 上「另一系统也会接受」是未推导的推断；
+  `identity=NA` 不整次 FAIL。校验器当时只查字段齐，不查量词。
+- **修复合同**：N0-4C 必须登记并杀死 `POSTHOC_LABEL` / `SCHEMA_EXTENSION` /
+  `RENAME`；仍活或未尝试则 CLI 拒锁。用户说「推进到 4C」不是授权。
+- **执行纪律**：先写最强接线再写 Δ。跨系统「会接受」必须有该系统原文匹配
+  分支，否则标 `RECONSTRUCTION`，不得单独支撑锁定。
+
 ## 七、Claim integrity 的四条通用教训
 
 ### 1. 测 exact claim，不测容易通过的邻近版本

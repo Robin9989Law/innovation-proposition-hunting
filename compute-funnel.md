@@ -79,6 +79,17 @@ S0-SCREEN 只读现有工件，**不产生任何数值输出**（无脚本、无
 冻结工件；未登记的数值产物视为未授权计算
 （`UNREGISTERED_COMPUTE_ARTIFACT`）。
 
+N0-3 HOLD 若只需要查看少量已发表原文上的反例/支撑实例，不得伪装成 S0 预实验，
+也不得打开 COMPUTE。使用：
+
+```bash
+iph authorize-instance-probe --note "<用户明确允许小范围看实例>"
+iph register-instance-probe --probe-id IP-0001 ...
+```
+
+上限 5 条；每条必须有已发表原文、locator 和度量定义；`old_metric_verdict=SUCCESS`
+必须给出不是数据集均值的 `success_rule`。登记后的数字可以进入 novelty-audit。
+
 注：`workflow_state.json` 的 `compute_stage` 枚举保留 `S0` 值（schema 3.0
 枚举保持该值）；S0-SCREEN 是该阶段的语义名，强调"筛查、零数值产出"。
 
@@ -110,7 +121,11 @@ seed 采用递增策略，例如 `2 → 3 → 5`。S2 只有在两个初始 seed
 4. 核心机制量非退化且有区分度；
 5. 最终成功比例在统计上仍可达。
 
-只有 S3 通过后才写 S4 预注册。S4 不得沿用 S2/S3 已查看的最终样本。
+只有 S3 通过后才写 S4 预注册。S4 不得沿用 S2/S3 已查看的最终样本，也不得
+复用 `claim_code_trace` 已登记可执行测试中出现过的 AST/构造。每条 sealed
+`per_run` 必须带 `unseen_fingerprint`。S4 一旦访问封存数据，
+`protocol.sealed_confirmation_data` 必须改为 `SEALED_CONFIRMATION_ONLY`；
+仍写 `NOT_YET_ACCESSED` 不是记账问题，而是阻止 V4 的协议矛盾。
 
 ### S4 后的强制回路
 

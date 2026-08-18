@@ -220,6 +220,27 @@ NEW_CHECK_CODES = frozenset(
         "NEXT_ACTION_INCONSISTENT_WITH_STATE",
         "CAPABILITY_FLIPPED_WITHOUT_PROVENANCE",
         "ATOMIC_CLAIM_NO_ANCHOR",
+        "INSTANCE_PROBE_UNAUTHORIZED",
+        "INSTANCE_PROBE_LIMIT",
+        "INSTANCE_PROBE_MEAN_AS_THRESHOLD",
+        "L3_CONTRACT_MISSING",
+        "L3_CONTRACT_INVALID",
+        "AXIS_NOT_IN_INPUT",
+        "G4_ROLE_MISSING",
+        "G4_ROLE_UNKNOWN",
+        "G4_WALKTHROUGH_ONLY",
+        "G4_NOT_A_THRESHOLD_AS_COUNTEREXAMPLE",
+        "COMPOSITION_AUDIT_MISSING",
+        "COMPOSITION_AUDIT_INVALID",
+        "COMPOSITION_REDUCES",
+        "WIRINGS_MISSING",
+        "WIRING_KIND_MISSING",
+        "WIRING_NOT_ATTEMPTED",
+        "WIRING_STILL_ALIVE",
+        "SEPARATION_NOT_WHOLE",
+        "PROTOCOL_SEALED_ACCESS_CONTRADICTION",
+        "SEALED_UNIT_FINGERPRINT_MISSING",
+        "SEALED_UNIT_SEEN_IN_PRECOMPUTE",
     }
 )
 
@@ -227,11 +248,46 @@ NEW_CHECK_CODES = frozenset(
 # 主线是 L1→L2→L3 逐段构建；证据深度按段供给（SKILL.md §3.1、R-LAYER-13）。
 # 证据层级 -> (全文预算, 原子观点预算)；超出即报 EVIDENCE_DEPTH_EXCEEDS_LAYER。
 # schema 3.0 起状态机按段排布，合规流程不会超预算，故本检查为常驻 INVALID。
+# L3 默认可被课题规模证伪：decision_log 登记
+# `EVIDENCE_DEPTH_WAIVER fulltext<=N claims<=M` 后，用登记上限（不得低于默认，
+# 且不得突破硬顶）。L1/L2 不得豁免。
 EVIDENCE_DEPTH_BUDGETS = {
     "L1": (0, 0),
     "L2": (12, 0),
     "L3": (20, 60),
 }
+EVIDENCE_DEPTH_HARD_CAPS = {"L3": (40, 100)}
+EVIDENCE_DEPTH_WAIVER_RE = re.compile(
+    r"EVIDENCE_DEPTH_WAIVER\s+fulltext<=(\d+)\s+claims<=(\d+)"
+)
+
+
+def resolve_evidence_depth_budget(
+    state: dict[str, Any], tier: str
+) -> tuple[int, int]:
+    """L3 可用 decision_log 登记的上限替换默认预算；L1/L2 不得豁免。"""
+
+    default_fulltext, default_claims = EVIDENCE_DEPTH_BUDGETS[tier]
+    if tier != "L3":
+        return default_fulltext, default_claims
+    hard_fulltext, hard_claims = EVIDENCE_DEPTH_HARD_CAPS["L3"]
+    waived_fulltext = default_fulltext
+    waived_claims = default_claims
+    for entry in state.get("decision_log") or []:
+        if not isinstance(entry, dict):
+            continue
+        action = entry.get("action")
+        if not isinstance(action, str):
+            continue
+        match = EVIDENCE_DEPTH_WAIVER_RE.search(action)
+        if match is None:
+            continue
+        waived_fulltext = max(waived_fulltext, int(match.group(1)))
+        waived_claims = max(waived_claims, int(match.group(2)))
+    return (
+        min(waived_fulltext, hard_fulltext),
+        min(waived_claims, hard_claims),
+    )
 
 # 证据层级不再持久化（design-schema-3.0 §4），由 effective_state 派生：
 # 未列出的状态（L3_EVIDENCE 段、VALIDITY/COMPUTE 轴、COMPLETE）均为 L3。
@@ -416,7 +472,355 @@ def count_current_evidence(
 
 
 # compute_authorized=false 时视为"未授权计算产物"的路径模式（根相对 glob）。
-COMPUTE_ARTIFACT_GLOBS = ("s0_*", "s0_outputs/**/*")
+# instance_probes/ 必须先经 iph authorize/register-instance-probe 登记。
+COMPUTE_ARTIFACT_GLOBS = ("s0_*", "s0_outputs/**/*", "instance_probes/**/*")
+MAX_INSTANCE_PROBES = 5
+MEAN_AS_THRESHOLD = re.compile(
+    r"dataset mean|dataset-level|总体均值|平均分当|figure\s*4.*threshold",
+    re.IGNORECASE,
+)
+G4_ROLES = {
+    "OLD_STOP_STILL_SCORES",
+    "NEW_STOP_FAIL",
+    "DESIGN_WALKTHROUGH",
+    "NOT_A_THRESHOLD",
+    "RECONSTRUCTION",
+}
+G4_SUPPORTING_ROLES = frozenset({"OLD_STOP_STILL_SCORES", "NEW_STOP_FAIL"})
+ALGORITHM_PROFILES = {"ALGORITHM", "MIXED"}
+
+
+def n0_4_claimed(state: dict[str, Any]) -> bool:
+    gates = state.get("gates")
+    return state.get("novelty_level") == "N0-4C" or (
+        isinstance(gates, dict) and gates.get("n0_4_locked") is True
+    )
+
+
+def algorithm_profile(state: dict[str, Any]) -> bool:
+    return state.get("claim_profile") in ALGORITHM_PROFILES
+
+
+def load_optional_json_artifact(
+    root: Path, state: dict[str, Any], key: str, fallback: str
+) -> tuple[Path | None, dict[str, Any] | None, str | None]:
+    """读取可选 JSON 工件。返回 (path, payload, error)。缺文件时 path 为 None。"""
+
+    artifacts = state.get("artifacts")
+    raw = artifacts.get(key) if isinstance(artifacts, dict) else None
+    relative = raw if isinstance(raw, str) and raw.strip() else fallback
+    path = resolve_artifact(root, relative)
+    if path is None or not path.is_file():
+        return None, None, None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        return path, None, f"unreadable:{error}"
+    if not isinstance(payload, dict):
+        return path, None, "top_level_must_be_object"
+    return path, payload, None
+
+
+def validate_instance_probe_registry(
+    root: Path, state: dict[str, Any], errors: list[str]
+) -> None:
+    """N0-3 实例探针：必须先授权、≤5 条、不得把数据集均值当成功阈值。"""
+
+    artifacts = state.get("artifacts")
+    raw = (
+        artifacts.get("instance_probe_registry")
+        if isinstance(artifacts, dict)
+        else None
+    )
+    relative = raw if isinstance(raw, str) and raw.strip() else "instance_probe_registry.json"
+    path = resolve_artifact(root, relative)
+    if path is None or not path.is_file():
+        return
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        add(errors, "INSTANCE_PROBE_UNAUTHORIZED", f"unreadable:{error}")
+        return
+    if not isinstance(payload, dict):
+        add(errors, "INSTANCE_PROBE_UNAUTHORIZED", "top_level_must_be_object")
+        return
+    if not nonempty(payload.get("authorization_note")):
+        add(errors, "INSTANCE_PROBE_UNAUTHORIZED", "authorization_note:missing")
+    probes = payload.get("probes")
+    if probes is None:
+        probes = []
+    if not isinstance(probes, list):
+        add(errors, "INSTANCE_PROBE_UNAUTHORIZED", "probes:not_list")
+        return
+    if len(probes) > MAX_INSTANCE_PROBES:
+        add(
+            errors,
+            "INSTANCE_PROBE_LIMIT",
+            f"count:{len(probes)}>max:{MAX_INSTANCE_PROBES}",
+        )
+    observed_roles: list[str] = []
+    for index, probe in enumerate(probes):
+        item = f"probes[{index}]"
+        if not isinstance(probe, dict):
+            add(errors, "INSTANCE_PROBE_UNAUTHORIZED", f"{item}:not_object")
+            continue
+        if probe.get("old_metric_verdict") == "SUCCESS":
+            rule = probe.get("success_rule")
+            if not nonempty(rule) or MEAN_AS_THRESHOLD.search(str(rule)):
+                add(
+                    errors,
+                    "INSTANCE_PROBE_MEAN_AS_THRESHOLD",
+                    f"{item}:success_rule:{rule}",
+                )
+        role = probe.get("g4_role")
+        if role is None or (isinstance(role, str) and not role.strip()):
+            if n0_4_claimed(state):
+                add(errors, "G4_ROLE_MISSING", f"{item}:g4_role")
+            continue
+        if role not in G4_ROLES:
+            add(errors, "G4_ROLE_UNKNOWN", f"{item}:g4_role:{role}")
+            continue
+        observed_roles.append(role)
+        if (
+            n0_4_claimed(state)
+            and probe.get("purpose") == "COUNTEREXAMPLE"
+            and role == "NOT_A_THRESHOLD"
+        ):
+            add(
+                errors,
+                "G4_NOT_A_THRESHOLD_AS_COUNTEREXAMPLE",
+                f"{item}:published score is not a fail witness",
+            )
+    if n0_4_claimed(state) and observed_roles:
+        if not any(role in G4_SUPPORTING_ROLES for role in observed_roles):
+            add(
+                errors,
+                "G4_WALKTHROUGH_ONLY",
+                "DESIGN_WALKTHROUGH/NOT_A_THRESHOLD/RECONSTRUCTION cannot solely support N0-4C",
+            )
+
+
+def validate_l3_contract(
+    root: Path, state: dict[str, Any], errors: list[str]
+) -> None:
+    """停止轴必须是已声明输入的函数（AXIS_NOT_IN_INPUT）。"""
+
+    path, payload, error = load_optional_json_artifact(
+        root, state, "l3_contract", "l3_contract.json"
+    )
+    required = n0_4_claimed(state) and algorithm_profile(state)
+    if path is None:
+        if required:
+            add(errors, "L3_CONTRACT_MISSING", "ALGORITHM/MIXED N0-4C 需要 l3_contract.json")
+        return
+    if payload is None:
+        add(errors, "L3_CONTRACT_INVALID", error or "unreadable")
+        return
+    inputs = payload.get("inputs")
+    generated = payload.get("generated")
+    stop_axes = payload.get("stop_axes")
+    input_set: set[str] = set()
+    generated_set: set[str] = set()
+    if not isinstance(inputs, list) or not inputs:
+        add(errors, "L3_CONTRACT_INVALID", "inputs:expected_nonempty_list")
+    else:
+        for index, item in enumerate(inputs):
+            if not nonempty(item):
+                add(errors, "L3_CONTRACT_INVALID", f"inputs[{index}]:expected_nonempty_string")
+                continue
+            input_set.add(item.strip())
+    if generated is not None:
+        if not isinstance(generated, list):
+            add(errors, "L3_CONTRACT_INVALID", "generated:expected_list")
+        else:
+            for index, item in enumerate(generated):
+                if not nonempty(item):
+                    add(
+                        errors,
+                        "L3_CONTRACT_INVALID",
+                        f"generated[{index}]:expected_nonempty_string",
+                    )
+                    continue
+                name = item.strip()
+                if name in input_set:
+                    add(errors, "L3_CONTRACT_INVALID", f"generated:{name}:overlaps_inputs")
+                    continue
+                generated_set.add(name)
+    allowed = input_set | generated_set
+    if not isinstance(stop_axes, list) or not stop_axes:
+        add(errors, "L3_CONTRACT_INVALID", "stop_axes:expected_nonempty_list")
+        return
+    for index, axis in enumerate(stop_axes):
+        item = f"stop_axes[{index}]"
+        if not isinstance(axis, dict):
+            add(errors, "L3_CONTRACT_INVALID", f"{item}:not_object")
+            continue
+        name = axis.get("name")
+        axis_name = name.strip() if nonempty(name) else item
+        depends_on = axis.get("depends_on")
+        if not isinstance(depends_on, list):
+            add(errors, "L3_CONTRACT_INVALID", f"{item}:depends_on:not_list")
+            continue
+        for dep_index, dep in enumerate(depends_on):
+            if not nonempty(dep):
+                add(
+                    errors,
+                    "L3_CONTRACT_INVALID",
+                    f"{item}:depends_on[{dep_index}]:expected_nonempty_string",
+                )
+                continue
+            if dep.strip() not in allowed:
+                add(
+                    errors,
+                    "AXIS_NOT_IN_INPUT",
+                    f"axis:{axis_name};dep:{dep.strip()}",
+                )
+    if "p" not in allowed:
+        artifacts = state.get("artifacts")
+        raw_statement = (
+            artifacts.get("exact_statement") if isinstance(artifacts, dict) else None
+        )
+        statement_path = resolve_artifact(
+            root, raw_statement if nonempty(raw_statement) else "l3-exact.md"
+        )
+        if statement_path is not None and statement_path.is_file():
+            try:
+                statement = statement_path.read_text(encoding="utf-8")
+            except OSError:
+                statement = ""
+            if re.search(r"p_loc|\(src_span", statement):
+                add(
+                    errors,
+                    "AXIS_NOT_IN_INPUT",
+                    "axis:two_sided_certificate;dep:p",
+                )
+
+
+REQUIRED_WIRING_KINDS = ("POSTHOC_LABEL", "SCHEMA_EXTENSION", "RENAME")
+WIRING_STATUSES = {"KILLED", "ALIVE", "NOT_ATTEMPTED"}
+
+
+def composition_n0_4_lock_errors(payload: dict[str, Any]) -> list[tuple[str, str]]:
+    """N0-4C 组合锁：必须先打过三种必做接线，且没有仍活/未尝试的接线。"""
+
+    problems: list[tuple[str, str]] = []
+    if payload.get("union_equals_candidate") is True:
+        problems.append(
+            (
+                "COMPOSITION_REDUCES",
+                "union_equals_candidate=true 是机械并集，不能锁定 N0-4C",
+            )
+        )
+    elif payload.get("union_equals_candidate") is not False:
+        problems.append(
+            (
+                "COMPOSITION_AUDIT_INVALID",
+                "union_equals_candidate:expected_false_for_N0-4C",
+            )
+        )
+    if not nonempty(payload.get("reduction_failed_because")):
+        problems.append(
+            ("COMPOSITION_AUDIT_INVALID", "reduction_failed_because:missing")
+        )
+    remaining = payload.get("strongest_remaining")
+    if remaining not in {None, ""}:
+        if not nonempty(remaining):
+            problems.append(
+                ("COMPOSITION_AUDIT_INVALID", "strongest_remaining:expected_string_or_empty")
+            )
+        else:
+            problems.append(
+                (
+                    "WIRING_STILL_ALIVE",
+                    f"strongest_remaining:{remaining.strip()}",
+                )
+            )
+    wirings = payload.get("wirings")
+    if not isinstance(wirings, list) or not wirings:
+        problems.append(("WIRINGS_MISSING", "N0-4C 必须登记 wirings"))
+        for kind in REQUIRED_WIRING_KINDS:
+            problems.append(("WIRING_KIND_MISSING", f"kind:{kind}"))
+        return problems
+    seen: set[str] = set()
+    for index, wiring in enumerate(wirings):
+        item = f"wirings[{index}]"
+        if not isinstance(wiring, dict):
+            problems.append(("COMPOSITION_AUDIT_INVALID", f"{item}:not_object"))
+            continue
+        kind = wiring.get("kind")
+        if kind not in REQUIRED_WIRING_KINDS and not nonempty(kind):
+            problems.append(("COMPOSITION_AUDIT_INVALID", f"{item}:kind:missing"))
+            continue
+        if nonempty(kind):
+            seen.add(str(kind).strip())
+        status = wiring.get("status")
+        if status not in WIRING_STATUSES:
+            problems.append(
+                ("COMPOSITION_AUDIT_INVALID", f"{item}:status:{status}")
+            )
+            continue
+        if status == "NOT_ATTEMPTED":
+            problems.append(
+                ("WIRING_NOT_ATTEMPTED", f"{item}:kind:{kind}")
+            )
+        elif status == "ALIVE":
+            problems.append(("WIRING_STILL_ALIVE", f"{item}:kind:{kind}"))
+        elif status == "KILLED":
+            claim_ids = wiring.get("kill_claim_ids")
+            if not isinstance(claim_ids, list) or not any(
+                nonempty(claim_id) for claim_id in claim_ids
+            ):
+                problems.append(
+                    ("SEPARATION_NOT_WHOLE", f"{item}:kill_claim_ids:missing")
+                )
+            if wiring.get("whole_mapping_separates") is not True:
+                problems.append(
+                    (
+                        "SEPARATION_NOT_WHOLE",
+                        f"{item}:whole_mapping_separates:not_true",
+                    )
+                )
+    for kind in REQUIRED_WIRING_KINDS:
+        if kind not in seen:
+            problems.append(("WIRING_KIND_MISSING", f"kind:{kind}"))
+    return problems
+
+
+def validate_composition_audit(
+    root: Path, state: dict[str, Any], errors: list[str]
+) -> None:
+    """N0-4C ALGORITHM/MIXED 必须登记并杀死三种必做接线，不是只杀一种弱 U*。"""
+
+    path, payload, error = load_optional_json_artifact(
+        root, state, "composition_audit", "composition_audit.json"
+    )
+    required = n0_4_claimed(state) and algorithm_profile(state)
+    if path is None:
+        if required:
+            add(
+                errors,
+                "COMPOSITION_AUDIT_MISSING",
+                "ALGORITHM/MIXED N0-4C 需要 composition_audit.json",
+            )
+        return
+    if payload is None:
+        add(errors, "COMPOSITION_AUDIT_INVALID", error or "unreadable")
+        return
+    components = payload.get("components")
+    if not isinstance(components, list) or not components:
+        add(errors, "COMPOSITION_AUDIT_INVALID", "components:expected_nonempty_list")
+        return
+    for index, component in enumerate(components):
+        item = f"components[{index}]"
+        if not isinstance(component, dict):
+            add(errors, "COMPOSITION_AUDIT_INVALID", f"{item}:not_object")
+            continue
+        if not nonempty(component.get("mechanical_gap")):
+            add(errors, "COMPOSITION_AUDIT_INVALID", f"{item}:mechanical_gap:missing")
+    if not required:
+        return
+    for code, detail in composition_n0_4_lock_errors(payload):
+        add(errors, code, detail)
 
 
 def find_unregistered_compute_artifacts(
@@ -444,6 +848,27 @@ def find_unregistered_compute_artifacts(
                         entry.get("path"), str
                     ):
                         registered.add(entry["path"])
+        probe_relative = (
+            artifacts.get("instance_probe_registry")
+            if isinstance(artifacts, dict)
+            else None
+        )
+        probe_path = root / (
+            probe_relative
+            if isinstance(probe_relative, str)
+            else "instance_probe_registry.json"
+        )
+        if probe_path.is_file():
+            registered.add(probe_path.relative_to(root).as_posix())
+            probes = json.loads(probe_path.read_text(encoding="utf-8")).get(
+                "probes"
+            )
+            if isinstance(probes, list):
+                for probe in probes:
+                    if isinstance(probe, dict) and isinstance(
+                        probe.get("output_file"), str
+                    ):
+                        registered.add(probe["output_file"])
     except (OSError, ValueError):
         pass
     found: list[str] = []
@@ -666,6 +1091,110 @@ def _data_sources_from_evidence(evidence_text: str) -> tuple[list[dict], list[st
     if not isinstance(data_sources, list):
         return [], []
     return data_sources, []
+
+
+def iter_sealed_runs(payload: Any) -> list[dict[str, Any]]:
+    """收集 compute_evidence 中 split=sealed 的运行行。"""
+
+    found: list[dict[str, Any]] = []
+    if isinstance(payload, dict):
+        if payload.get("split") == "sealed" and isinstance(payload.get("unit"), str):
+            found.append(payload)
+        for value in payload.values():
+            found.extend(iter_sealed_runs(value))
+    elif isinstance(payload, list):
+        for item in payload:
+            found.extend(iter_sealed_runs(item))
+    return found
+
+
+def load_json_if_present(root: Path, relative: Any) -> dict[str, Any] | None:
+    if not canonical_relative_path(relative):
+        return None
+    path = root / relative
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def validate_sealed_confirmation(
+    root: Path, state: dict[str, Any], errors: list[str]
+) -> None:
+    """S4/封存运行必须与协议一致，且不得复用计算前测试构造。"""
+
+    artifacts = state.get("artifacts")
+    protocol_rel = (
+        artifacts.get("protocol_contract")
+        if isinstance(artifacts, dict) and artifacts.get("protocol_contract")
+        else "protocol_contract.json"
+    )
+    protocol = load_json_if_present(root, protocol_rel)
+    sealed_role = (
+        protocol.get("sealed_confirmation_data") if isinstance(protocol, dict) else None
+    )
+
+    evidence_payload: dict[str, Any] | None = None
+    evidence = state.get("compute_evidence")
+    if isinstance(evidence, dict) and evidence.get("status") == "COMPLETED":
+        evidence_payload = load_json_if_present(root, evidence.get("artifact_path"))
+    sealed_runs = iter_sealed_runs(evidence_payload) if evidence_payload else []
+    compute_reached_s4 = state.get("compute_stage") == "S4" or bool(sealed_runs)
+
+    if compute_reached_s4 and sealed_role == "NOT_YET_ACCESSED":
+        add(
+            errors,
+            "PROTOCOL_SEALED_ACCESS_CONTRADICTION",
+            "protocol.sealed_confirmation_data=NOT_YET_ACCESSED after sealed compute",
+        )
+
+    if not sealed_runs:
+        return
+
+    test_texts: list[str] = []
+    trace_rel = (
+        artifacts.get("claim_code_trace")
+        if isinstance(artifacts, dict) and artifacts.get("claim_code_trace")
+        else "claim_code_trace.json"
+    )
+    trace = load_json_if_present(root, trace_rel)
+    traces = trace.get("traces") if isinstance(trace, dict) else None
+    if isinstance(traces, list):
+        for item in traces:
+            if not isinstance(item, dict):
+                continue
+            test_rel = item.get("executable_test_relative_path")
+            if not canonical_relative_path(test_rel):
+                continue
+            test_path = root / test_rel
+            if test_path.is_file():
+                try:
+                    test_texts.append(test_path.read_text(encoding="utf-8"))
+                except OSError:
+                    continue
+
+    for run in sealed_runs:
+        unit = run.get("unit")
+        fingerprint = run.get("unseen_fingerprint")
+        if not nonempty_string(fingerprint) or len(str(fingerprint).strip()) < 4:
+            add(
+                errors,
+                "SEALED_UNIT_FINGERPRINT_MISSING",
+                f"unit:{unit}",
+            )
+            continue
+        token = str(fingerprint).strip()
+        for text in test_texts:
+            if token in text:
+                add(
+                    errors,
+                    "SEALED_UNIT_SEEN_IN_PRECOMPUTE",
+                    f"unit:{unit};fingerprint:{token}",
+                )
+                break
 
 
 def validate_data_sources(
@@ -1290,10 +1819,13 @@ def validate(
     if not compute_authorized:
         for artifact in find_unregistered_compute_artifacts(root, state):
             add(errors, "UNREGISTERED_COMPUTE_ARTIFACT", f"path:{artifact}")
+    validate_instance_probe_registry(root, state, errors)
+    validate_l3_contract(root, state, errors)
+    validate_composition_audit(root, state, errors)
 
     # R-LAYER-13：证据深度按段供给；超段超量取证即主次颠倒。
     tier = evidence_tier(str(effective_state))
-    fulltext_budget, claim_budget = EVIDENCE_DEPTH_BUDGETS[tier]
+    fulltext_budget, claim_budget = resolve_evidence_depth_budget(state, tier)
     fulltext_count, claim_count, scope_issues = count_current_evidence(root, state)
     for code, detail in scope_issues:
         add(errors, code, detail)
@@ -1479,6 +2011,8 @@ def validate(
 
     # R-N0-17：novelty-audit 必须含与 novelty_level 对应的裁决证据（正面/负面同价）。
     validate_novelty_verdict_evidence(root, state, errors)
+
+    validate_sealed_confirmation(root, state, errors)
 
     # COMPLETE 是终态，必须满足与 FINAL_LOCK 等价的条件。
     if effective_state == "COMPLETE":
