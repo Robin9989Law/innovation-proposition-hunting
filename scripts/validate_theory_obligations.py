@@ -57,7 +57,6 @@ JSON_OBJECT_ERROR_CODES = {
 # 不在此集合内的码维持原有严重级语义（与 validate_workflow_state.py 对齐）。
 NEW_CHECK_CODES = frozenset(
     {
-        "WITNESS_NO_BITE",
         "SUBCLAIM_WITNESS_GAP",
         "RANDOM_PROPERTY_EXEMPTION_PENDING",
     }

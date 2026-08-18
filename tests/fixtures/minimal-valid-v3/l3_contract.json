@@ -1,0 +1,9 @@
+{
+  "schema_version": "2.0",
+  "inputs": ["s", "I"],
+  "generated": ["p"],
+  "stop_axes": [
+    {"name": "identity", "depends_on": ["s", "I"]},
+    {"name": "two_sided_certificate", "depends_on": ["s", "p"]}
+  ]
+}

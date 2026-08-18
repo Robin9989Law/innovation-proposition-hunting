@@ -51,6 +51,9 @@ class SkillContractTests(unittest.TestCase):
             "SEALED_UNIT_STRUCTURAL_CLONE",
             "S4_CONJUNCTS_UNDECLARED",
             "SEALED_CONJUNCT_NOT_HIT",
+            "SEALED_OUTPUT_MISSING",
+            "WIRING_KILL_CLAIM_UNKNOWN",
+            "COMPLETE_NARROWER_UNACKNOWLEDGED",
             "REVIEW_ANSWER_NO_LOCATOR",
             "EXACT_INVENTORY_MISMATCH",
         ):

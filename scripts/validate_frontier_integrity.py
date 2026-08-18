@@ -49,7 +49,7 @@ REQUIRED_AXES = (
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
 # 新增检查码：默认 WARNING（不计入退出码），--strict-new-checks 升为 INVALID。
-NEW_CHECK_CODES = frozenset({"HOLLOW_COVERAGE_AXIS"})
+NEW_CHECK_CODES = frozenset()
 
 
 def issue_severity(code: str, strict_new_checks: bool) -> str:

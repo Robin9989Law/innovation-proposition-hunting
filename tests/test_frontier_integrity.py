@@ -398,8 +398,8 @@ class HollowCoverageAxisTests(unittest.TestCase):
     def test_legacy_string_entries_warn_by_default(self) -> None:
         self.set_author_continuations(["碳感知链：A → B → C"])
         result = self.run_frontier()
-        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertIn("WARNING\tHOLLOW_COVERAGE_AXIS", result.stdout)
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        self.assertIn("INVALID\tHOLLOW_COVERAGE_AXIS", result.stdout)
         self.assertIn("legacy_string_entry_without_shared_authors", result.stdout)
 
     def test_legacy_string_entries_invalid_in_strict(self) -> None:
@@ -411,13 +411,13 @@ class HollowCoverageAxisTests(unittest.TestCase):
     def test_object_with_empty_shared_authors_is_hollow(self) -> None:
         self.set_author_continuations([{"edge": "W-1 → W-2", "shared_authors": []}])
         result = self.run_frontier()
-        self.assertIn("WARNING\tHOLLOW_COVERAGE_AXIS", result.stdout)
+        self.assertIn("INVALID\tHOLLOW_COVERAGE_AXIS", result.stdout)
         self.assertIn("shared_authors:[]", result.stdout)
 
     def test_object_missing_shared_authors_is_hollow(self) -> None:
         self.set_author_continuations([{"edge": "W-1 → W-2"}])
         result = self.run_frontier()
-        self.assertIn("WARNING\tHOLLOW_COVERAGE_AXIS", result.stdout)
+        self.assertIn("INVALID\tHOLLOW_COVERAGE_AXIS", result.stdout)
         self.assertIn("shared_authors:missing", result.stdout)
 
     def test_method_lineage_optional_axis(self) -> None:
@@ -436,8 +436,8 @@ class HollowCoverageAxisTests(unittest.TestCase):
     def test_incident_fixture_reports_three_hollow_edges(self) -> None:
         incident = REPOSITORY_ROOT / "tests" / "fixtures" / "incident-2026-08"
         result = run_script("validate_frontier_integrity.py", incident)
-        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertEqual(3, result.stdout.count("WARNING\tHOLLOW_COVERAGE_AXIS"))
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        self.assertEqual(3, result.stdout.count("INVALID\tHOLLOW_COVERAGE_AXIS"))
         strict = run_script(
             "validate_frontier_integrity.py", incident, ("--strict-new-checks",)
         )

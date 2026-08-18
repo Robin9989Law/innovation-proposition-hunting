@@ -975,20 +975,23 @@ class WitnessBiteTests(unittest.TestCase):
 
     def test_missing_mechanism_warns_by_default_and_fails_in_strict(self) -> None:
         project = self.make_project()
+        obligations = load_obligations(project)
+        find_witness(first_obligation(obligations), "PREMISE_REMOVAL").pop(
+            "mechanism", None
+        )
+        write_obligations(project, obligations)
 
         completed = self.run_theory(project)
 
-        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
-        self.assertIn("theory_obligations_status=READY", completed.stdout)
-        self.assertIn("WARNING\tWITNESS_NO_BITE", completed.stdout)
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("INVALID\tWITNESS_NO_BITE", completed.stdout)
         self.assertIn(
             "PREMISE_REMOVAL.mechanism:missing_or_empty", completed.stdout
         )
 
         project = self.make_project()
         completed = self.run_theory(project, "--strict-new-checks")
-        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
-        self.assertIn("INVALID\tWITNESS_NO_BITE", completed.stdout)
+        self.assertNotIn("WITNESS_NO_BITE", completed.stdout)
 
     def test_constructive_tautology_phrases_are_reported(self) -> None:
         for phrase in ("by construction", "trivially", "by definition", "恒真"):
@@ -1003,9 +1006,9 @@ class WitnessBiteTests(unittest.TestCase):
                 completed = self.run_theory(project)
 
                 self.assertEqual(
-                    0, completed.returncode, completed.stdout + completed.stderr
+                    1, completed.returncode, completed.stdout + completed.stderr
                 )
-                self.assertIn("WARNING\tWITNESS_NO_BITE", completed.stdout)
+                self.assertIn("INVALID\tWITNESS_NO_BITE", completed.stdout)
                 self.assertIn(
                     f"PREMISE_REMOVAL.mechanism:constructive_tautology:{phrase}",
                     completed.stdout,
@@ -1045,7 +1048,7 @@ class WitnessBiteTests(unittest.TestCase):
 
         completed = self.run_theory(project)
 
-        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
         self.assertIn("WITNESS_NO_BITE", completed.stdout)
         self.assertIn("PREMISE_REMOVAL.mechanism:too_short", completed.stdout)
 
@@ -1054,11 +1057,12 @@ class WitnessBiteTests(unittest.TestCase):
         obligations = load_obligations(project)
         obligation = first_obligation(obligations)
         find_witness(obligation, "PREMISE_REMOVAL")["mechanism"] = GOOD_MECHANISM
+        find_witness(obligation, "NONZERO_NUISANCE").pop("sensitivity_control", None)
         write_obligations(project, obligations)
 
         completed = self.run_theory(project)
 
-        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
         self.assertIn(
             "NONZERO_NUISANCE.sensitivity_control:missing_or_empty",
             completed.stdout,
@@ -1073,15 +1077,14 @@ class WitnessBiteTests(unittest.TestCase):
 
         completed = self.run_theory(project)
 
-        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
         self.assertIn(
             "NONZERO_NUISANCE.sensitivity_control:too_short", completed.stdout
         )
 
         project = self.make_project()
         completed = self.run_theory(project, "--strict-new-checks")
-        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
-        self.assertIn("INVALID\tWITNESS_NO_BITE", completed.stdout)
+        self.assertNotIn("WITNESS_NO_BITE", completed.stdout)
 
     def test_qualified_mechanism_and_sensitivity_control_are_clean(self) -> None:
         project = self.make_project()

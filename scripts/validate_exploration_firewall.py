@@ -30,7 +30,7 @@ from validation_common import (
 
 
 # 新增检查码：默认 WARNING（不计入退出码），--strict-new-checks 升为 INVALID。
-NEW_CHECK_CODES = frozenset({"EXPLORATION_LEAK"})
+NEW_CHECK_CODES = frozenset()
 
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z", re.ASCII)
 # 显著数字 token：带小数点的数（可选符号/百分号），归一化后按有效位过滤。

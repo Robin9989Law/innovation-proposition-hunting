@@ -19,10 +19,12 @@ iph advance --to COMPLETE \
 
 下列用语不是接受：「推进到 N0-4C」「继续推进」「继续直到所有完成」
 「完成全流程」「用户要求完成全流程」。计算授权不是最终锁定接受。
-授权 note 必须同时含动词（授权 / authorize）、计算对象（计算 / compute）
-和确认对象（S4 / sealed / 封存 / 未见 / 确认）。接受 note 必须同时含动词
-（接受 / accept）、锁定对象（锁定 / complete / 最终）和本次指示
-（本次 / this / 这次）。「authorized compute」或「我授权打开计算」不够。
+授权 note 必须同时含动词（授权 / authorize）、计算对象（计算 / compute）、
+确认对象（S4 / sealed / 封存 / 未见 / 确认），并引用本项目 `workflow_id`
+或文献 `W-####` / 冻结 `claim_id`。接受 note 必须同时含动词（接受 / accept）、
+锁定对象（锁定 / complete / 最终）、本次指示（本次 / this / 这次），并引用
+本项目锚点。`exact_alignment=NARROWER` 时还须承认窄兑现
+（窄 / narrower / 子句 / 不背书）。「我授权打开未见的 S4 计算」不够。
 
 `workflow_state.final_acceptance` 由同一事务写入 `{note, at}`。缺对象、
 空 note 或套话即 `COMPLETE_REQUIRES_USER_ACCEPTANCE`（常驻 INVALID）。
@@ -41,7 +43,11 @@ iph advance --to COMPLETE \
 | sealed 行 `inventory_atoms` 为空 | `SEALED_INVENTORY_EMPTY` |
 | `dev_runner` 与 `sealed_runner` 缺一或路径相同 | `SEALED_RUNNER_NOT_INDEPENDENT` |
 | 有 sealed 运行且存在冻结 ALGORITHM 主张，却未声明 `s4_conjuncts` 也未在冻结句写 FAIL-* | `S4_CONJUNCTS_UNDECLARED` |
-| 已声明 FAIL-* 合取，但无一 sealed 行以非空清单打中 | `SEALED_CONJUNCT_NOT_HIT` |
+| 已声明 FAIL-* 合取，但并非每一条都被某条非空清单 sealed 行打中 | `SEALED_CONJUNCT_NOT_HIT` |
+| sealed 行缺 `output_file`，或文件中没有声称的 decision | `SEALED_OUTPUT_MISSING` / `SEALED_OUTPUT_DECISION_MISMATCH` |
+| `KILLED` 接线的 `kill_claim_ids` 不在观点注册表 | `WIRING_KILL_CLAIM_UNKNOWN` |
+| review 产物 epoch 与当前 state 不一致 | CLI 拒绝登记 |
+| NARROWER 冻结进入 COMPLETE 却不承认窄兑现 | `COMPLETE_NARROWER_UNACKNOWLEDGED` |
 
 四问非空仍是必要的，不是充分的。`verdict=PASS` 时
 `falsification_attempt` 必须引用**项目内真实文件**的 `path:line` 并摘引
@@ -65,8 +71,10 @@ iph advance --to COMPLETE \
 - 只要出现 sealed 运行且存在冻结 ALGORITHM 主张，就必须声明
   `s4_conjuncts` 或在冻结句写出 FAIL-* 停止合取。缺声明即
   `S4_CONJUNCTS_UNDECLARED`。声明之后，至少一条 sealed 行的
-  `decision`（或同值 `algorithm`）必须打中其中一条 FAIL-*，且清单非空。
-  只 ACCEPT、或只在空清单上多余原子，都是 `SEALED_CONJUNCT_NOT_HIT`。
+  `decision`（或同值 `algorithm`）必须打中**每一条**已声明 FAIL-*，且清单
+  非空。只打中其中一条、只 ACCEPT、或只在空清单上多余原子，都是
+  `SEALED_CONJUNCT_NOT_HIT`。每条 sealed 行必须有 `output_file`，且文件
+  正文含该 decision。
 
 `PROTOCOL_SEALED_ACCESS_CONTRADICTION` 在
 `FINAL_VALIDITY_AUDIT` / `FINAL_LOCK` / `COMPLETE` 为常驻 INVALID。
@@ -105,5 +113,14 @@ iph advance --to COMPLETE \
 `SEALED_INVENTORY_EMPTY`、`SEALED_RUNNER_NOT_INDEPENDENT`、
 `SEALED_UNIT_FINGERPRINT_NOT_IN_RUNNER`、`SEALED_UNIT_STRUCTURAL_CLONE`、
 `S4_CONJUNCTS_UNDECLARED`、`SEALED_CONJUNCT_NOT_HIT`、
+`SEALED_OUTPUT_MISSING`、`SEALED_OUTPUT_DECISION_MISMATCH`、
+`WIRING_KILL_CLAIM_UNKNOWN`、`COMPLETE_NARROWER_UNACKNOWLEDGED`、
 `COMPLETE_REQUIRES_USER_ACCEPTANCE`、`EXACT_INVENTORY_MISMATCH`、
-`REVIEW_ANSWER_NO_LOCATOR`。
+`REVIEW_ANSWER_NO_LOCATOR`、`FALSIFICATION_LEDGER_MISSING`、
+`L3_CONTRACT_MISSING`、`WITNESS_NO_BITE`、`EXPLORATION_LEAK`、
+`SELF_ATTESTING_TEST`、`HOLLOW_COVERAGE_AXIS`、
+`UNREGISTERED_COMPUTE_ARTIFACT`、`G4_WALKTHROUGH_ONLY`、
+`SYNTHETIC_DATA_NAMED_AS_REAL`、`ATOMIC_CLAIM_NO_ANCHOR`、
+`WIRING_KIND_MISSING`、`WIRINGS_MISSING`、`COMPOSITION_AUDIT_INVALID`、
+`COMPOSITION_REDUCES`、`OCCUPATION_EVIDENCE_MISSING`、
+`REDUCTION_EVIDENCE_MISSING`、`COMPLETE_REQUIRES_FINAL_LOCK_CONDITIONS`。

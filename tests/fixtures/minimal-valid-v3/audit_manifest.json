@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "validation_epoch": 1,
-  "claim_bundle_sha256": "367e6e3997849f5826b9eb582b98fdfa1669ad3adbe64396bfe8bf61c15bdfee",
+  "claim_bundle_sha256": "1fc2ae0ea115875c83b44d2541d236794d96d0950a882f3f6ce5b10d972034f9",
   "entries": [
     {
       "path": "baseline_budget.json",
@@ -71,7 +71,7 @@
     {
       "path": "theory_obligation_registry.json",
       "role": "THEORY_OBLIGATIONS",
-      "sha256": "23ae2e02b06f5b6acfe703963513244d6a0c24048bd4a9c3d04bb622befa2a53"
+      "sha256": "3291d2b32f33a08bdd2fd38d1111a21d08e79f6bab7cf1b8805e8d8873c1cd9c"
     }
   ]
 }

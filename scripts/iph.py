@@ -45,10 +45,13 @@ from validation_common import (  # noqa: E402
     ExitCode,
     ProjectContext,
     canonical_relative_path,
+    collect_project_anchor_tokens,
     file_sha256,
     has_review_locator,
     note_lacks_acceptance_grant,
     note_lacks_compute_grant,
+    note_lacks_narrower_ack,
+    note_lacks_project_anchor,
     nonempty_string,
 )
 from validate_workflow_state import (  # noqa: E402
@@ -269,11 +272,14 @@ def apply_transition_semantics(
                 "进入 COMPUTE 必须有显式用户授权："
                 "--authorize-compute --authorization-note <授权依据>"
             )
-        if note_lacks_compute_grant(args.authorization_note):
+        if note_lacks_compute_grant(args.authorization_note) or note_lacks_project_anchor(
+            args.authorization_note, collect_project_anchor_tokens(root, state)
+        ):
             raise SystemExit(
                 "计算授权依据不足：authorization-note 必须同时含授权动词"
-                "（授权/authorize）、计算对象（计算/compute）和确认对象"
-                "（S4/sealed/封存/未见/确认）；「推进到 N0-4C」"
+                "（授权/authorize）、计算对象（计算/compute）、确认对象"
+                "（S4/sealed/封存/未见/确认），并引用本项目 workflow_id "
+                "或文献 W-#### / 冻结 claim_id；「推进到 N0-4C」"
                 "「继续直到所有完成」「完成全流程」不是计算授权"
             )
         gate_updates["compute_authorized"] = True
@@ -289,12 +295,40 @@ def apply_transition_semantics(
                 "进入 COMPLETE 必须有用户接受原句："
                 "--accept-complete --acceptance-note <用户原句>"
             )
-        if note_lacks_acceptance_grant(args.acceptance_note):
+        if note_lacks_acceptance_grant(args.acceptance_note) or note_lacks_project_anchor(
+            args.acceptance_note, collect_project_anchor_tokens(root, state)
+        ):
             raise SystemExit(
                 "最终锁定接受依据不足：acceptance-note 必须同时含接受动词"
-                "（接受/accept）、锁定对象（锁定/complete/最终）和本次指示"
-                "（本次/this/这次）；计算授权或「完成全流程」不够"
+                "（接受/accept）、锁定对象（锁定/complete/最终）、本次指示"
+                "（本次/this/这次），并引用本项目 workflow_id 或冻结 claim_id；"
+                "计算授权或「完成全流程」不够"
             )
+        inventory_rel = (
+            state.get("artifacts", {}).get("claim_inventory")
+            if isinstance(state.get("artifacts"), dict)
+            else None
+        ) or "claim_inventory.json"
+        inventory_path = root / inventory_rel
+        if inventory_path.is_file():
+            try:
+                inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                inventory = None
+            alignment = (
+                inventory.get("exact_alignment")
+                if isinstance(inventory, dict)
+                else None
+            )
+            if (
+                isinstance(alignment, dict)
+                and alignment.get("status") == "NARROWER"
+                and note_lacks_narrower_ack(args.acceptance_note)
+            ):
+                raise SystemExit(
+                    "NARROWER 冻结进入 COMPLETE 时，acceptance-note 必须承认"
+                    "只兑现更窄子句（窄/narrower/子句/不背书）"
+                )
         state["final_acceptance"] = {
             "note": args.acceptance_note.strip(),
             "at": utc_now(),
@@ -1081,6 +1115,11 @@ def cmd_review(args: argparse.Namespace) -> int:
     if audit.get("verdict") != args.verdict:
         raise SystemExit(
             f"--verdict {args.verdict} 与 review 产物 verdict {audit.get('verdict')} 不一致"
+        )
+    if audit.get("validation_epoch") != state.get("validation_epoch"):
+        raise SystemExit(
+            "review 产物 validation_epoch 必须与当前 state 一致，"
+            "不得登记上一 epoch 的 independent_audit"
         )
     if args.verdict == "PASS":
         review_answers = audit.get("review_answers")

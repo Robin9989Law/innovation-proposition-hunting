@@ -15,10 +15,13 @@ from validation_common import (
     PROTOCOL_CONTRADICTION_STATES,
     canonical_relative_path,
     choose_exit,
+    collect_project_anchor_tokens,
     fingerprint_token_ok,
     has_frozen_algorithm_claim,
     long_string_constants,
     note_lacks_acceptance_grant,
+    note_lacks_narrower_ack,
+    note_lacks_project_anchor,
     nonempty_string,
     normalize_claim_text,
     open_root_fd,
@@ -216,34 +219,21 @@ NEW_CHECK_CODES = frozenset(
         "UPDATED_AT_BEFORE_DECISION_LOG",
         "GATE_COMPLETION_RECORD_MISSING",
         "SELF_DECLARED_LEVEL",
-        "COMPLETE_REQUIRES_FINAL_LOCK_CONDITIONS",
-        "UNREGISTERED_COMPUTE_ARTIFACT",
         "REGISTRY_POINTER_MISSING",
-        "FALSIFICATION_LEDGER_MISSING",
-        "OCCUPATION_EVIDENCE_MISSING",
-        "REDUCTION_EVIDENCE_MISSING",
         "COMPUTE_DATA_SOURCE_UNSPECIFIED",
-        "SYNTHETIC_DATA_NAMED_AS_REAL",
         "MANUSCRIPT_DATASET_UNVERIFIED",
         "BASELINE_NOT_EXECUTED",
         "EVIDENCE_SCOPE_REGRESSED",
         "NEXT_ACTION_INCONSISTENT_WITH_STATE",
         "CAPABILITY_FLIPPED_WITHOUT_PROVENANCE",
-        "ATOMIC_CLAIM_NO_ANCHOR",
         "INSTANCE_PROBE_UNAUTHORIZED",
         "INSTANCE_PROBE_LIMIT",
         "INSTANCE_PROBE_MEAN_AS_THRESHOLD",
-        "L3_CONTRACT_MISSING",
         "L3_CONTRACT_INVALID",
         "AXIS_NOT_IN_INPUT",
         "G4_ROLE_MISSING",
         "G4_ROLE_UNKNOWN",
-        "G4_WALKTHROUGH_ONLY",
         "G4_NOT_A_THRESHOLD_AS_COUNTEREXAMPLE",
-        "COMPOSITION_AUDIT_INVALID",
-        "COMPOSITION_REDUCES",
-        "WIRINGS_MISSING",
-        "WIRING_KIND_MISSING",
     }
 )
 
@@ -824,6 +814,38 @@ def validate_composition_audit(
         return
     for code, detail in composition_n0_4_lock_errors(payload):
         add(errors, code, detail)
+    known_ids = _literature_claim_ids(root, state)
+    if known_ids is None:
+        return
+    wirings = payload.get("wirings")
+    if not isinstance(wirings, list):
+        return
+    for index, wiring in enumerate(wirings):
+        if not isinstance(wiring, dict) or wiring.get("status") != "KILLED":
+            continue
+        for claim_id in wiring.get("kill_claim_ids") or []:
+            if nonempty_string(claim_id) and str(claim_id).strip() not in known_ids:
+                add(
+                    errors,
+                    "WIRING_KILL_CLAIM_UNKNOWN",
+                    f"wirings[{index}]:{claim_id}",
+                )
+
+
+def _literature_claim_ids(root: Path, state: dict[str, Any]) -> set[str] | None:
+    artifacts = state.get("artifacts") if isinstance(state.get("artifacts"), dict) else {}
+    relative = artifacts.get("claim_registry") or "literature_claim_registry.json"
+    path = root / str(relative)
+    if not path.is_file():
+        return None
+    payload = load_json_if_present(root, relative)
+    if not isinstance(payload, dict):
+        return set()
+    found: set[str] = set()
+    for record in payload.get("records") or []:
+        if isinstance(record, dict) and nonempty_string(record.get("claim_id")):
+            found.add(str(record["claim_id"]).strip())
+    return found
 
 
 def find_unregistered_compute_artifacts(
@@ -1214,7 +1236,7 @@ def collect_sealed_hard_fail_details(
                 "frozen ALGORITHM claim missing s4_conjuncts or FAIL-* tokens",
             )
         )
-    hit_required = False
+    hit_required: set[str] = set()
     sealed_text = (
         _read_text_if_present(root, sealed_runner)
         if canonical_relative_path(sealed_runner)
@@ -1252,6 +1274,22 @@ def collect_sealed_hard_fail_details(
             problems.append(
                 ("SEALED_INVENTORY_EMPTY", f"unit:{unit}")
             )
+        decision = sealed_decision(run)
+        output_rel = run.get("output_file")
+        output_text = (
+            _read_text_if_present(root, output_rel)
+            if canonical_relative_path(output_rel)
+            else None
+        )
+        if output_text is None:
+            problems.append(("SEALED_OUTPUT_MISSING", f"unit:{unit}"))
+        elif decision and decision not in output_text:
+            problems.append(
+                (
+                    "SEALED_OUTPUT_DECISION_MISMATCH",
+                    f"unit:{unit};decision:{decision}",
+                )
+            )
         fingerprint = run.get("unseen_fingerprint")
         token = str(fingerprint).strip() if nonempty_string(fingerprint) else ""
         if not fingerprint_token_ok(token):
@@ -1273,17 +1311,18 @@ def collect_sealed_hard_fail_details(
                         )
                     )
                     break
-        decision = sealed_decision(run)
         if required_tokens and decision in required_tokens and atoms_ok:
-            hit_required = True
+            hit_required.add(decision)
 
-    if required_tokens and not hit_required:
-        problems.append(
-            (
-                "SEALED_CONJUNCT_NOT_HIT",
-                "required:" + ",".join(sorted(required_tokens)),
+    if required_tokens:
+        missing = required_tokens - hit_required
+        if missing:
+            problems.append(
+                (
+                    "SEALED_CONJUNCT_NOT_HIT",
+                    "missing:" + ",".join(sorted(missing)),
+                )
             )
-        )
     return problems
 
 
@@ -1333,11 +1372,13 @@ def _collect_precompute_python(
         base = root / folder
         if not base.is_dir():
             continue
-        for path in base.rglob("*.py"):
-            try:
-                add_rel(path.relative_to(root).as_posix())
-            except ValueError:
-                continue
+        patterns = ("*.py",) if folder != "compute" else ("*.py", "*.md")
+        for pattern in patterns:
+            for path in base.rglob(pattern):
+                try:
+                    add_rel(path.relative_to(root).as_posix())
+                except ValueError:
+                    continue
     return texts
 
 
@@ -2274,11 +2315,37 @@ def validate(
             )
         acceptance = state.get("final_acceptance")
         note = acceptance.get("note") if isinstance(acceptance, dict) else None
-        if not nonempty_string(note) or note_lacks_acceptance_grant(str(note)):
+        anchors = collect_project_anchor_tokens(root, state)
+        if (
+            not nonempty_string(note)
+            or note_lacks_acceptance_grant(str(note))
+            or note_lacks_project_anchor(str(note), anchors)
+        ):
             add(
                 errors,
                 "COMPLETE_REQUIRES_USER_ACCEPTANCE",
                 "missing_or_insufficient_acceptance_note",
+            )
+        inventory = load_json_if_present(
+            root,
+            (
+                artifacts.get("claim_inventory")
+                if isinstance(artifacts, dict) and artifacts.get("claim_inventory")
+                else "claim_inventory.json"
+            ),
+        )
+        alignment = (
+            inventory.get("exact_alignment") if isinstance(inventory, dict) else None
+        )
+        if (
+            isinstance(alignment, dict)
+            and alignment.get("status") == "NARROWER"
+            and (not nonempty_string(note) or note_lacks_narrower_ack(str(note)))
+        ):
+            add(
+                errors,
+                "COMPLETE_NARROWER_UNACKNOWLEDGED",
+                "NARROWER freeze requires acceptance note to acknowledge narrower scope",
             )
 
     # gate 收口：scope 单调、next_required_action 一致性、capability 翻转 provenance。

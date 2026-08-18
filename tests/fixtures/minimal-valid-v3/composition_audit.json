@@ -23,7 +23,7 @@
       "kind": "SCHEMA_EXTENSION",
       "procedure": "add fields and reuse neighbor provenance",
       "status": "KILLED",
-      "kill_claim_ids": ["LC-0002"],
+      "kill_claim_ids": ["LC-0001"],
       "whole_mapping_separates": true
     },
     {
@@ -31,7 +31,7 @@
       "kind": "RENAME",
       "procedure": "reverse the neighbor provenance pair",
       "status": "KILLED",
-      "kill_claim_ids": ["LC-0003"],
+      "kill_claim_ids": ["LC-0001"],
       "whole_mapping_separates": true
     }
   ],

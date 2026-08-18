@@ -586,7 +586,8 @@ S4 完成后的计算证据文件可采用：
 
 `split=sealed` 的每条 `per_run` 必须有 8–64 字符标识符 `unseen_fingerprint`
 （词令边界，且该词令出现在 `sealed_runner`）、非空 `inventory_atoms`，以及
-打中已声明冻结合取的 `decision`（或同值 `algorithm`）。顶层必须声明互异的
+打中已声明的全部 FAIL-* 合取的 `decision`（或同值 `algorithm`），以及含该
+decision 的 `output_file`。顶层必须声明互异的
 `dev_runner` 与 `sealed_runner`。指纹不得出现在计算前测试、实现、开发
 runner 或 `compute/`/`checks/`/`implementation/` 下除 `sealed_runner` 外的
 `.py`。改名后仍同构，或 ≥16 字符字面量泄漏，报

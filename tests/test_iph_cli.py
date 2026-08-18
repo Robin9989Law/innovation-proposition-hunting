@@ -670,7 +670,7 @@ class AdvanceTests(unittest.TestCase):
                 "authorized compute entry",
                 "--authorize-compute",
                 "--authorization-note",
-                "user explicitly authorized this bounded compute S4 on unseen sealed units",
+                "user explicitly authorized schema-v3-test compute S4 on unseen sealed units",
                 "--no-validate",
             )
             self.assertEqual(0, authorized.returncode, authorized.stderr)
@@ -1602,13 +1602,16 @@ class ReviewCommandTests(unittest.TestCase):
                 "finish",
                 "--accept-complete",
                 "--acceptance-note",
-                "我接受本次最终锁定",
+                "我接受本次最终锁定 schema-v3-test",
                 "--no-validate",
             )
             self.assertEqual(0, accepted.returncode, accepted.stderr)
             state = load_json(project / "workflow_state.json")
             self.assertEqual("COMPLETE", state["active_state"])
-            self.assertEqual("我接受本次最终锁定", state["final_acceptance"]["note"])
+            self.assertEqual(
+                "我接受本次最终锁定 schema-v3-test",
+                state["final_acceptance"]["note"],
+            )
 
     def test_review_pass_rejects_sealed_hard_fail(self) -> None:
         temporary_directory, project = make_valid_project(
@@ -1696,6 +1699,32 @@ class ReviewCommandTests(unittest.TestCase):
             )
             self.assertNotEqual(0, review.returncode)
             self.assertIn("falsification_attempt", review.stderr)
+
+    def test_review_rejects_stale_epoch_artifact(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V3")
+        with temporary_directory:
+            audit_path = project / "independent_audit.json"
+            audit = load_json(audit_path)
+            audit["validation_epoch"] = 2
+            audit["review_answers"] = {
+                "data_authenticity": "ok",
+                "baseline_execution": "ok",
+                "claim_strength": "ok",
+                "falsification_attempt": "tried occupation at manuscript.md:3 (Theorem 1)",
+            }
+            write_json(audit_path, audit)
+            review = run_iph(
+                project,
+                "review",
+                "--reviewer",
+                "agent-b",
+                "--thread",
+                "thread-b",
+                "--verdict",
+                "PASS",
+            )
+            self.assertNotEqual(0, review.returncode)
+            self.assertIn("validation_epoch", review.stderr)
 
     def test_review_rejects_pass_without_answers(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V3")

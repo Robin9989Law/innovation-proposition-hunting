@@ -23,7 +23,7 @@ from validation_common import (
 
 # 新增检查码：默认 WARNING（不计入退出码），--strict-new-checks 升为 INVALID。
 # 不在此集合内的码维持原有严重级语义。
-NEW_CHECK_CODES = frozenset({"SELF_ATTESTING_TEST"})
+NEW_CHECK_CODES = frozenset()
 
 
 def issue_severity(code: str, strict_new_checks: bool) -> str:

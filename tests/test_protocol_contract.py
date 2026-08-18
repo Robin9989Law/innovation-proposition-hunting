@@ -2595,9 +2595,8 @@ class SelfAttestingTestContractTests(unittest.TestCase):
 
         completed = self.run_protocol(project)
 
-        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
-        self.assertIn("protocol_contract_status=READY", completed.stdout)
-        self.assertIn("WARNING\tSELF_ATTESTING_TEST", completed.stdout)
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("INVALID\tSELF_ATTESTING_TEST", completed.stdout)
         self.assertIn("TARGET_CLAIM_IDS:missing_or_empty_module_literal", completed.stdout)
 
     def test_empty_target_claim_ids_literal_is_self_attesting(self) -> None:
@@ -2606,7 +2605,7 @@ class SelfAttestingTestContractTests(unittest.TestCase):
 
         completed = self.run_protocol(project)
 
-        self.assertIn("WARNING\tSELF_ATTESTING_TEST", completed.stdout)
+        self.assertIn("INVALID\tSELF_ATTESTING_TEST", completed.stdout)
         self.assertIn("TARGET_CLAIM_IDS:missing_or_empty_module_literal", completed.stdout)
 
     def test_target_claim_ids_disjoint_from_registered_is_self_attesting(self) -> None:
@@ -2615,7 +2614,7 @@ class SelfAttestingTestContractTests(unittest.TestCase):
 
         completed = self.run_protocol(project)
 
-        self.assertIn("WARNING\tSELF_ATTESTING_TEST", completed.stdout)
+        self.assertIn("INVALID\tSELF_ATTESTING_TEST", completed.stdout)
         self.assertIn(
             "TARGET_CLAIM_IDS:no_intersection_with_registered_claims",
             completed.stdout,
@@ -2627,7 +2626,7 @@ class SelfAttestingTestContractTests(unittest.TestCase):
 
         completed = self.run_protocol(project)
 
-        self.assertIn("WARNING\tSELF_ATTESTING_TEST", completed.stdout)
+        self.assertIn("INVALID\tSELF_ATTESTING_TEST", completed.stdout)
         self.assertIn("implementation_import:missing", completed.stdout)
 
     def test_sys_path_stem_import_satisfies_binding(self) -> None:
@@ -2679,7 +2678,7 @@ class SelfAttestingTestContractTests(unittest.TestCase):
         completed = self.run_trace(project)
 
         # 严格契约（INVALID）之外，反自证检查给出 WARNING 级信号。
-        self.assertIn("WARNING\tSELF_ATTESTING_TEST", completed.stdout)
+        self.assertIn("INVALID\tSELF_ATTESTING_TEST", completed.stdout)
         self.assertIn("TARGET_CLAIM_IDS:missing_or_empty_module_literal", completed.stdout)
 
     def test_trace_strict_new_checks_upgrades_self_attesting(self) -> None:
@@ -2787,8 +2786,8 @@ class SelfAttestingTestContractTests(unittest.TestCase):
 
         completed = self.run_protocol(project)
 
-        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
-        self.assertIn("WARNING\tSELF_ATTESTING_TEST", completed.stdout)
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("INVALID\tSELF_ATTESTING_TEST", completed.stdout)
         self.assertIn("TARGET_CLAIM_IDS:missing_or_empty_module_literal", completed.stdout)
         # sys.path.insert + import scheduling_lp 的 import 绑定成立，不误报。
         self.assertNotIn("implementation_import:missing", completed.stdout)

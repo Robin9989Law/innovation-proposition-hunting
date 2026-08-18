@@ -450,10 +450,9 @@ MI、copula、Shapley、counterfactual credit、profile matching 等均已有；
   测试中见过的 S4 构造、以及「推进到 N0-4C / 完成全流程」类授权，均不得再
   支撑 V4。冻结主张以 `manuscript.e2.md` 算法句为准，不以仍写 V0 的
   `l3-exact.r17.md` 为准。
-- **执行纪律**：READY 不是论证成功。S4 指纹必须是 sealed runner 里的标识符
-  词令，改名同构或长字面量泄漏也不算未见。没有写出授权动词、计算对象和
-  S4/封存/未见的原句，不得打开 COMPUTE。没有写出接受动词、锁定对象和
-  「本次」的原句，不得进入 COMPLETE。复核证伪问必须摘引所引行之原文。
+- **执行纪律**：READY 不是论证成功。S4 的 decision 必须写在 output_file 里，
+  声明的 FAIL-* 合取必须全部打中。授权/接受必须点名本项目 workflow_id 或
+  W-####。接线杀死 ID 必须在观点注册表。NARROWER 冻结必须承认窄兑现。
 
 ## 2026-08-18：只杀死弱接线就锁 N0-4C（谓词映射）
 

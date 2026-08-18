@@ -208,6 +208,52 @@ def note_lacks_acceptance_grant(note: str) -> bool:
     return not any(token in text for token in ACCEPTANCE_GRANT_THIS)
 
 
+NARROWER_ACK_TOKENS = ("窄", "narrower", "子句", "不背书")
+
+
+def collect_project_anchor_tokens(root: Path, state: dict[str, Any]) -> set[str]:
+    tokens: set[str] = set()
+    workflow_id = state.get("workflow_id")
+    if nonempty_string(workflow_id):
+        tokens.add(str(workflow_id).strip())
+    artifacts = state.get("artifacts") if isinstance(state.get("artifacts"), dict) else {}
+    registry_rel = artifacts.get("literature_registry") or "near_neighbor_registry.json"
+    inventory_rel = artifacts.get("claim_inventory") or "claim_inventory.json"
+    registry_path = root / str(registry_rel)
+    if registry_path.is_file():
+        try:
+            payload = json.loads(registry_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            payload = None
+        if isinstance(payload, dict):
+            for record in payload.get("records") or []:
+                if isinstance(record, dict) and nonempty_string(record.get("registry_id")):
+                    tokens.add(str(record["registry_id"]).strip())
+    inventory_path = root / str(inventory_rel)
+    if inventory_path.is_file():
+        try:
+            payload = json.loads(inventory_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            payload = None
+        if isinstance(payload, dict):
+            for claim in payload.get("claims") or []:
+                if isinstance(claim, dict) and nonempty_string(claim.get("claim_id")):
+                    tokens.add(str(claim["claim_id"]).strip())
+    return tokens
+
+
+def note_lacks_project_anchor(note: str, tokens: set[str]) -> bool:
+    if not tokens:
+        return False
+    text = note.casefold()
+    return not any(token.casefold() in text for token in tokens)
+
+
+def note_lacks_narrower_ack(note: str) -> bool:
+    text = note.casefold()
+    return not any(token in text for token in NARROWER_ACK_TOKENS)
+
+
 def fingerprint_token_ok(token: str) -> bool:
     return bool(FINGERPRINT_RE.fullmatch(token))
 

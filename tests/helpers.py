@@ -116,6 +116,8 @@ def make_valid_project(
     for fixture_path in MINIMAL_VALID_V3.iterdir():
         if fixture_path.name in STANDALONE_ONLY:
             continue
+        if fixture_path.name in {".workflow_stop.lock", "__pycache__"}:
+            continue
         if fixture_path.is_file():
             copy2(fixture_path, project / fixture_path.name)
         elif fixture_path.is_dir():

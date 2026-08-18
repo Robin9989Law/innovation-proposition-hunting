@@ -43,8 +43,8 @@ class IncidentLeakTests(unittest.TestCase):
 
     def test_default_warning_exit_zero(self) -> None:
         result = run_script("validate_exploration_firewall.py", INCIDENT)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("WARNING\tEXPLORATION_LEAK", result.stdout)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("INVALID\tEXPLORATION_LEAK", result.stdout)
         self.assertIn("token:0.398", result.stdout)
         self.assertIn("frozen_artifact:collision-round1.md", result.stdout)
         self.assertIn("frozen_artifact:output_claim_support.json", result.stdout)
@@ -96,8 +96,8 @@ class FirewallSyntheticTests(unittest.TestCase):
             "# collision\n数字 0.742 被引用\n", encoding="utf-8"
         )
         result = self.run_firewall()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("WARNING\tEXPLORATION_LEAK", result.stdout)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("INVALID\tEXPLORATION_LEAK", result.stdout)
         self.assertIn("frozen_artifact:collision-round1.md", result.stdout)
         strict = self.run_firewall("--strict-new-checks")
         self.assertEqual(strict.returncode, 1, strict.stderr)
@@ -180,7 +180,7 @@ class UnregisteredComputeArtifactTests(unittest.TestCase):
     def test_unregistered_s0_artifact_warns(self) -> None:
         (self.project / "s0_pilot.md").write_text("# pilot\n", encoding="utf-8")
         result = self.run_state("--current-year", "2026")
-        self.assertIn("WARNING\tUNREGISTERED_COMPUTE_ARTIFACT", result.stdout)
+        self.assertIn("INVALID\tUNREGISTERED_COMPUTE_ARTIFACT", result.stdout)
         self.assertIn("path:s0_pilot.md", result.stdout)
         strict = self.run_state("--current-year", "2026", "--strict-new-checks")
         self.assertIn("INVALID\tUNREGISTERED_COMPUTE_ARTIFACT", strict.stdout)

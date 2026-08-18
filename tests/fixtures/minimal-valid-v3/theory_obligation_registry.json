@@ -32,7 +32,8 @@
           "command": "python3 checks/theory_witness.py nonzero-nuisance",
           "exit_code": 0,
           "output_file": "theory_witnesses/nonzero_nuisance.txt",
-          "output_sha256": "872ac478941d06d5f4f4e532ffd2cfdad8584e38583a24731b2fb1167c969289"
+          "output_sha256": "872ac478941d06d5f4f4e532ffd2cfdad8584e38583a24731b2fb1167c969289",
+          "sensitivity_control": "nuisance=0.25 against the clean-zero control"
         },
         {
           "kind": "BOUNDARY_OR_LIMIT",
@@ -50,7 +51,8 @@
           "command": "python3 checks/theory_witness.py premise-removal",
           "exit_code": 1,
           "output_file": "theory_witnesses/premise_removal.txt",
-          "output_sha256": "d3f9c1d5857e0301a621dd43ac58b9017ee0c42e1032eee87e285a21e53770a7"
+          "output_sha256": "d3f9c1d5857e0301a621dd43ac58b9017ee0c42e1032eee87e285a21e53770a7",
+          "mechanism": "removing x>=0 lets a negative x make x+1 fail, so the implication is not non-tautological without that premise"
         },
         {
           "kind": "RANDOM_PROPERTY",
