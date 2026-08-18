@@ -1089,6 +1089,66 @@ class KeepLayersCollisionTests(unittest.TestCase):
             self.assertFalse(state["gates"]["architecture_frozen"])
 
 
+class NoveltyLockWiringTests(unittest.TestCase):
+    def test_advance_rejects_n0_4c_when_schema_extension_unattempted(self) -> None:
+        temporary_directory, project = make_valid_project(
+            claim_profile="ALGORITHM", novelty_level="N0-3", validity_level="V0"
+        )
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "EVIDENCE_VALIDATE"
+            state["resume_state"] = "EVIDENCE_VALIDATE"
+            state["claim_profile"] = "ALGORITHM"
+            state["novelty_level"] = "N0-3"
+            state["gates"]["n0_4_locked"] = False
+            state["artifacts"]["composition_audit"] = "composition_audit.json"
+            write_json(project / "workflow_state.json", state)
+            write_json(
+                project / "composition_audit.json",
+                {
+                    "schema_version": "2.0",
+                    "components": [
+                        {
+                            "component_id": "posthoc",
+                            "mechanical_gap": "labels after extraction are not the stop",
+                        }
+                    ],
+                    "wirings": [
+                        {
+                            "wiring_id": "posthoc_label",
+                            "kind": "POSTHOC_LABEL",
+                            "procedure": "run neighbor then glue labels",
+                            "status": "KILLED",
+                            "kill_claim_ids": ["LC-0001"],
+                            "whole_mapping_separates": True,
+                        }
+                    ],
+                    "strongest_remaining": "SCHEMA_EXTENSION",
+                    "union_equals_candidate": False,
+                    "reduction_failed_because": "only posthoc was killed",
+                },
+            )
+            completed = run_iph(
+                project,
+                "advance",
+                "--to",
+                "N0_AUDIT",
+                "--novelty-level",
+                "N0-4C",
+                "--set-gate",
+                "n0_4_locked=true",
+                "--note",
+                "must not lock on a weak wiring",
+                "--no-validate",
+            )
+            self.assertNotEqual(0, completed.returncode, completed.stdout)
+            self.assertIn("不得锁定 N0-4C", completed.stderr)
+            self.assertEqual(
+                "EVIDENCE_VALIDATE",
+                load_json(project / "workflow_state.json")["active_state"],
+            )
+
+
 class InstanceProbeTests(unittest.TestCase):
     def test_authorize_and_register_on_n0_3(self) -> None:
         temporary_directory, project = make_valid_project(

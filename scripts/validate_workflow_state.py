@@ -233,6 +233,11 @@ NEW_CHECK_CODES = frozenset(
         "COMPOSITION_AUDIT_MISSING",
         "COMPOSITION_AUDIT_INVALID",
         "COMPOSITION_REDUCES",
+        "WIRINGS_MISSING",
+        "WIRING_KIND_MISSING",
+        "WIRING_NOT_ATTEMPTED",
+        "WIRING_STILL_ALIVE",
+        "SEPARATION_NOT_WHOLE",
     }
 )
 
@@ -441,6 +446,7 @@ G4_ROLES = {
     "NEW_STOP_FAIL",
     "DESIGN_WALKTHROUGH",
     "NOT_A_THRESHOLD",
+    "RECONSTRUCTION",
 }
 G4_SUPPORTING_ROLES = frozenset({"OLD_STOP_STILL_SCORES", "NEW_STOP_FAIL"})
 ALGORITHM_PROFILES = {"ALGORITHM", "MIXED"}
@@ -552,7 +558,7 @@ def validate_instance_probe_registry(
             add(
                 errors,
                 "G4_WALKTHROUGH_ONLY",
-                "DESIGN_WALKTHROUGH/NOT_A_THRESHOLD cannot solely support N0-4C",
+                "DESIGN_WALKTHROUGH/NOT_A_THRESHOLD/RECONSTRUCTION cannot solely support N0-4C",
             )
 
 
@@ -573,8 +579,10 @@ def validate_l3_contract(
         add(errors, "L3_CONTRACT_INVALID", error or "unreadable")
         return
     inputs = payload.get("inputs")
+    generated = payload.get("generated")
     stop_axes = payload.get("stop_axes")
     input_set: set[str] = set()
+    generated_set: set[str] = set()
     if not isinstance(inputs, list) or not inputs:
         add(errors, "L3_CONTRACT_INVALID", "inputs:expected_nonempty_list")
     else:
@@ -583,6 +591,24 @@ def validate_l3_contract(
                 add(errors, "L3_CONTRACT_INVALID", f"inputs[{index}]:expected_nonempty_string")
                 continue
             input_set.add(item.strip())
+    if generated is not None:
+        if not isinstance(generated, list):
+            add(errors, "L3_CONTRACT_INVALID", "generated:expected_list")
+        else:
+            for index, item in enumerate(generated):
+                if not nonempty(item):
+                    add(
+                        errors,
+                        "L3_CONTRACT_INVALID",
+                        f"generated[{index}]:expected_nonempty_string",
+                    )
+                    continue
+                name = item.strip()
+                if name in input_set:
+                    add(errors, "L3_CONTRACT_INVALID", f"generated:{name}:overlaps_inputs")
+                    continue
+                generated_set.add(name)
+    allowed = input_set | generated_set
     if not isinstance(stop_axes, list) or not stop_axes:
         add(errors, "L3_CONTRACT_INVALID", "stop_axes:expected_nonempty_list")
         return
@@ -605,18 +631,127 @@ def validate_l3_contract(
                     f"{item}:depends_on[{dep_index}]:expected_nonempty_string",
                 )
                 continue
-            if dep.strip() not in input_set:
+            if dep.strip() not in allowed:
                 add(
                     errors,
                     "AXIS_NOT_IN_INPUT",
                     f"axis:{axis_name};dep:{dep.strip()}",
                 )
+    if "p" not in allowed:
+        artifacts = state.get("artifacts")
+        raw_statement = (
+            artifacts.get("exact_statement") if isinstance(artifacts, dict) else None
+        )
+        statement_path = resolve_artifact(
+            root, raw_statement if nonempty(raw_statement) else "l3-exact.md"
+        )
+        if statement_path is not None and statement_path.is_file():
+            try:
+                statement = statement_path.read_text(encoding="utf-8")
+            except OSError:
+                statement = ""
+            if re.search(r"p_loc|\(src_span", statement):
+                add(
+                    errors,
+                    "AXIS_NOT_IN_INPUT",
+                    "axis:two_sided_certificate;dep:p",
+                )
+
+
+REQUIRED_WIRING_KINDS = ("POSTHOC_LABEL", "SCHEMA_EXTENSION", "RENAME")
+WIRING_STATUSES = {"KILLED", "ALIVE", "NOT_ATTEMPTED"}
+
+
+def composition_n0_4_lock_errors(payload: dict[str, Any]) -> list[tuple[str, str]]:
+    """N0-4C 组合锁：必须先打过三种必做接线，且没有仍活/未尝试的接线。"""
+
+    problems: list[tuple[str, str]] = []
+    if payload.get("union_equals_candidate") is True:
+        problems.append(
+            (
+                "COMPOSITION_REDUCES",
+                "union_equals_candidate=true 是机械并集，不能锁定 N0-4C",
+            )
+        )
+    elif payload.get("union_equals_candidate") is not False:
+        problems.append(
+            (
+                "COMPOSITION_AUDIT_INVALID",
+                "union_equals_candidate:expected_false_for_N0-4C",
+            )
+        )
+    if not nonempty(payload.get("reduction_failed_because")):
+        problems.append(
+            ("COMPOSITION_AUDIT_INVALID", "reduction_failed_because:missing")
+        )
+    remaining = payload.get("strongest_remaining")
+    if remaining not in {None, ""}:
+        if not nonempty(remaining):
+            problems.append(
+                ("COMPOSITION_AUDIT_INVALID", "strongest_remaining:expected_string_or_empty")
+            )
+        else:
+            problems.append(
+                (
+                    "WIRING_STILL_ALIVE",
+                    f"strongest_remaining:{remaining.strip()}",
+                )
+            )
+    wirings = payload.get("wirings")
+    if not isinstance(wirings, list) or not wirings:
+        problems.append(("WIRINGS_MISSING", "N0-4C 必须登记 wirings"))
+        for kind in REQUIRED_WIRING_KINDS:
+            problems.append(("WIRING_KIND_MISSING", f"kind:{kind}"))
+        return problems
+    seen: set[str] = set()
+    for index, wiring in enumerate(wirings):
+        item = f"wirings[{index}]"
+        if not isinstance(wiring, dict):
+            problems.append(("COMPOSITION_AUDIT_INVALID", f"{item}:not_object"))
+            continue
+        kind = wiring.get("kind")
+        if kind not in REQUIRED_WIRING_KINDS and not nonempty(kind):
+            problems.append(("COMPOSITION_AUDIT_INVALID", f"{item}:kind:missing"))
+            continue
+        if nonempty(kind):
+            seen.add(str(kind).strip())
+        status = wiring.get("status")
+        if status not in WIRING_STATUSES:
+            problems.append(
+                ("COMPOSITION_AUDIT_INVALID", f"{item}:status:{status}")
+            )
+            continue
+        if status == "NOT_ATTEMPTED":
+            problems.append(
+                ("WIRING_NOT_ATTEMPTED", f"{item}:kind:{kind}")
+            )
+        elif status == "ALIVE":
+            problems.append(("WIRING_STILL_ALIVE", f"{item}:kind:{kind}"))
+        elif status == "KILLED":
+            claim_ids = wiring.get("kill_claim_ids")
+            if not isinstance(claim_ids, list) or not any(
+                nonempty(claim_id) for claim_id in claim_ids
+            ):
+                problems.append(
+                    ("SEPARATION_NOT_WHOLE", f"{item}:kill_claim_ids:missing")
+                )
+            if wiring.get("whole_mapping_separates") is not True:
+                problems.append(
+                    (
+                        "SEPARATION_NOT_WHOLE",
+                        f"{item}:whole_mapping_separates:not_true",
+                    )
+                )
+    for kind in REQUIRED_WIRING_KINDS:
+        if kind not in seen:
+            problems.append(("WIRING_KIND_MISSING", f"kind:{kind}"))
+    return problems
 
 
 def validate_composition_audit(
     root: Path, state: dict[str, Any], errors: list[str]
 ) -> None:
-    """N0-4C ALGORITHM/MIXED 必须证明候选不是近邻碎片的可机械并集。"""
+    """N0-4C ALGORITHM/MIXED 必须登记并杀死三种必做接线，不是只杀一种弱 U*。"""
 
     path, payload, error = load_optional_json_artifact(
         root, state, "composition_audit", "composition_audit.json"
@@ -646,24 +781,8 @@ def validate_composition_audit(
             add(errors, "COMPOSITION_AUDIT_INVALID", f"{item}:mechanical_gap:missing")
     if not required:
         return
-    if payload.get("union_equals_candidate") is True:
-        add(
-            errors,
-            "COMPOSITION_REDUCES",
-            "union_equals_candidate=true 是机械并集，不能锁定 N0-4C",
-        )
-    elif payload.get("union_equals_candidate") is not False:
-        add(
-            errors,
-            "COMPOSITION_AUDIT_INVALID",
-            "union_equals_candidate:expected_false_for_N0-4C",
-        )
-    if not nonempty(payload.get("reduction_failed_because")):
-        add(
-            errors,
-            "COMPOSITION_AUDIT_INVALID",
-            "reduction_failed_because:missing",
-        )
+    for code, detail in composition_n0_4_lock_errors(payload):
+        add(errors, code, detail)
 
 
 def find_unregistered_compute_artifacts(

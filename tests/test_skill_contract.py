@@ -132,6 +132,7 @@ class SkillContractTests(unittest.TestCase):
             "nonzero nuisance",
             "empirical-to-theorem",
             "stale audit",
+            "schema-extension",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, text)

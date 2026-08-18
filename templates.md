@@ -668,11 +668,12 @@ OLD_STOP_STILL_SCORES   旧停止规则在该实例上仍给出分数/输出
 NEW_STOP_FAIL           新停止规则在该实例上失败
 DESIGN_WALKTHROUGH      设计走查，不能单独支撑 N0-4C
 NOT_A_THRESHOLD         已发表数字不是成功阈值（如表中 POSSIBLE）
+RECONSTRUCTION          跨系统推断（如「另一方法也会接受」），不能单独支撑 N0-4C
 ```
 
 N0-4C 下已登记探针必须带角色；全部为 `DESIGN_WALKTHROUGH` /
-`NOT_A_THRESHOLD` 即 `G4_WALKTHROUGH_ONLY`。`purpose=COUNTEREXAMPLE` 不得使用
-`NOT_A_THRESHOLD`（`G4_NOT_A_THRESHOLD_AS_COUNTEREXAMPLE`）。登记入口：
+`NOT_A_THRESHOLD` / `RECONSTRUCTION` 即 `G4_WALKTHROUGH_ONLY`。
+`purpose=COUNTEREXAMPLE` 不得使用 `NOT_A_THRESHOLD`。登记入口：
 `iph register-instance-probe --g4-role ...`。
 
 ## 13. `scope_lock.md`
@@ -784,17 +785,19 @@ python3 <skill>/scripts/iph.py revise-exact-statement \
 
 ## 16. `l3_contract.json`
 
-ALGORITHM / MIXED 锁定 N0-4C 前必须声明：每个停止轴是哪些输入的函数。缺文件
-报 `L3_CONTRACT_MISSING`；`depends_on` 引用 `inputs` 之外的符号报
-`AXIS_NOT_IN_INPUT`。
+ALGORITHM / MIXED 锁定 N0-4C 前必须声明：每个停止轴是哪些输入或生成物的函数。
+缺文件报 `L3_CONTRACT_MISSING`；`depends_on` 不在 `inputs ∪ generated` 报
+`AXIS_NOT_IN_INPUT`。`p` 是映射输出，应列入 `generated`，不得冒充输入。
+exact 句出现 `p_loc` / `(src_span` 却未声明 `p`，同样报 `AXIS_NOT_IN_INPUT`。
 
 ```json
 {
   "schema_version": "2.0",
   "inputs": ["s", "I"],
+  "generated": ["p"],
   "stop_axes": [
     {"name": "identity", "depends_on": ["s", "I"]},
-    {"name": "boundary_lock", "depends_on": ["s", "I"]}
+    {"name": "two_sided_certificate", "depends_on": ["s", "p"]}
   ]
 }
 ```
@@ -803,9 +806,9 @@ ALGORITHM / MIXED 锁定 N0-4C 前必须声明：每个停止轴是哪些输入�
 
 ## 17. `composition_audit.json`
 
-ALGORITHM / MIXED 锁定 N0-4C 前必须拆开候选，证明它不是近邻已有碎片的可机械
-并集。缺文件报 `COMPOSITION_AUDIT_MISSING`；`union_equals_candidate=true` 报
-`COMPOSITION_REDUCES`（那是 N0-2，不是 N0-4C）。
+ALGORITHM / MIXED 锁定 N0-4C 前必须拆开候选，并登记三种必做接线。只杀死
+「后贴标签」一种弱接线不得锁。缺文件报 `COMPOSITION_AUDIT_MISSING`；
+`union_equals_candidate=true` 报 `COMPOSITION_REDUCES`。
 
 ```json
 {
@@ -819,9 +822,42 @@ ALGORITHM / MIXED 锁定 N0-4C 前必须拆开候选，证明它不是近邻已�
       "mechanical_gap": "source-first inventory is not post-hoc labeling of extracted triples"
     }
   ],
+  "wirings": [
+    {
+      "wiring_id": "posthoc_label",
+      "kind": "POSTHOC_LABEL",
+      "procedure": "run the neighbor then glue labels",
+      "status": "KILLED",
+      "kill_claim_ids": ["LC-0001"],
+      "whole_mapping_separates": true
+    },
+    {
+      "wiring_id": "schema_extension",
+      "kind": "SCHEMA_EXTENSION",
+      "procedure": "add fields to the output schema and reuse neighbor provenance",
+      "status": "KILLED",
+      "kill_claim_ids": ["LC-0002"],
+      "whole_mapping_separates": true
+    },
+    {
+      "wiring_id": "rename",
+      "kind": "RENAME",
+      "procedure": "reverse the neighbor provenance pair",
+      "status": "KILLED",
+      "kill_claim_ids": ["LC-0003"],
+      "whole_mapping_separates": true
+    }
+  ],
+  "strongest_remaining": "",
   "union_equals_candidate": false,
-  "reduction_failed_because": "the conjunction does not yield the accept-token or monotone refine"
+  "reduction_failed_because": "each required wiring was killed on a whole-mapping published separation"
 }
 ```
 
-每块必须有非空 `mechanical_gap`。只写"合取不是相同词语"不算完成。
+`kind` 必做：`POSTHOC_LABEL` / `SCHEMA_EXTENSION` / `RENAME`。`status` 为
+`KILLED | ALIVE | NOT_ATTEMPTED`。N0-4C 时任一种未尝试、仍活、或
+`strongest_remaining` 非空，报 `WIRING_NOT_ATTEMPTED` / `WIRING_STILL_ALIVE`，
+`iph advance --novelty-level N0-4C` 直接拒绝。`KILLED` 必须有非空
+`kill_claim_ids` 且 `whole_mapping_separates=true`，否则 `SEPARATION_NOT_WHOLE`。
+单轴 NA 或「若缺字段则 FAIL」的设计例子不算整体分离。每块仍须非空
+`mechanical_gap`。只写「合取不是相同词语」不算完成。

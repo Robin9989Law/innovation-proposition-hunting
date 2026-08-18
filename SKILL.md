@@ -175,8 +175,9 @@ decision_log 记录裁决、占据/可推导证据与处置（关闭、吸收或
 novelty-audit，并保持 `active_state=N0_AUDIT`。有效性已冻结或计算已授权后
 不得撤回，只能新开 epoch。撤回后的 `N0-3` 才可 `start-collision-round` 或
 `revise-exact-statement`。只改精确句不得开新轮；新轮且 L1/L2 未变时加
-`--keep-layers`。N0-4C 的停止轴必须来自已声明输入（`AXIS_NOT_IN_INPUT`），
-G4 走查不能单独支撑锁定，ALGORITHM/MIXED 还须 `composition_audit.json`。
+`--keep-layers`。N0-4C 须先杀死组合表三种必做接线（后贴标签 /
+schema-extension / 换名）；有未尝试或仍活接线不得锁。用户要 4C 不是授权。
+停止轴可依赖输入或 `generated`（如 `p`）。G4 走查/推断不能单独支撑锁定。
 
 **证伪优先（falsification-first）**：任何候选被裁决为 N0-4C 之前，`novelty-audit.md`
 必须先完成证伪书（falsification ledger）——逐条列出"我尝试杀死这个候选的方式
@@ -464,9 +465,9 @@ INVALID（§9）。
 
 | R-REVIEW-20 | review 是实质复核不是形式盖章：verdict=PASS 时 review_answers 四问（数据真实性/baseline 执行/措辞强度/证伪尝试）必须全部非空（`REVIEW_ANSWERS_INCOMPLETE`）；单 agent 环境 subagent review 是合法独立形式，产物主 agent 只读不写，事后改动即 `REVIEW_ARTIFACT_TAMPERED` | §5、templates §9 |
 | R-L3-21 | 只改 L3 精确句用 `iph revise-exact-statement`（同轮、保留 L1/L2/K、跳回 SYNTHESIZE_COLLISION）；N0-4C 须先 retract。新轮且层级未变时 `start-collision-round --keep-layers` | §3.1、templates §16 |
-| R-AXIS-22 | L3 停止轴必须是已声明输入的函数；`l3_contract.json` 的 `depends_on` 不得引用 `inputs` 外符号（`AXIS_NOT_IN_INPUT`） | §3.1、templates §16 |
-| R-G4-23 | 实例探针 G4 角色：`OLD_STOP_STILL_SCORES`/`NEW_STOP_FAIL`/`DESIGN_WALKTHROUGH`/`NOT_A_THRESHOLD`；走查或非阈值不得单独支撑 N0-4C（`G4_WALKTHROUGH_ONLY`） | §3.1、templates §12.1 |
-| R-COMP-24 | ALGORITHM/MIXED 锁定 N0-4C 前必须写 `composition_audit.json`：逐块给 mechanical_gap，且 `union_equals_candidate=false`（`COMPOSITION_REDUCES`） | §3.1、templates §17 |
+| R-AXIS-22 | 停止轴必须是已声明 `inputs` 或 `generated` 的函数；exact 句写了 `p_loc` 却未声明 `p` 即 `AXIS_NOT_IN_INPUT` | §3.1、templates §16 |
+| R-G4-23 | G4 角色含 `RECONSTRUCTION`；走查/非阈值/跨系统推断不得单独支撑 N0-4C | §3.1、templates §12.1 |
+| R-COMP-24 | N0-4C 必须登记并杀死 `POSTHOC_LABEL`/`SCHEMA_EXTENSION`/`RENAME`；`KILLED` 须有 `kill_claim_ids` 且 `whole_mapping_separates=true`；仍活或未尝试则 CLI 拒锁 | §3.1、templates §17 |
 
 ## 12. 修改技能仓库的自律规则
 

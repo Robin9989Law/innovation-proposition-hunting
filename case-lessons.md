@@ -436,6 +436,20 @@ MI、copula、Shapley、counterfactual credit、profile matching 等均已有；
 > 不可机械推出的 Δ。L1 可以宽，L2 可以是域；博士三个贡献形成架构，期刊一个
 > 主贡献形成闭环，但每个真正创新责任都必须是一小步、可证伪、可关闭。
 
+## 2026-08-18：只杀死弱接线就锁 N0-4C（谓词映射）
+
+- **症状**：`54b6841` 在 `--strict-new-checks` 下 READY，组合表也写了
+  `union_equals_candidate=false`，人审仍撤回为 N0-3。
+- **根因**：审计只构造「近邻跑完再贴标签」一种弱接线并证明它不等于 Δ，却把
+  结论写成任意机械组合都得不到 Δ。更强的 schema-extension（新字段 + 沿用
+  近邻 provenance + 按必需字段接受）从未上场。`(src_span, p_loc)` 相对
+  `π(τ,e)` 主要是方向改写；Figure 6 上「另一系统也会接受」是未推导的推断；
+  `identity=NA` 不整次 FAIL。校验器当时只查字段齐，不查量词。
+- **修复合同**：N0-4C 必须登记并杀死 `POSTHOC_LABEL` / `SCHEMA_EXTENSION` /
+  `RENAME`；仍活或未尝试则 CLI 拒锁。用户说「推进到 4C」不是授权。
+- **执行纪律**：先写最强接线再写 Δ。跨系统「会接受」必须有该系统原文匹配
+  分支，否则标 `RECONSTRUCTION`，不得单独支撑锁定。
+
 ## 七、Claim integrity 的四条通用教训
 
 ### 1. 测 exact claim，不测容易通过的邻近版本

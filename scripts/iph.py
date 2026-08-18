@@ -50,6 +50,7 @@ from validate_workflow_state import (  # noqa: E402
     GATE_KEYS,
     STATES,
     TRACK_STATES,
+    composition_n0_4_lock_errors,
     evidence_tier,
 )
 
@@ -495,6 +496,8 @@ def cmd_advance(args: argparse.Namespace) -> int:
     for key, value in gate_updates.items():
         gates[key] = value
     sync_recent_window_from_registry(state, root, gate_updates)
+    if target == "N0_AUDIT" and args.novelty_level == "N0-4C":
+        refuse_n0_4c_open_wirings(root, state)
 
     # 3. decision_log 记账：真实时间戳 + 本状态产物哈希
     artifacts: list[dict[str, str]] = []
@@ -1279,7 +1282,32 @@ G4_ROLES = {
     "NEW_STOP_FAIL",
     "DESIGN_WALKTHROUGH",
     "NOT_A_THRESHOLD",
+    "RECONSTRUCTION",
 }
+
+
+def refuse_n0_4c_open_wirings(root: Path, state: dict[str, Any]) -> None:
+    """N0-4C 写入前拒绝未打过必做接线的组合表。"""
+
+    if state.get("claim_profile") not in {"ALGORITHM", "MIXED"}:
+        return
+    artifacts = state.get("artifacts")
+    raw = (
+        artifacts.get("composition_audit")
+        if isinstance(artifacts, dict)
+        else None
+    )
+    relative = raw if isinstance(raw, str) and raw.strip() else "composition_audit.json"
+    if not canonical_relative_path(relative):
+        raise SystemExit("不得锁定 N0-4C：composition_audit 路径无效")
+    path = root / relative
+    if not path.is_file():
+        raise SystemExit("不得锁定 N0-4C：缺少 composition_audit.json")
+    payload = _load_json_object(path, "composition_audit")
+    problems = composition_n0_4_lock_errors(payload)
+    if problems:
+        first = "; ".join(f"{code} {detail}" for code, detail in problems[:4])
+        raise SystemExit(f"不得锁定 N0-4C：{first}")
 
 
 def _instance_probe_registry_path(root: Path, state: dict[str, Any]) -> Path:

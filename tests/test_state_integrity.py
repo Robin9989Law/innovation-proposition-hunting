@@ -298,6 +298,22 @@ class NewCheckSemanticsTests(unittest.TestCase):
                     self.assertIn(f"INVALID\t{code}", completed.stdout)
 
 
+def _killed_wirings() -> list[dict]:
+    return [
+        {
+            "wiring_id": kind.lower(),
+            "kind": kind,
+            "procedure": f"attempt {kind}",
+            "status": "KILLED",
+            "kill_claim_ids": [f"LC-{index:04d}"],
+            "whole_mapping_separates": True,
+        }
+        for index, kind in enumerate(
+            ("POSTHOC_LABEL", "SCHEMA_EXTENSION", "RENAME"), start=1
+        )
+    ]
+
+
 class L3ContractG4CompositionTests(unittest.TestCase):
     def _algorithm_n0_4c(self):
         temporary_directory, project = make_valid_project(
@@ -465,6 +481,117 @@ class L3ContractG4CompositionTests(unittest.TestCase):
             )
             self.assertNotIn("L3_CONTRACT_MISSING", completed.stdout)
             self.assertNotIn("COMPOSITION_AUDIT_MISSING", completed.stdout)
+
+    def test_weak_posthoc_wiring_cannot_lock_n0_4c(self) -> None:
+        """只杀死后贴标签、未打 schema-extension，strict 不得 N0-4C。"""
+        temporary_directory, project = self._algorithm_n0_4c()
+        with temporary_directory:
+            write_json(
+                project / "l3_contract.json",
+                {
+                    "schema_version": "2.0",
+                    "inputs": ["s", "I"],
+                    "generated": ["p"],
+                    "stop_axes": [
+                        {"name": "two_sided_certificate", "depends_on": ["s", "p"]}
+                    ],
+                },
+            )
+            write_json(
+                project / "composition_audit.json",
+                {
+                    "schema_version": "2.0",
+                    "components": [
+                        {
+                            "component_id": "posthoc",
+                            "mechanical_gap": "labels after extraction are not the stop",
+                        }
+                    ],
+                    "wirings": [
+                        {
+                            "wiring_id": "posthoc_label",
+                            "kind": "POSTHOC_LABEL",
+                            "procedure": "run neighbor then glue labels",
+                            "status": "KILLED",
+                            "kill_claim_ids": ["LC-0001"],
+                            "whole_mapping_separates": True,
+                        }
+                    ],
+                    "strongest_remaining": "SCHEMA_EXTENSION",
+                    "union_equals_candidate": False,
+                    "reduction_failed_because": "posthoc labels are not the candidate",
+                },
+            )
+            completed = run_script(
+                "validate_workflow_state.py",
+                project,
+                ["--current-year", "2026", "--strict-new-checks"],
+            )
+            self.assertEqual(1, completed.returncode, completed.stdout)
+            self.assertIn("INVALID\tWIRING_KIND_MISSING", completed.stdout)
+            self.assertIn("kind:SCHEMA_EXTENSION", completed.stdout)
+            self.assertIn("INVALID\tWIRING_STILL_ALIVE", completed.stdout)
+
+    def test_generated_output_may_be_a_stop_dependency(self) -> None:
+        temporary_directory, project = self._algorithm_n0_4c()
+        with temporary_directory:
+            write_json(
+                project / "l3_contract.json",
+                {
+                    "schema_version": "2.0",
+                    "inputs": ["s", "I"],
+                    "generated": ["p"],
+                    "stop_axes": [
+                        {"name": "two_sided_certificate", "depends_on": ["s", "p"]}
+                    ],
+                },
+            )
+            write_json(
+                project / "composition_audit.json",
+                {
+                    "schema_version": "2.0",
+                    "components": [
+                        {
+                            "component_id": "inventory",
+                            "mechanical_gap": "source-first inventory is not post-hoc labeling",
+                        }
+                    ],
+                    "wirings": _killed_wirings(),
+                    "strongest_remaining": "",
+                    "union_equals_candidate": False,
+                    "reduction_failed_because": "required wirings killed on whole-mapping separations",
+                },
+            )
+            completed = run_script(
+                "validate_workflow_state.py", project, ["--current-year", "2026"]
+            )
+            self.assertNotIn("AXIS_NOT_IN_INPUT", completed.stdout)
+            self.assertNotIn("WIRING_KIND_MISSING", completed.stdout)
+
+    def test_p_loc_in_exact_statement_requires_generated_p(self) -> None:
+        temporary_directory, project = self._algorithm_n0_4c()
+        with temporary_directory:
+            (project / "l3-exact.md").write_text(
+                "Each item needs a two-sided certificate (src_span, p_loc).\n",
+                encoding="utf-8",
+            )
+            write_json(
+                project / "l3_contract.json",
+                {
+                    "schema_version": "2.0",
+                    "inputs": ["s", "I"],
+                    "stop_axes": [{"name": "identity", "depends_on": ["s", "I"]}],
+                },
+            )
+            state = load_json(project / "workflow_state.json")
+            state["artifacts"]["exact_statement"] = "l3-exact.md"
+            state["artifacts"]["l3_contract"] = "l3_contract.json"
+            write_json(project / "workflow_state.json", state)
+            completed = run_script(
+                "validate_workflow_state.py", project, ["--current-year", "2026"]
+            )
+            self.assertIn("WARNING\tAXIS_NOT_IN_INPUT", completed.stdout)
+            self.assertIn("dep:p", completed.stdout)
 
     def test_negative_terminal_evidence_present_passes(self) -> None:
         """R-N0-17：占据/归约证据节存在时不报缺失。"""
