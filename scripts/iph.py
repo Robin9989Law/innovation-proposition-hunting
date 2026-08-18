@@ -46,7 +46,9 @@ from validation_common import (  # noqa: E402
     ProjectContext,
     canonical_relative_path,
     file_sha256,
-    is_insufficient_user_grant,
+    has_review_locator,
+    note_lacks_acceptance_grant,
+    note_lacks_compute_grant,
     nonempty_string,
 )
 from validate_workflow_state import (  # noqa: E402
@@ -267,11 +269,11 @@ def apply_transition_semantics(
                 "进入 COMPUTE 必须有显式用户授权："
                 "--authorize-compute --authorization-note <授权依据>"
             )
-        if is_insufficient_user_grant(args.authorization_note):
+        if note_lacks_compute_grant(args.authorization_note):
             raise SystemExit(
                 "计算授权依据不足：authorization-note 必须引用用户明确授权"
-                "计算的原句；「推进到 N0-4C」「继续直到所有完成」"
-                "「完成全流程」不是计算授权"
+                "计算的原句，并含「计算」或 compute；「推进到 N0-4C」"
+                "「继续直到所有完成」「完成全流程」不是计算授权"
             )
         gate_updates["compute_authorized"] = True
         state["compute_stage"] = "S0"
@@ -286,10 +288,11 @@ def apply_transition_semantics(
                 "进入 COMPLETE 必须有用户接受原句："
                 "--accept-complete --acceptance-note <用户原句>"
             )
-        if is_insufficient_user_grant(args.acceptance_note):
+        if note_lacks_acceptance_grant(args.acceptance_note):
             raise SystemExit(
                 "最终锁定接受依据不足：acceptance-note 必须引用用户明确"
-                "接受本次 COMPLETE 的原句；计算授权或「完成全流程」不够"
+                "接受本次 COMPLETE 的原句，并含「接受」「锁定」或 complete；"
+                "计算授权或「完成全流程」不够"
             )
         state["final_acceptance"] = {
             "note": args.acceptance_note.strip(),
@@ -1092,6 +1095,11 @@ def cmd_review(args: argparse.Namespace) -> int:
             raise SystemExit(
                 "PASS 的 review 产物必须含非空 review_answers 四问"
                 "（data_authenticity/baseline_execution/claim_strength/falsification_attempt）"
+            )
+        if not has_review_locator(str(review_answers.get("falsification_attempt") or "")):
+            raise SystemExit(
+                "PASS 的 falsification_attempt 必须引用 path:line 或 64 位哈希；"
+                "不得把硬 FAIL 写成 limitation 后盖章"
             )
         hard_fails = collect_sealed_hard_fail_details(root, state)
         if hard_fails:

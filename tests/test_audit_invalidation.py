@@ -252,12 +252,27 @@ class AuditInvalidationTests(unittest.TestCase):
             "data_authenticity": "real",
             "baseline_execution": "real",
             "claim_strength": "real",
-            "falsification_attempt": "real",
+            "falsification_attempt": "tried occupation at manuscript.md:3",
         }
         write_json(project / AUDIT, audit)
         result = run_script("validate_audit_provenance.py", project)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertNotIn("REVIEW_ANSWERS_INCOMPLETE", result.stdout)
+        self.assertNotIn("REVIEW_ANSWER_NO_LOCATOR", result.stdout)
+
+    def test_pass_audit_requires_falsification_locator(self) -> None:
+        project = self.make_project()
+        audit = load_json(project / AUDIT)
+        audit["review_answers"] = {
+            "data_authenticity": "real",
+            "baseline_execution": "real",
+            "claim_strength": "real",
+            "falsification_attempt": "tried occupation; failed with no locator",
+        }
+        write_json(project / AUDIT, audit)
+        result = run_script("validate_audit_provenance.py", project)
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        self.assertIn("REVIEW_ANSWER_NO_LOCATOR", result.stdout)
 
     def test_capability_unavailable_is_blocked_without_false_invalidity(self) -> None:
         project = self.make_project()

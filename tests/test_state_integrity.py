@@ -808,6 +808,118 @@ class L3ContractG4CompositionTests(unittest.TestCase):
             self.assertIn("SEALED_RUNNER_NOT_INDEPENDENT", completed.stdout)
             self.assertEqual(1, completed.returncode)
 
+    def test_sealed_conjunct_must_hit_frozen_stop(self) -> None:
+        temporary_directory, project = make_valid_project(claim_profile="ALGORITHM")
+        with temporary_directory:
+            inventory = load_json(project / "claim_inventory.json")
+            for claim in inventory["claims"]:
+                if claim.get("claim_id") == "C-ALGORITHM-1":
+                    claim["s4_conjuncts"] = ["FAIL-OMISSION", "FAIL-COLLAPSE"]
+            write_json(project / "claim_inventory.json", inventory)
+            (project / "compute").mkdir()
+            (project / "compute" / "dev_runner.py").write_text(
+                "print('dev')\n", encoding="utf-8"
+            )
+            (project / "compute" / "sealed_runner.py").write_text(
+                "print('sealed')\n", encoding="utf-8"
+            )
+            write_json(
+                project / "compute_evidence.json",
+                {
+                    "schema_version": "2.0",
+                    "compute_stage": "S4",
+                    "verdict": "PASS",
+                    "dev_runner": "compute/dev_runner.py",
+                    "sealed_runner": "compute/sealed_runner.py",
+                    "data_sources": [
+                        {"name": "synthetic-dev", "synthetic": True, "provenance": "unit"}
+                    ],
+                    "B_X": {
+                        "per_run": [
+                            {
+                                "unit": "accept-only",
+                                "split": "sealed",
+                                "decision": "ACCEPT",
+                                "inventory_atoms": ["TREATS"],
+                                "unseen_fingerprint": "n_hold_out_only",
+                            }
+                        ]
+                    },
+                },
+            )
+            state = load_json(project / "workflow_state.json")
+            state["compute_evidence"] = {
+                "status": "COMPLETED",
+                "validation_epoch": 1,
+                "artifact_path": "compute_evidence.json",
+                "artifact_sha256": "0" * 64,
+            }
+            write_json(project / "workflow_state.json", state)
+            missed = run_script(
+                "validate_workflow_state.py", project, ["--current-year", "2026"]
+            )
+            self.assertIn("SEALED_CONJUNCT_NOT_HIT", missed.stdout)
+            self.assertEqual(1, missed.returncode)
+            evidence = load_json(project / "compute_evidence.json")
+            evidence["B_X"]["per_run"][0]["decision"] = "FAIL-OMISSION"
+            write_json(project / "compute_evidence.json", evidence)
+            hit = run_script(
+                "validate_workflow_state.py", project, ["--current-year", "2026"]
+            )
+            self.assertNotIn("SEALED_CONJUNCT_NOT_HIT", hit.stdout)
+
+    def test_sealed_fingerprint_seen_in_implementation_is_invalid(self) -> None:
+        temporary_directory, project = make_valid_project(claim_profile="ALGORITHM")
+        with temporary_directory:
+            (project / "compute").mkdir()
+            (project / "compute" / "dev_runner.py").write_text(
+                "print('dev')\n", encoding="utf-8"
+            )
+            (project / "compute" / "sealed_runner.py").write_text(
+                "TOKEN_n_impl_seen = 1\n", encoding="utf-8"
+            )
+            (project / "implementation" / "old_probe.py").write_text(
+                "TOKEN_n_impl_seen = 0\n", encoding="utf-8"
+            )
+            write_json(
+                project / "compute_evidence.json",
+                {
+                    "schema_version": "2.0",
+                    "compute_stage": "S4",
+                    "verdict": "PASS",
+                    "dev_runner": "compute/dev_runner.py",
+                    "sealed_runner": "compute/sealed_runner.py",
+                    "data_sources": [
+                        {"name": "synthetic-dev", "synthetic": True, "provenance": "unit"}
+                    ],
+                    "B_X": {
+                        "per_run": [
+                            {
+                                "unit": "impl-leak",
+                                "split": "sealed",
+                                "decision": "FAIL-OMISSION",
+                                "inventory_atoms": ["TREATS"],
+                                "unseen_fingerprint": "TOKEN_n_impl_seen",
+                            }
+                        ]
+                    },
+                },
+            )
+            state = load_json(project / "workflow_state.json")
+            state["compute_evidence"] = {
+                "status": "COMPLETED",
+                "validation_epoch": 1,
+                "artifact_path": "compute_evidence.json",
+                "artifact_sha256": "0" * 64,
+            }
+            write_json(project / "workflow_state.json", state)
+            completed = run_script(
+                "validate_workflow_state.py", project, ["--current-year", "2026"]
+            )
+            self.assertIn("SEALED_UNIT_SEEN_IN_PRECOMPUTE", completed.stdout)
+            self.assertIn("implementation/old_probe.py", completed.stdout)
+            self.assertEqual(1, completed.returncode)
+
     def test_exact_inventory_mismatch_and_narrower_escape(self) -> None:
         temporary_directory, project = make_valid_project()
         with temporary_directory:

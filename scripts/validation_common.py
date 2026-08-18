@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import stat
 from typing import Any
 
@@ -132,7 +133,8 @@ INSUFFICIENT_USER_GRANT_NOTES = frozenset(
         "继续推进",
     }
 )
-
+COMPUTE_GRANT_MARKERS = ("计算", "compute")
+ACCEPTANCE_GRANT_MARKERS = ("接受", "锁定", "complete")
 PROTOCOL_CONTRADICTION_STATES = frozenset(
     {"FINAL_VALIDITY_AUDIT", "FINAL_LOCK", "COMPLETE"}
 )
@@ -145,6 +147,9 @@ SEALED_STOP_TOKENS = frozenset(
         "ACCEPT",
     }
 )
+REVIEW_LOCATOR_RE = re.compile(
+    r"(?:[A-Za-z0-9_./-]+\.[A-Za-z0-9]+:\d+|[a-fA-F0-9]{64})"
+)
 
 
 def normalize_claim_text(text: str) -> str:
@@ -154,6 +159,59 @@ def normalize_claim_text(text: str) -> str:
 def is_insufficient_user_grant(note: str) -> bool:
     text = " ".join(note.casefold().replace("：", ":").split())
     return text in INSUFFICIENT_USER_GRANT_NOTES
+
+
+def note_lacks_compute_grant(note: str) -> bool:
+    if is_insufficient_user_grant(note):
+        return True
+    text = note.casefold()
+    return not any(marker in text for marker in COMPUTE_GRANT_MARKERS)
+
+
+def note_lacks_acceptance_grant(note: str) -> bool:
+    if is_insufficient_user_grant(note):
+        return True
+    text = note.casefold()
+    return not any(marker in text for marker in ACCEPTANCE_GRANT_MARKERS)
+
+
+def has_review_locator(text: str) -> bool:
+    return bool(REVIEW_LOCATOR_RE.search(text or ""))
+
+
+def sealed_decision(run: dict[str, Any]) -> str | None:
+    for key in ("decision", "algorithm"):
+        value = run.get(key)
+        if isinstance(value, str) and value.strip() in SEALED_STOP_TOKENS:
+            return value.strip()
+    return None
+
+
+def required_sealed_stop_tokens(inventory: dict[str, Any] | None) -> set[str]:
+    if not isinstance(inventory, dict):
+        return set()
+    claims = inventory.get("claims")
+    if not isinstance(claims, list):
+        return set()
+    declared: set[str] = set()
+    statements: list[str] = []
+    for claim in claims:
+        if not isinstance(claim, dict) or claim.get("status") != "FROZEN":
+            continue
+        raw = claim.get("s4_conjuncts")
+        if isinstance(raw, list):
+            for item in raw:
+                token = str(item).strip() if item is not None else ""
+                if token in SEALED_STOP_TOKENS:
+                    declared.add(token)
+        statement = claim.get("statement")
+        if nonempty_string(statement):
+            statements.append(str(statement))
+    tokens = declared or {
+        token for token in SEALED_STOP_TOKENS if token in " ".join(statements)
+    }
+    fail_tokens = tokens - {"ACCEPT"}
+    return fail_tokens or tokens
 
 
 def positive_integer(value: Any) -> bool:

@@ -15,13 +15,15 @@ from validation_common import (
     PROTOCOL_CONTRADICTION_STATES,
     canonical_relative_path,
     choose_exit,
-    is_insufficient_user_grant,
+    note_lacks_acceptance_grant,
     nonempty_string,
     normalize_claim_text,
     open_root_fd,
     positive_integer,
     read_regular_file_at,
     render,
+    required_sealed_stop_tokens,
+    sealed_decision,
     strict_json_load_bytes,
 )
 from validate_artifact_hashes import valid_sha256
@@ -1184,10 +1186,94 @@ def collect_sealed_hard_fail_details(
             )
         )
 
-    precompute_texts: list[tuple[str, str]] = []
+    precompute_texts = _collect_precompute_python(
+        root,
+        artifacts if isinstance(artifacts, dict) else {},
+        dev_runner,
+        sealed_runner,
+    )
+
+    required_tokens = required_sealed_stop_tokens(
+        load_json_if_present(
+            root,
+            (
+                artifacts.get("claim_inventory")
+                if isinstance(artifacts, dict) and artifacts.get("claim_inventory")
+                else "claim_inventory.json"
+            ),
+        )
+    )
+    hit_required = False
+
+    for run in sealed_runs:
+        unit = run.get("unit")
+        atoms = run.get("inventory_atoms")
+        atoms_ok = isinstance(atoms, list) and any(
+            isinstance(atom, str) and atom.strip() for atom in atoms
+        )
+        if not atoms_ok:
+            problems.append(
+                ("SEALED_INVENTORY_EMPTY", f"unit:{unit}")
+            )
+        fingerprint = run.get("unseen_fingerprint")
+        if not nonempty_string(fingerprint) or len(str(fingerprint).strip()) < 4:
+            problems.append(("SEALED_UNIT_FINGERPRINT_MISSING", f"unit:{unit}"))
+        else:
+            token = str(fingerprint).strip()
+            for source, text in precompute_texts:
+                if token in text:
+                    problems.append(
+                        (
+                            "SEALED_UNIT_SEEN_IN_PRECOMPUTE",
+                            f"unit:{unit};fingerprint:{token};seen_in:{source}",
+                        )
+                    )
+                    break
+        decision = sealed_decision(run)
+        if required_tokens and decision in required_tokens and atoms_ok:
+            hit_required = True
+
+    if required_tokens and not hit_required:
+        problems.append(
+            (
+                "SEALED_CONJUNCT_NOT_HIT",
+                "required:" + ",".join(sorted(required_tokens)),
+            )
+        )
+    return problems
+
+
+def _collect_precompute_python(
+    root: Path,
+    artifacts: dict[str, Any],
+    dev_runner: Any,
+    sealed_runner: Any,
+) -> list[tuple[str, str]]:
+    """计算前 Python：登记测试/实现、开发 runner，以及 compute/checks/implementation。"""
+
+    texts: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    sealed_norm = (
+        str(sealed_runner) if canonical_relative_path(sealed_runner) else None
+    )
+
+    def add_rel(relative: Any) -> None:
+        if not canonical_relative_path(relative):
+            return
+        rel = str(relative)
+        if sealed_norm and rel == sealed_norm:
+            return
+        if rel in seen:
+            return
+        text = _read_text_if_present(root, rel)
+        if text is None:
+            return
+        seen.add(rel)
+        texts.append((rel, text))
+
     trace_rel = (
         artifacts.get("claim_code_trace")
-        if isinstance(artifacts, dict) and artifacts.get("claim_code_trace")
+        if artifacts.get("claim_code_trace")
         else "claim_code_trace.json"
     )
     trace = load_json_if_present(root, trace_rel)
@@ -1196,39 +1282,19 @@ def collect_sealed_hard_fail_details(
         for item in traces:
             if not isinstance(item, dict):
                 continue
-            test_rel = item.get("executable_test_relative_path")
-            text = _read_text_if_present(root, test_rel)
-            if text is not None:
-                precompute_texts.append((str(test_rel), text))
-    if canonical_relative_path(dev_runner):
-        text = _read_text_if_present(root, dev_runner)
-        if text is not None:
-            precompute_texts.append((str(dev_runner), text))
-
-    for run in sealed_runs:
-        unit = run.get("unit")
-        atoms = run.get("inventory_atoms")
-        if not isinstance(atoms, list) or not any(
-            isinstance(atom, str) and atom.strip() for atom in atoms
-        ):
-            problems.append(
-                ("SEALED_INVENTORY_EMPTY", f"unit:{unit}")
-            )
-        fingerprint = run.get("unseen_fingerprint")
-        if not nonempty_string(fingerprint) or len(str(fingerprint).strip()) < 4:
-            problems.append(("SEALED_UNIT_FINGERPRINT_MISSING", f"unit:{unit}"))
+            add_rel(item.get("executable_test_relative_path"))
+            add_rel(item.get("implementation_relative_path"))
+    add_rel(dev_runner)
+    for folder in ("compute", "checks", "implementation"):
+        base = root / folder
+        if not base.is_dir():
             continue
-        token = str(fingerprint).strip()
-        for source, text in precompute_texts:
-            if token in text:
-                problems.append(
-                    (
-                        "SEALED_UNIT_SEEN_IN_PRECOMPUTE",
-                        f"unit:{unit};fingerprint:{token};seen_in:{source}",
-                    )
-                )
-                break
-    return problems
+        for path in base.rglob("*.py"):
+            try:
+                add_rel(path.relative_to(root).as_posix())
+            except ValueError:
+                continue
+    return texts
 
 
 def validate_sealed_confirmation(
@@ -2164,7 +2230,7 @@ def validate(
             )
         acceptance = state.get("final_acceptance")
         note = acceptance.get("note") if isinstance(acceptance, dict) else None
-        if not nonempty_string(note) or is_insufficient_user_grant(str(note)):
+        if not nonempty_string(note) or note_lacks_acceptance_grant(str(note)):
             add(
                 errors,
                 "COMPLETE_REQUIRES_USER_ACCEPTANCE",

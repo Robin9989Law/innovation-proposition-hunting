@@ -12,6 +12,7 @@ from validation_common import (
     Issue,
     ProjectContext,
     choose_exit,
+    has_review_locator,
     lexical_relative_cli_path,
     nonempty_string,
     render,
@@ -223,6 +224,17 @@ def validate(
                             "INVALID",
                             "independent_audit",
                             f"review_answers.{key}:missing_or_empty",
+                        )
+                    )
+                elif key == "falsification_attempt" and not has_review_locator(
+                    str(value)
+                ):
+                    issues.append(
+                        Issue(
+                            "REVIEW_ANSWER_NO_LOCATOR",
+                            "INVALID",
+                            "independent_audit",
+                            "review_answers.falsification_attempt:no_path_line_or_hash",
                         )
                     )
 

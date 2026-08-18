@@ -670,7 +670,7 @@ class AdvanceTests(unittest.TestCase):
                 "authorized compute entry",
                 "--authorize-compute",
                 "--authorization-note",
-                "user explicitly authorized this bounded test",
+                "user explicitly authorized this bounded compute test",
                 "--no-validate",
             )
             self.assertEqual(0, authorized.returncode, authorized.stderr)
@@ -1350,7 +1350,7 @@ class ReviewCommandTests(unittest.TestCase):
                 "data_authenticity": "real",
                 "baseline_execution": "real",
                 "claim_strength": "real",
-                "falsification_attempt": "real",
+                "falsification_attempt": "tried occupation at manuscript.md:3",
             }
             write_json(audit_path, audit)
 
@@ -1390,7 +1390,7 @@ class ReviewCommandTests(unittest.TestCase):
                 "data_authenticity": "no compute dataset is claimed",
                 "baseline_execution": "comparator ran on published Example 5",
                 "claim_strength": "wording matches decide_mapping",
-                "falsification_attempt": "tried SAT absence; SAT helper exists",
+                "falsification_attempt": "tried SAT absence at implementation/online_algorithm.py:1",
             }
             write_json(audit_path, audit)
             review = run_iph(
@@ -1517,6 +1517,20 @@ class ReviewCommandTests(unittest.TestCase):
             )
             self.assertNotEqual(0, denied.returncode)
             self.assertIn("计算授权依据不足", denied.stderr)
+            denied_marker = run_iph(
+                project,
+                "advance",
+                "--to",
+                "COMPUTE",
+                "--note",
+                "open compute",
+                "--authorize-compute",
+                "--authorization-note",
+                "请开始实验并跑完全部确认",
+                "--no-validate",
+            )
+            self.assertNotEqual(0, denied_marker.returncode)
+            self.assertIn("计算授权依据不足", denied_marker.stderr)
 
     def test_complete_requires_user_acceptance_quote(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V4")
@@ -1629,6 +1643,31 @@ class ReviewCommandTests(unittest.TestCase):
             )
             self.assertNotEqual(0, review.returncode)
             self.assertIn("硬 FAIL", review.stderr)
+
+    def test_review_rejects_pass_without_falsification_locator(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V3")
+        with temporary_directory:
+            audit_path = project / "independent_audit.json"
+            audit = load_json(audit_path)
+            audit["review_answers"] = {
+                "data_authenticity": "ok",
+                "baseline_execution": "ok",
+                "claim_strength": "ok",
+                "falsification_attempt": "tried occupation and it failed",
+            }
+            write_json(audit_path, audit)
+            review = run_iph(
+                project,
+                "review",
+                "--reviewer",
+                "agent-b",
+                "--thread",
+                "thread-b",
+                "--verdict",
+                "PASS",
+            )
+            self.assertNotEqual(0, review.returncode)
+            self.assertIn("falsification_attempt", review.stderr)
 
     def test_review_rejects_pass_without_answers(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V3")
