@@ -410,7 +410,12 @@ LOCKED、CLOSED、启动新碰撞或计算。BLOCKED 时仍验证所有已有产
 `--strict-new-checks` 将其升为 INVALID；评审与交接一律以 strict 模式结果为准。
 如果失败来自旧版 `advance` 已记哈希却漏写顶层路径，可在 STOP 期间通过受控参数
 `clear-lock --set-artifact key=path --next-action "<下一动作>"` 原子修复并重验；这不是
-手工编辑 state，也不得用于改变 gate、活动状态或研究裁决。
+手工编辑 state，也不得用于改变 `n0_4_locked`、`compute_authorized`、活动状态或
+研究裁决。`advance` 进入 `OUTPUT_CLAIM_BIND` / `EVIDENCE_VALIDATE` 时会自动置真
+对应机械完成门。若旧 `advance` 已写 decision_log 却漏置
+`output_claims_traced` / `evidence_validated`，STOP 期间可用
+`clear-lock --set-gate output_claims_traced=true`（或 `evidence_validated=true`）
+补置；日志里必须已有对应完成状态，不得自报置真。
 
 若 `active_state=BLOCKED` 且 operator 已完成 `blocked_reasons` 记录的外部修复，唯一
 合法的状态恢复是

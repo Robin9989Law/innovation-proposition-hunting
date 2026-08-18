@@ -90,7 +90,9 @@ POSIX path；所有 SHA-256 均为 64 位小写十六进制；`validation_epoch`
 并用 `--next-action` 替换上一状态的恢复动作；日志有哈希不等于顶层已有路径。
 旧版推进若因此在 post-validation 进入 STOP，只能用
 `iph clear-lock --set-artifact key=path --next-action "..." --recovery-note "..."`
-受控修复后重验，不得直接编辑 `workflow_state.json`。
+受控修复后重验，不得直接编辑 `workflow_state.json`。漏写机械完成门时，同一
+命令可加 `--set-gate output_claims_traced=true` 或 `evidence_validated=true`，
+且 decision_log 必须已有对应完成状态；不得用此入口改 `n0_4_locked`。
 若外部阻塞本身已经由 operator 修复且 `active_state=BLOCKED`，必须显式使用
 `iph clear-lock --resume-blocked --next-action "..." --recovery-note "..."` 原子恢复
 到 `resume_state`；恢复校验失败时 CLI 会逐字节还原 state、STOP 锁与 validation log。

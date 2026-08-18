@@ -47,6 +47,7 @@ from validation_common import (  # noqa: E402
     nonempty_string,
 )
 from validate_workflow_state import (  # noqa: E402
+    GATE_COMPLETION_STATE,
     GATE_KEYS,
     STATES,
     TRACK_STATES,
@@ -56,6 +57,14 @@ from validate_workflow_state import (  # noqa: E402
 
 GATE_BOOL = {"true": True, "false": False}
 ARTIFACT_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
+# 进入这些状态时必须置真的机械完成门。不含 n0_4_locked：
+# N0-3 也进入 N0_AUDIT，不得顺手锁 4C。
+TARGET_COMPLETION_GATES = {
+    "OUTPUT_CLAIM_BIND": "output_claims_traced",
+    "EVIDENCE_VALIDATE": "evidence_validated",
+}
+# STOP 恢复只允许补这些漏写的机械门；不得改 n0_4_locked / compute_authorized。
+RECOVERABLE_COMPLETION_GATES = set(TARGET_COMPLETION_GATES.values())
 
 POSITIVE_STATE_SEQUENCE = (
     "BOOT",
@@ -428,6 +437,13 @@ def cmd_advance(args: argparse.Namespace) -> int:
             return exit_code
 
     gate_updates = parse_gate_updates(args.set_gate or [])
+    auto_gate = TARGET_COMPLETION_GATES.get(target)
+    if auto_gate:
+        if gate_updates.get(auto_gate) is False:
+            raise SystemExit(
+                f"进入 {target} 必须置真 {auto_gate}，不得 --set-gate {auto_gate}=false"
+            )
+        gate_updates.setdefault(auto_gate, True)
     state_artifact_updates = parse_state_artifact_updates(
         args.set_artifact or [], root
     )
@@ -1067,9 +1083,19 @@ def cmd_clear_lock(args: argparse.Namespace) -> int:
         validation_log_path.read_bytes() if validation_log_path.is_file() else None
     )
     artifact_updates = parse_state_artifact_updates(args.set_artifact or [], root)
+    gate_updates = parse_gate_updates(getattr(args, "set_gate", None) or [])
     if args.resume_blocked and args.next_action is None:
         raise SystemExit("--resume-blocked 必须同时提供 --next-action")
-    if artifact_updates or args.next_action is not None or args.resume_blocked:
+    if gate_updates:
+        illegal = sorted(set(gate_updates) - RECOVERABLE_COMPLETION_GATES)
+        if illegal:
+            raise SystemExit(
+                "clear-lock --set-gate 只能补漏写的机械完成门 "
+                f"{sorted(RECOVERABLE_COMPLETION_GATES)}，收到 {illegal}"
+            )
+        if any(value is not True for value in gate_updates.values()):
+            raise SystemExit("clear-lock --set-gate 只能把机械完成门置真，不得置假")
+    if artifact_updates or args.next_action is not None or args.resume_blocked or gate_updates:
         if not lock_path.is_file():
             raise SystemExit("只有 STOP 锁存在时才能通过 clear-lock 修复状态指针")
         state = json.loads(state_path.read_text(encoding="utf-8"))
@@ -1099,12 +1125,29 @@ def cmd_clear_lock(args: argparse.Namespace) -> int:
                     ),
                 }
             )
+        if gate_updates:
+            logged_states = {
+                str(entry.get("state") or "").split("@", 1)[-1]
+                for entry in state.get("decision_log", [])
+                if isinstance(entry, dict)
+            }
+            gates = state.setdefault("gates", {})
+            if not isinstance(gates, dict):
+                raise SystemExit("workflow_state.gates 必须是对象")
+            for key, value in gate_updates.items():
+                required_state = GATE_COMPLETION_STATE.get(key)
+                if required_state not in logged_states:
+                    raise SystemExit(
+                        f"不得补置 {key}：decision_log 没有 {required_state} 完成记录"
+                    )
+                gates[key] = value
         apply_state_repairs(state, artifact_updates, args.next_action)
         state["updated_at"] = utc_now()
         atomic_write_state(state_path, state)
         append_validation_log(
             root,
             f"RECOVERY_STATE_REPAIR artifacts={artifact_updates or '-'} "
+            f"gates={gate_updates or '-'} "
             f"resume_blocked={args.resume_blocked} "
             f"next_action_updated={args.next_action is not None} "
             f"note={args.recovery_note.strip()}",
@@ -1659,6 +1702,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--resume-blocked",
         action="store_true",
         help="operator 修复外部阻塞后，把 BLOCKED 原子恢复到 resume_state",
+    )
+    p.add_argument(
+        "--set-gate",
+        action="append",
+        metavar="key=true|false",
+        help="STOP 恢复期补漏写的机械完成门 output_claims_traced/evidence_validated",
     )
     p.set_defaults(func=cmd_clear_lock)
 

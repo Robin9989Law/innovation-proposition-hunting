@@ -171,6 +171,65 @@ class AdvanceTests(unittest.TestCase):
             self.assertIn("RECOVERY_STATE_REPAIR", log_text)
             self.assertIn("LOCK_CLEARED", log_text)
 
+    def test_advance_autosets_output_claims_traced(self) -> None:
+        temporary_directory, project = self.make_boot_project()
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "SYNTHESIZE_COLLISION"
+            state["resume_state"] = "SYNTHESIZE_COLLISION"
+            state["active_contribution"] = "M"
+            state["output_type"] = "JOURNAL_ARTICLE"
+            for key in state["gates"]:
+                state["gates"][key] = key not in {
+                    "output_claims_traced",
+                    "evidence_validated",
+                    "n0_4_locked",
+                    "compute_authorized",
+                }
+            write_json(project / "workflow_state.json", state)
+            completed = run_iph(
+                project,
+                "advance",
+                "--to",
+                "OUTPUT_CLAIM_BIND",
+                "--note",
+                "bind output claims",
+                "--no-validate",
+                "--next-action",
+                "Validate evidence.",
+            )
+            self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("OUTPUT_CLAIM_BIND", state["active_state"])
+            self.assertTrue(state["gates"]["output_claims_traced"])
+            self.assertFalse(state["gates"]["evidence_validated"])
+
+    def test_clear_lock_rejects_novelty_or_unlogged_completion_gates(self) -> None:
+        temporary_directory, project = self.make_boot_project()
+        with temporary_directory:
+            write_json(project / ".workflow_stop.lock", {"exit_code": 1})
+            rejected_lock = run_iph(
+                project,
+                "clear-lock",
+                "--recovery-note",
+                "must not flip novelty lock",
+                "--set-gate",
+                "n0_4_locked=true",
+            )
+            self.assertNotEqual(0, rejected_lock.returncode)
+            self.assertIn("机械完成门", rejected_lock.stderr)
+
+            rejected_log = run_iph(
+                project,
+                "clear-lock",
+                "--recovery-note",
+                "no OUTPUT_CLAIM_BIND log entry",
+                "--set-gate",
+                "output_claims_traced=true",
+            )
+            self.assertNotEqual(0, rejected_log.returncode)
+            self.assertIn("decision_log 没有", rejected_log.stderr)
+
     def test_clear_lock_resumes_blocked_state_after_operator_repair(self) -> None:
         temporary_directory, project = self.make_boot_project()
         with temporary_directory:
