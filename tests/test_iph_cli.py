@@ -1518,6 +1518,118 @@ class ReviewCommandTests(unittest.TestCase):
             self.assertNotEqual(0, denied.returncode)
             self.assertIn("计算授权依据不足", denied.stderr)
 
+    def test_complete_requires_user_acceptance_quote(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V4")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "FINAL_LOCK"
+            state["resume_state"] = "FINAL_LOCK"
+            state["novelty_level"] = "N0-4C"
+            state["gates"]["n0_4_locked"] = True
+            write_json(project / "workflow_state.json", state)
+            denied = run_iph(
+                project,
+                "advance",
+                "--to",
+                "COMPLETE",
+                "--note",
+                "finish",
+                "--no-validate",
+            )
+            self.assertNotEqual(0, denied.returncode)
+            self.assertIn("accept-complete", denied.stderr)
+            boilerplate = run_iph(
+                project,
+                "advance",
+                "--to",
+                "COMPLETE",
+                "--note",
+                "finish",
+                "--accept-complete",
+                "--acceptance-note",
+                "完成全流程",
+                "--no-validate",
+            )
+            self.assertNotEqual(0, boilerplate.returncode)
+            accepted = run_iph(
+                project,
+                "advance",
+                "--to",
+                "COMPLETE",
+                "--note",
+                "finish",
+                "--accept-complete",
+                "--acceptance-note",
+                "我接受本次最终锁定",
+                "--no-validate",
+            )
+            self.assertEqual(0, accepted.returncode, accepted.stderr)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("COMPLETE", state["active_state"])
+            self.assertEqual("我接受本次最终锁定", state["final_acceptance"]["note"])
+
+    def test_review_pass_rejects_sealed_hard_fail(self) -> None:
+        temporary_directory, project = make_valid_project(
+            claim_profile="ALGORITHM", validity_level="V3"
+        )
+        with temporary_directory:
+            protocol = load_json(project / "protocol_contract.json")
+            protocol["sealed_confirmation_data"] = "NOT_YET_ACCESSED"
+            write_json(project / "protocol_contract.json", protocol)
+            write_json(
+                project / "compute_evidence.json",
+                {
+                    "schema_version": "2.0",
+                    "compute_stage": "S4",
+                    "verdict": "PASS",
+                    "data_sources": [
+                        {"name": "synthetic-dev", "synthetic": True, "provenance": "u"}
+                    ],
+                    "B_X": {
+                        "per_run": [
+                            {
+                                "unit": "x",
+                                "split": "sealed",
+                                "algorithm": "FAIL-OMISSION",
+                                "comparator": "ACCEPT",
+                                "inventory_atoms": ["TREATS"],
+                                "unseen_fingerprint": "n_hold_out_x",
+                            }
+                        ]
+                    },
+                },
+            )
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "FINAL_VALIDITY_AUDIT"
+            state["resume_state"] = "FINAL_VALIDITY_AUDIT"
+            state["compute_evidence"] = {
+                "status": "COMPLETED",
+                "validation_epoch": 1,
+                "artifact_path": "compute_evidence.json",
+                "artifact_sha256": "0" * 64,
+            }
+            write_json(project / "workflow_state.json", state)
+            audit = load_json(project / "independent_audit.json")
+            audit["review_answers"] = {
+                "data_authenticity": "published example only",
+                "baseline_execution": "comparator ran",
+                "claim_strength": "wording unchanged",
+                "falsification_attempt": "tried reuse; protocol stale is only bookkeeping",
+            }
+            write_json(project / "independent_audit.json", audit)
+            review = run_iph(
+                project,
+                "review",
+                "--reviewer",
+                "agent-b",
+                "--thread",
+                "thread-b",
+                "--verdict",
+                "PASS",
+            )
+            self.assertNotEqual(0, review.returncode)
+            self.assertIn("硬 FAIL", review.stderr)
+
     def test_review_rejects_pass_without_answers(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V3")
         with temporary_directory:

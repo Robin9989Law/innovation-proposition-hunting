@@ -584,6 +584,8 @@ class L3ContractG4CompositionTests(unittest.TestCase):
                 },
             )
             state = load_json(project / "workflow_state.json")
+            state["active_state"] = "N0_AUDIT"
+            state["resume_state"] = "N0_AUDIT"
             state["artifacts"]["exact_statement"] = "l3-exact.md"
             state["artifacts"]["l3_contract"] = "l3_contract.json"
             write_json(project / "workflow_state.json", state)
@@ -649,6 +651,26 @@ class L3ContractG4CompositionTests(unittest.TestCase):
             self.assertIn(
                 "COMPLETE_REQUIRES_FINAL_LOCK_CONDITIONS", completed.stdout
             )
+            self.assertIn("COMPLETE_REQUIRES_USER_ACCEPTANCE", completed.stdout)
+
+    def test_complete_requires_user_acceptance_even_with_v4(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V4")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "COMPLETE"
+            state["resume_state"] = "COMPLETE"
+            state["novelty_level"] = "N0-4C"
+            state["gates"]["n0_4_locked"] = True
+            state["gates"]["scope_locked"] = True
+            state["gates"]["evidence_validated"] = True
+            write_json(project / "workflow_state.json", state)
+            completed = run_script(
+                "validate_workflow_state.py",
+                project,
+                ["--current-year", "2026"],
+            )
+            self.assertIn("COMPLETE_REQUIRES_USER_ACCEPTANCE", completed.stdout)
+            self.assertEqual(1, completed.returncode)
 
     def test_protocol_sealed_access_contradiction(self) -> None:
         temporary_directory, project = make_valid_project(claim_profile="ALGORITHM")
@@ -679,6 +701,8 @@ class L3ContractG4CompositionTests(unittest.TestCase):
                 },
             )
             state = load_json(project / "workflow_state.json")
+            state["active_state"] = "FINAL_LOCK"
+            state["resume_state"] = "FINAL_LOCK"
             state["compute_stage"] = "S4"
             state["gates"]["compute_authorized"] = True
             state["compute_evidence"] = {
@@ -691,9 +715,10 @@ class L3ContractG4CompositionTests(unittest.TestCase):
             completed = run_script(
                 "validate_workflow_state.py",
                 project,
-                ["--current-year", "2026", "--strict-new-checks"],
+                ["--current-year", "2026"],
             )
             self.assertIn("PROTOCOL_SEALED_ACCESS_CONTRADICTION", completed.stdout)
+            self.assertEqual(1, completed.returncode)
 
     def test_sealed_unit_seen_in_precompute(self) -> None:
         temporary_directory, project = make_valid_project(claim_profile="ALGORITHM")
@@ -736,6 +761,89 @@ class L3ContractG4CompositionTests(unittest.TestCase):
                 ["--current-year", "2026", "--strict-new-checks"],
             )
             self.assertIn("SEALED_UNIT_SEEN_IN_PRECOMPUTE", completed.stdout)
+            self.assertEqual(1, completed.returncode)
+
+    def test_sealed_empty_inventory_and_shared_runner_are_invalid(self) -> None:
+        temporary_directory, project = make_valid_project(claim_profile="ALGORITHM")
+        with temporary_directory:
+            (project / "compute").mkdir()
+            (project / "compute" / "same.py").write_text("print(0)\n", encoding="utf-8")
+            write_json(
+                project / "compute_evidence.json",
+                {
+                    "schema_version": "2.0",
+                    "compute_stage": "S4",
+                    "verdict": "PASS",
+                    "dev_runner": "compute/same.py",
+                    "sealed_runner": "compute/same.py",
+                    "data_sources": [
+                        {"name": "synthetic-dev", "synthetic": True, "provenance": "unit"}
+                    ],
+                    "B_X": {
+                        "per_run": [
+                            {
+                                "unit": "empty-seal",
+                                "split": "sealed",
+                                "algorithm": "FAIL-SPURIOUS-ATOM",
+                                "comparator": "ACCEPT",
+                                "inventory_atoms": [],
+                                "unseen_fingerprint": "n_unique_seal",
+                            }
+                        ]
+                    },
+                },
+            )
+            state = load_json(project / "workflow_state.json")
+            state["compute_evidence"] = {
+                "status": "COMPLETED",
+                "validation_epoch": 1,
+                "artifact_path": "compute_evidence.json",
+                "artifact_sha256": "0" * 64,
+            }
+            write_json(project / "workflow_state.json", state)
+            completed = run_script(
+                "validate_workflow_state.py", project, ["--current-year", "2026"]
+            )
+            self.assertIn("SEALED_INVENTORY_EMPTY", completed.stdout)
+            self.assertIn("SEALED_RUNNER_NOT_INDEPENDENT", completed.stdout)
+            self.assertEqual(1, completed.returncode)
+
+    def test_exact_inventory_mismatch_and_narrower_escape(self) -> None:
+        temporary_directory, project = make_valid_project()
+        with temporary_directory:
+            inventory = load_json(project / "claim_inventory.json")
+            statements = [
+                claim["statement"]
+                for claim in inventory["claims"]
+                if claim.get("status") == "FROZEN"
+            ]
+            (project / "l3-exact.md").write_text(
+                "A broader exact sentence that does not repeat the inventory.\n",
+                encoding="utf-8",
+            )
+            (project / "manuscript.md").write_text(
+                "\n".join(statements) + "\n", encoding="utf-8"
+            )
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "CLAIM_FREEZE"
+            state["resume_state"] = "CLAIM_FREEZE"
+            state["artifacts"]["exact_statement"] = "l3-exact.md"
+            state["artifacts"]["claim_inventory"] = "claim_inventory.json"
+            write_json(project / "workflow_state.json", state)
+            completed = run_script(
+                "validate_workflow_state.py", project, ["--current-year", "2026"]
+            )
+            self.assertIn("EXACT_INVENTORY_MISMATCH", completed.stdout)
+            inventory["exact_alignment"] = {
+                "status": "NARROWER",
+                "does_not_underwrite_exact": True,
+                "validity_source": "manuscript.md",
+            }
+            write_json(project / "claim_inventory.json", inventory)
+            passed = run_script(
+                "validate_workflow_state.py", project, ["--current-year", "2026"]
+            )
+            self.assertNotIn("EXACT_INVENTORY_MISMATCH", passed.stdout)
 
 class StopLockTests(unittest.TestCase):
     """STOP 锁：写入、拦截、推进检测、解锁。"""

@@ -30,6 +30,7 @@ description: >-
 | 判 V0–V4、G9、理论或算法责任 | [reference.md](reference.md) |
 | 检索、全文、观点、证据级或重要性变化 | [evidence-pipeline.md](evidence-pipeline.md) |
 | 获准计算、升级或停止 | [compute-funnel.md](compute-funnel.md) |
+| 复核硬 FAIL、S4 资格、COMPLETE 人接受、exact 对齐 | [hard-gates.md](hard-gates.md) |
 | 诊断已知反模式 | [case-lessons.md](case-lessons.md) |
 
 详细字段只在 [templates.md](templates.md) 定义；本文件不复制模板字段。
@@ -372,6 +373,7 @@ E2 必须来自 full article，E4 必须到 proof/appendix 或有覆盖证明机
 ```text
 COMPUTE = N0-4C AND V3 AND compute_authorized
 FINAL_LOCK = N0-4C AND V4 AND current independent audit
+COMPLETE = FINAL_LOCK AND user acceptance quote
 ```
 
 用户授权只是 `compute_authorized=true` 的必要条件，**不构成硬门旁路**：N0-4C
@@ -384,14 +386,11 @@ FINAL_LOCK = N0-4C AND V4 AND current independent audit
 但不打开 `compute_authorized`，也不能代替 V3。其余数值预实验须当天登记
 `exploration_registry.json`，其数字不得进入冻结工件。
 
-`DIRECTION_LOCK` 只锁方向。计算按 S0-SCREEN–S4 逐级升级：`iph advance-compute-stage
---to S1|S2|S3|S4` 只允许前进一步并登记阶段产物。S4 封存单元必须带
-`unseen_fingerprint`，不得复用测试/开发已见 AST。S4 或已登记 sealed 运行后，
-协议不得仍写 `NOT_YET_ACCESSED`（阻止 V4，不是 bookkeeping）。只有 S4 完成
-且 `compute_evidence` 指向当前 epoch/哈希，才能进入
-`POSTCOMPUTE_CLAIM_FREEZE`。计算结果改变主张、强度或适用边界时必须新开
-epoch；随后完成 `FINAL_VALIDITY_AUDIT`，由不同 agent 对新 bundle 复核，才可
-`FINAL_LOCK`。
+`DIRECTION_LOCK` 只锁方向。计算按 S0–S4 前进。S4 资格、协议与封存一致性、
+复核硬 FAIL、exact/inventory 对齐见 [hard-gates.md](hard-gates.md)。进入
+`COMPLETE` 必须 `--accept-complete --acceptance-note`。只有 S4 完成且
+`compute_evidence` 指向当前 epoch/哈希，才能进入
+`POSTCOMPUTE_CLAIM_FREEZE`。计算结果改变主张时必须新开 epoch。
 
 ## 9. 校验器与四个退出码
 
@@ -463,8 +462,12 @@ INVALID（§9）。
 | RULE-ID | 规则 | 权威节 |
 |---|---|---|
 | R-AUTH-01 | 用户授权只是 `compute_authorized` 的必要条件，不构成硬门旁路：N0-4C 与 V3 仍须先满足；「推进到 N0-4C / 完成全流程」不是计算授权 | §8 |
-| R-SEAL-25 | S4 或已登记 sealed 运行后，协议不得仍写 `NOT_YET_ACCESSED`；该矛盾阻止 V4 | §8、compute-funnel §4 |
-| R-SEAL-26 | S4 封存单元须有未见指纹，不得复用计算前测试/开发 AST | §8、compute-funnel §4 |
+| R-SEAL-25 | 终态窗口协议不得仍写 `NOT_YET_ACCESSED`；常驻 INVALID | hard-gates §3 |
+| R-SEAL-26 | S4 须有未见指纹，不得出现在测试或开发 runner | hard-gates §3 |
+| R-SEAL-29 | sealed 清单不得空；dev/sealed runner 必须互异 | hard-gates §3 |
+| R-ACCEPT-27 | COMPLETE 必须登记用户接受原句；计算授权不够 | hard-gates §1 |
+| R-REVIEW-28 | 硬 FAIL 表成立时 review PASS 必须拒绝 | hard-gates §2 |
+| R-ALIGN-30 | inventory 冻结句须在 exact 中，或 NARROWER 且不背书宽句 | hard-gates §4 |
 | R-COMPUTE-02 | COMPUTE 门前禁止数据集级或训练级数值实验。N0-3 下经 `iph authorize-instance-probe` 授权的实例探针（≤5 条、必须锚定已发表原文、不得把数据集均值当成功阈值）可以产生数值，登记后可进入 novelty-audit。其余数值仍须 `exploration_registry`，且不得进入冻结工件（`UNREGISTERED_COMPUTE_ARTIFACT` / `EXPLORATION_LEAK`） | §8、compute-funnel §2、templates §12 |
 | R-BLOCKED-03 | BLOCKED 期间仅允许：验证已有产物、记录唯一恢复动作、登记用户直接提供的解阻材料 | §9 |
 | R-LOG-04 | 每次状态完成必须追加 decision_log 条目（真实 UTC 时间、单调、gate 置真有对应条目）；`iph advance` 同时原子登记顶层 artifact 路径、日志哈希和下一动作，禁止手工回填 | §2、templates §1 |

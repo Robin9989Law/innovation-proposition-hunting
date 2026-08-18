@@ -451,7 +451,8 @@ MI、copula、Shapley、counterfactual credit、profile matching 等均已有；
   支撑 V4。冻结主张以 `manuscript.e2.md` 算法句为准，不以仍写 V0 的
   `l3-exact.r17.md` 为准。
 - **执行纪律**：READY 不是论证成功。S4 必须是代码、测试和开发阶段都未见的
-  单元。没有可核验的计算授权原句，不得打开 COMPUTE。
+  单元。没有可核验的计算授权原句，不得打开 COMPUTE。没有用户接受原句，
+  不得进入 COMPLETE。复核找到协议矛盾、见过的 S4 或空清单 S4 时必须 FAIL。
 
 ## 2026-08-18：只杀死弱接线就锁 N0-4C（谓词映射）
 

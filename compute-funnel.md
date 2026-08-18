@@ -121,11 +121,11 @@ seed 采用递增策略，例如 `2 → 3 → 5`。S2 只有在两个初始 seed
 4. 核心机制量非退化且有区分度；
 5. 最终成功比例在统计上仍可达。
 
-只有 S3 通过后才写 S4 预注册。S4 不得沿用 S2/S3 已查看的最终样本，也不得
-复用 `claim_code_trace` 已登记可执行测试中出现过的 AST/构造。每条 sealed
-`per_run` 必须带 `unseen_fingerprint`。S4 一旦访问封存数据，
-`protocol.sealed_confirmation_data` 必须改为 `SEALED_CONFIRMATION_ONLY`；
-仍写 `NOT_YET_ACCESSED` 不是记账问题，而是阻止 V4 的协议矛盾。
+只有 S3 通过后才写 S4 预注册。S3 只许点名封存来源，不得把封存 AST 写进
+开发 runner。S4 必须使用独立 `sealed_runner`，每条 sealed `per_run` 必须带
+`unseen_fingerprint` 与非空 `inventory_atoms`。空清单上的多余原子失败
+不算确认。终态窗口协议仍写 `NOT_YET_ACCESSED` 是常驻 INVALID。完整硬门见
+hard-gates.md。
 
 ### S4 后的强制回路
 

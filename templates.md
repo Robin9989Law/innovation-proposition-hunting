@@ -123,8 +123,11 @@ INDEPENDENT_REVIEW FAIL:
 用户否决 FINAL_LOCK / COMPLETE / V4：
   iph reopen-validity-epoch --user-reject-complete
   （epoch+1，退回 CLAIM_FREEZE，关闭计算，N0 不变；可用 --set-artifact 切到新 epoch 产物）
-iph review --verdict PASS：镜像 independent_audit 并升 V3/V4
+iph review --verdict PASS：镜像 independent_audit 并升 V3/V4；
+  硬 FAIL 表成立时拒绝（hard-gates.md）
 COMPUTE 内：iph advance-compute-stage --to S1|S2|S3|S4
+FINAL_LOCK -> COMPLETE:
+  --accept-complete --acceptance-note <用户接受本次锁定的原句>
 ```
 
 N0-1/N0-2/N0-3 时 `n0_4_locked=false`；只有 N0-4C 才为 true。CLI 拒绝跳态、
@@ -221,6 +224,9 @@ METHOD, ONLINE, PROTOCOL, EMPIRICAL, BASELINE, COMPLEXITY
 term 与行文本均先 `casefold()`；行文本再把连续空白折叠为单个空格
 （`" ".join(line.split())`）；ordinal 从 1 起按命中顺序编号。稿件或 epoch
 变化后重新扫描；V3/V4 出现未审 occurrence 视为 unaudited promotion。
+`CLAIM_FREEZE` 及之后，若登记了 `artifacts.exact_statement`，冻结句必须出现在
+该文件中，或 inventory 声明 `exact_alignment.status=NARROWER` 且
+`does_not_underwrite_exact=true`，由 `validity_source` 兑现（hard-gates.md）。
 
 ## 3. `theory_obligation_registry.json`
 
@@ -572,11 +578,10 @@ S4 完成后的计算证据文件可采用：
 `COMPUTE_DATA_SOURCE_UNSPECIFIED`。manuscript 声称了真实数据集名但
 `data_sources` 无对应非合成条目即 `MANUSCRIPT_DATASET_UNVERIFIED`。
 
-`split=sealed` 的每条 `per_run` 必须有 `unseen_fingerprint`（≥4 字符），且该
-指纹不得出现在 `claim_code_trace` 已登记的计算前可执行测试中
-（`SEALED_UNIT_FINGERPRINT_MISSING` / `SEALED_UNIT_SEEN_IN_PRECOMPUTE`）。
-`compute_stage=S4` 或已登记 sealed 运行后，`protocol.sealed_confirmation_data`
-不得为 `NOT_YET_ACCESSED`（`PROTOCOL_SEALED_ACCESS_CONTRADICTION`）。
+`split=sealed` 的每条 `per_run` 必须有 `unseen_fingerprint`（≥4 字符）和非空
+`inventory_atoms`。顶层必须声明互异的 `dev_runner` 与 `sealed_runner`。
+指纹不得出现在计算前测试或开发 runner 中。终态窗口协议不得仍为
+`NOT_YET_ACCESSED`。见 hard-gates.md。
 
 进入 `POSTCOMPUTE_CLAIM_FREEZE` 时，`workflow_state.json` 还必须增加 validator 实际
 读取的 pointer；artifact hash 必须是上面文件的当前 SHA-256：

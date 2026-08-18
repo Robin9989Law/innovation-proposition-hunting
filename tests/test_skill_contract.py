@@ -36,10 +36,21 @@ class SkillContractTests(unittest.TestCase):
             "MIGRATION_REQUIRED = 3",
             "N0-4C AND V3 AND compute_authorized",
             "N0-4C AND V4 AND current independent audit",
+            "COMPLETE = FINAL_LOCK AND user acceptance quote",
+            "hard-gates.md",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, text)
-        self.assertLessEqual(len(text.splitlines()), 500)
+        self.assertLessEqual(len(text.splitlines()), 520)
+        gates = self.read("hard-gates.md")
+        for required in (
+            "COMPLETE_REQUIRES_USER_ACCEPTANCE",
+            "SEALED_INVENTORY_EMPTY",
+            "SEALED_RUNNER_NOT_INDEPENDENT",
+            "EXACT_INVENTORY_MISMATCH",
+        ):
+            with self.subTest(gate=required):
+                self.assertIn(required, gates)
 
     def test_description_is_trigger_only(self):
         text = self.read("SKILL.md")

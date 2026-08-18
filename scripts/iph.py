@@ -46,6 +46,7 @@ from validation_common import (  # noqa: E402
     ProjectContext,
     canonical_relative_path,
     file_sha256,
+    is_insufficient_user_grant,
     nonempty_string,
 )
 from validate_workflow_state import (  # noqa: E402
@@ -53,6 +54,7 @@ from validate_workflow_state import (  # noqa: E402
     GATE_KEYS,
     STATES,
     TRACK_STATES,
+    collect_sealed_hard_fail_details,
     composition_n0_4_lock_errors,
     evidence_tier,
 )
@@ -265,7 +267,7 @@ def apply_transition_semantics(
                 "进入 COMPUTE 必须有显式用户授权："
                 "--authorize-compute --authorization-note <授权依据>"
             )
-        if is_insufficient_compute_authorization(args.authorization_note):
+        if is_insufficient_user_grant(args.authorization_note):
             raise SystemExit(
                 "计算授权依据不足：authorization-note 必须引用用户明确授权"
                 "计算的原句；「推进到 N0-4C」「继续直到所有完成」"
@@ -275,6 +277,28 @@ def apply_transition_semantics(
         state["compute_stage"] = "S0"
     elif args.authorize_compute or args.authorization_note is not None:
         raise SystemExit("计算授权参数只允许用于 DIRECTION_LOCK -> COMPUTE")
+
+    if target == "COMPLETE":
+        if not getattr(args, "accept_complete", False) or not nonempty_string(
+            getattr(args, "acceptance_note", None)
+        ):
+            raise SystemExit(
+                "进入 COMPLETE 必须有用户接受原句："
+                "--accept-complete --acceptance-note <用户原句>"
+            )
+        if is_insufficient_user_grant(args.acceptance_note):
+            raise SystemExit(
+                "最终锁定接受依据不足：acceptance-note 必须引用用户明确"
+                "接受本次 COMPLETE 的原句；计算授权或「完成全流程」不够"
+            )
+        state["final_acceptance"] = {
+            "note": args.acceptance_note.strip(),
+            "at": utc_now(),
+        }
+    elif getattr(args, "accept_complete", False) or getattr(
+        args, "acceptance_note", None
+    ) is not None:
+        raise SystemExit("最终锁定接受参数只允许用于 FINAL_LOCK -> COMPLETE")
 
     if target == "POSTCOMPUTE_CLAIM_FREEZE":
         if not args.compute_evidence:
@@ -1026,10 +1050,19 @@ def cmd_review(args: argparse.Namespace) -> int:
         raise SystemExit("review 需要 --thread 记录 reviewer_thread_id")
 
     state = json.loads(state_path.read_text(encoding="utf-8"))
-    artifacts = state.get("artifacts")
+    artifacts = state.setdefault("artifacts", {})
+    if not isinstance(artifacts, dict):
+        raise SystemExit("workflow_state.artifacts 必须是对象")
+    review_artifact = getattr(args, "review_artifact", None)
+    if review_artifact:
+        if not canonical_relative_path(review_artifact):
+            raise SystemExit(f"--review-artifact 必须是根内规范相对路径：{review_artifact!r}")
+        if not (root / review_artifact).is_file():
+            raise SystemExit(f"--review-artifact 不存在：{review_artifact}")
+        artifacts["independent_audit"] = review_artifact
     audit_relative = (
         artifacts.get("independent_audit")
-        if isinstance(artifacts, dict) and artifacts.get("independent_audit")
+        if artifacts.get("independent_audit")
         else "independent_audit.json"
     )
     if not canonical_relative_path(audit_relative):
@@ -1059,6 +1092,13 @@ def cmd_review(args: argparse.Namespace) -> int:
             raise SystemExit(
                 "PASS 的 review 产物必须含非空 review_answers 四问"
                 "（data_authenticity/baseline_execution/claim_strength/falsification_attempt）"
+            )
+        hard_fails = collect_sealed_hard_fail_details(root, state)
+        if hard_fails:
+            first = hard_fails[0]
+            raise SystemExit(
+                "PASS 被硬 FAIL 表拒绝："
+                f"{first[0]} ({first[1]})；不得降为 limitation"
             )
 
     digest = file_sha256(audit_path)
@@ -1100,27 +1140,6 @@ COMPUTE_STAGE_ORDER = ("S0", "S1", "S2", "S3", "S4")
 
 
 USER_REJECT_COMPLETE_STATES = frozenset({"FINAL_LOCK", "COMPLETE"})
-INSUFFICIENT_COMPUTE_AUTHORIZATION = frozenset(
-    {
-        "推进到 n0-4c",
-        "推进到n0-4c",
-        "推进到4c",
-        "继续推进到 n0-4c",
-        "继续推进到n0-4c",
-        "继续推进到4c",
-        "继续直到所有完成",
-        "用户要求完成全流程",
-        "完成全流程",
-        "继续推进",
-    }
-)
-
-
-def is_insufficient_compute_authorization(note: str) -> bool:
-    """新颖性轴推进词不是计算授权。"""
-
-    text = " ".join(note.casefold().replace("：", ":").split())
-    return text in INSUFFICIENT_COMPUTE_AUTHORIZATION
 
 
 def cmd_reopen_validity_epoch(args: argparse.Namespace) -> int:
@@ -1208,6 +1227,7 @@ def cmd_reopen_validity_epoch(args: argparse.Namespace) -> int:
         gates["compute_authorized"] = False
         state["compute_stage"] = "NOT_STARTED"
         state.pop("compute_evidence", None)
+        state.pop("final_acceptance", None)
     state["updated_at"] = now
     apply_state_repairs(state, artifact_updates, args.next_action)
     if not nonempty_string(state.get("next_required_action")) or args.next_action is None:
@@ -1870,6 +1890,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="用户授权的可审计依据；与 --authorize-compute 同时使用",
     )
     p.add_argument(
+        "--accept-complete",
+        action="store_true",
+        help="仅进入 COMPLETE 时登记用户已接受本次最终锁定",
+    )
+    p.add_argument(
+        "--acceptance-note",
+        help="用户接受本次 COMPLETE 的原句；与 --accept-complete 同时使用",
+    )
+    p.add_argument(
         "--compute-evidence",
         help="仅进入 POSTCOMPUTE_CLAIM_FREEZE 时登记 S4 证据 JSON",
     )
@@ -1930,6 +1959,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--reviewer", required=True)
     p.add_argument("--thread", required=True)
     p.add_argument("--verdict", required=True, choices=["PASS", "FAIL"])
+    p.add_argument(
+        "--review-artifact",
+        help="复核产物相对路径；同一事务写入 artifacts.independent_audit",
+    )
     p.set_defaults(func=cmd_review)
 
     p = sub.add_parser(

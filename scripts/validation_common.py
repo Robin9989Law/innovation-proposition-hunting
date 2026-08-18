@@ -118,6 +118,44 @@ def nonempty_string(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
+INSUFFICIENT_USER_GRANT_NOTES = frozenset(
+    {
+        "推进到 n0-4c",
+        "推进到n0-4c",
+        "推进到4c",
+        "继续推进到 n0-4c",
+        "继续推进到n0-4c",
+        "继续推进到4c",
+        "继续直到所有完成",
+        "用户要求完成全流程",
+        "完成全流程",
+        "继续推进",
+    }
+)
+
+PROTOCOL_CONTRADICTION_STATES = frozenset(
+    {"FINAL_VALIDITY_AUDIT", "FINAL_LOCK", "COMPLETE"}
+)
+SEALED_STOP_TOKENS = frozenset(
+    {
+        "FAIL-OMISSION",
+        "FAIL-AMBIGUOUS",
+        "FAIL-COLLAPSE",
+        "FAIL-SPURIOUS-ATOM",
+        "ACCEPT",
+    }
+)
+
+
+def normalize_claim_text(text: str) -> str:
+    return " ".join(text.replace("`", "").casefold().split())
+
+
+def is_insufficient_user_grant(note: str) -> bool:
+    text = " ".join(note.casefold().replace("：", ":").split())
+    return text in INSUFFICIENT_USER_GRANT_NOTES
+
+
 def positive_integer(value: Any) -> bool:
     return not isinstance(value, bool) and isinstance(value, int) and value >= 1
 

@@ -12,9 +12,12 @@ from pathlib import Path
 from typing import Any
 from validation_common import (
     Issue,
+    PROTOCOL_CONTRADICTION_STATES,
     canonical_relative_path,
     choose_exit,
+    is_insufficient_user_grant,
     nonempty_string,
+    normalize_claim_text,
     open_root_fd,
     positive_integer,
     read_regular_file_at,
@@ -230,17 +233,10 @@ NEW_CHECK_CODES = frozenset(
         "G4_ROLE_UNKNOWN",
         "G4_WALKTHROUGH_ONLY",
         "G4_NOT_A_THRESHOLD_AS_COUNTEREXAMPLE",
-        "COMPOSITION_AUDIT_MISSING",
         "COMPOSITION_AUDIT_INVALID",
         "COMPOSITION_REDUCES",
         "WIRINGS_MISSING",
         "WIRING_KIND_MISSING",
-        "WIRING_NOT_ATTEMPTED",
-        "WIRING_STILL_ALIVE",
-        "SEPARATION_NOT_WHOLE",
-        "PROTOCOL_SEALED_ACCESS_CONTRADICTION",
-        "SEALED_UNIT_FINGERPRINT_MISSING",
-        "SEALED_UNIT_SEEN_IN_PRECOMPUTE",
     }
 )
 
@@ -1121,11 +1117,24 @@ def load_json_if_present(root: Path, relative: Any) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-def validate_sealed_confirmation(
-    root: Path, state: dict[str, Any], errors: list[str]
-) -> None:
-    """S4/封存运行必须与协议一致，且不得复用计算前测试构造。"""
+def _read_text_if_present(root: Path, relative: Any) -> str | None:
+    if not canonical_relative_path(relative):
+        return None
+    path = root / relative
+    if not path.is_file():
+        return None
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return None
 
+
+def collect_sealed_hard_fail_details(
+    root: Path, state: dict[str, Any]
+) -> list[tuple[str, str]]:
+    """封存确认硬 FAIL 项。供校验器与 iph review PASS 共用。"""
+
+    problems: list[tuple[str, str]] = []
     artifacts = state.get("artifacts")
     protocol_rel = (
         artifacts.get("protocol_contract")
@@ -1142,19 +1151,40 @@ def validate_sealed_confirmation(
     if isinstance(evidence, dict) and evidence.get("status") == "COMPLETED":
         evidence_payload = load_json_if_present(root, evidence.get("artifact_path"))
     sealed_runs = iter_sealed_runs(evidence_payload) if evidence_payload else []
-    compute_reached_s4 = state.get("compute_stage") == "S4" or bool(sealed_runs)
 
-    if compute_reached_s4 and sealed_role == "NOT_YET_ACCESSED":
-        add(
-            errors,
-            "PROTOCOL_SEALED_ACCESS_CONTRADICTION",
-            "protocol.sealed_confirmation_data=NOT_YET_ACCESSED after sealed compute",
+    effective = state.get("active_state")
+    if (
+        effective in PROTOCOL_CONTRADICTION_STATES
+        and sealed_runs
+        and sealed_role == "NOT_YET_ACCESSED"
+    ):
+        problems.append(
+            (
+                "PROTOCOL_SEALED_ACCESS_CONTRADICTION",
+                "protocol.sealed_confirmation_data=NOT_YET_ACCESSED after sealed compute",
+            )
         )
 
-    if not sealed_runs:
-        return
+    if not sealed_runs or not isinstance(evidence_payload, dict):
+        return problems
 
-    test_texts: list[str] = []
+    dev_runner = evidence_payload.get("dev_runner")
+    sealed_runner = evidence_payload.get("sealed_runner")
+    if (
+        not canonical_relative_path(dev_runner)
+        or not canonical_relative_path(sealed_runner)
+        or dev_runner == sealed_runner
+        or not (root / str(dev_runner)).is_file()
+        or not (root / str(sealed_runner)).is_file()
+    ):
+        problems.append(
+            (
+                "SEALED_RUNNER_NOT_INDEPENDENT",
+                f"dev_runner:{dev_runner};sealed_runner:{sealed_runner}",
+            )
+        )
+
+    precompute_texts: list[tuple[str, str]] = []
     trace_rel = (
         artifacts.get("claim_code_trace")
         if isinstance(artifacts, dict) and artifacts.get("claim_code_trace")
@@ -1167,34 +1197,131 @@ def validate_sealed_confirmation(
             if not isinstance(item, dict):
                 continue
             test_rel = item.get("executable_test_relative_path")
-            if not canonical_relative_path(test_rel):
-                continue
-            test_path = root / test_rel
-            if test_path.is_file():
-                try:
-                    test_texts.append(test_path.read_text(encoding="utf-8"))
-                except OSError:
-                    continue
+            text = _read_text_if_present(root, test_rel)
+            if text is not None:
+                precompute_texts.append((str(test_rel), text))
+    if canonical_relative_path(dev_runner):
+        text = _read_text_if_present(root, dev_runner)
+        if text is not None:
+            precompute_texts.append((str(dev_runner), text))
 
     for run in sealed_runs:
         unit = run.get("unit")
+        atoms = run.get("inventory_atoms")
+        if not isinstance(atoms, list) or not any(
+            isinstance(atom, str) and atom.strip() for atom in atoms
+        ):
+            problems.append(
+                ("SEALED_INVENTORY_EMPTY", f"unit:{unit}")
+            )
         fingerprint = run.get("unseen_fingerprint")
         if not nonempty_string(fingerprint) or len(str(fingerprint).strip()) < 4:
-            add(
-                errors,
-                "SEALED_UNIT_FINGERPRINT_MISSING",
-                f"unit:{unit}",
-            )
+            problems.append(("SEALED_UNIT_FINGERPRINT_MISSING", f"unit:{unit}"))
             continue
         token = str(fingerprint).strip()
-        for text in test_texts:
+        for source, text in precompute_texts:
             if token in text:
-                add(
-                    errors,
-                    "SEALED_UNIT_SEEN_IN_PRECOMPUTE",
-                    f"unit:{unit};fingerprint:{token}",
+                problems.append(
+                    (
+                        "SEALED_UNIT_SEEN_IN_PRECOMPUTE",
+                        f"unit:{unit};fingerprint:{token};seen_in:{source}",
+                    )
                 )
                 break
+    return problems
+
+
+def validate_sealed_confirmation(
+    root: Path, state: dict[str, Any], errors: list[str]
+) -> None:
+    """S4/封存运行必须与协议一致，且不得复用计算前测试构造。"""
+
+    for code, detail in collect_sealed_hard_fail_details(root, state):
+        add(errors, code, detail)
+
+
+def validate_exact_inventory_alignment(
+    root: Path, state: dict[str, Any], errors: list[str]
+) -> None:
+    """冻结 inventory 必须兑现 exact 句，或显式声明更窄且不背书宽句。"""
+
+    effective = str(state.get("active_state") or "")
+    validity_states = {
+        "CLAIM_FREEZE",
+        "VALIDITY_AUDIT",
+        "INDEPENDENT_REVIEW",
+        "DIRECTION_LOCK",
+        "COMPUTE",
+        "POSTCOMPUTE_CLAIM_FREEZE",
+        "FINAL_VALIDITY_AUDIT",
+        "FINAL_LOCK",
+        "COMPLETE",
+    }
+    if effective not in validity_states:
+        return
+    artifacts = state.get("artifacts")
+    exact_rel = (
+        artifacts.get("exact_statement")
+        if isinstance(artifacts, dict)
+        else None
+    )
+    if not canonical_relative_path(exact_rel):
+        return
+    exact_text = _read_text_if_present(root, exact_rel)
+    if exact_text is None:
+        return
+    inventory_rel = (
+        artifacts.get("claim_inventory")
+        if isinstance(artifacts, dict) and artifacts.get("claim_inventory")
+        else "claim_inventory.json"
+    )
+    inventory = load_json_if_present(root, inventory_rel)
+    if not isinstance(inventory, dict):
+        return
+    claims = inventory.get("claims")
+    if not isinstance(claims, list):
+        return
+    statements = [
+        claim.get("statement")
+        for claim in claims
+        if isinstance(claim, dict)
+        and claim.get("status") == "FROZEN"
+        and nonempty_string(claim.get("statement"))
+    ]
+    if not statements:
+        return
+    alignment = inventory.get("exact_alignment")
+    if isinstance(alignment, dict) and alignment.get("status") == "NARROWER":
+        if alignment.get("does_not_underwrite_exact") is not True:
+            add(
+                errors,
+                "EXACT_INVENTORY_MISMATCH",
+                "NARROWER 必须 does_not_underwrite_exact=true",
+            )
+            return
+        source_rel = alignment.get("validity_source")
+        source_text = _read_text_if_present(root, source_rel)
+        if source_text is None:
+            add(
+                errors,
+                "EXACT_INVENTORY_MISMATCH",
+                f"validity_source:{source_rel}",
+            )
+            return
+        haystack = normalize_claim_text(source_text)
+        source_label = str(source_rel)
+    else:
+        haystack = normalize_claim_text(exact_text)
+        source_label = str(exact_rel)
+    for statement in statements:
+        needle = normalize_claim_text(str(statement))
+        if needle not in haystack:
+            add(
+                errors,
+                "EXACT_INVENTORY_MISMATCH",
+                f"statement_not_in:{source_label}",
+            )
+            return
 
 
 def validate_data_sources(
@@ -2013,6 +2140,7 @@ def validate(
     validate_novelty_verdict_evidence(root, state, errors)
 
     validate_sealed_confirmation(root, state, errors)
+    validate_exact_inventory_alignment(root, state, errors)
 
     # COMPLETE 是终态，必须满足与 FINAL_LOCK 等价的条件。
     if effective_state == "COMPLETE":
@@ -2033,6 +2161,14 @@ def validate(
                 errors,
                 "COMPLETE_REQUIRES_FINAL_LOCK_CONDITIONS",
                 ";".join(complete_problems),
+            )
+        acceptance = state.get("final_acceptance")
+        note = acceptance.get("note") if isinstance(acceptance, dict) else None
+        if not nonempty_string(note) or is_insufficient_user_grant(str(note)):
+            add(
+                errors,
+                "COMPLETE_REQUIRES_USER_ACCEPTANCE",
+                "missing_or_insufficient_acceptance_note",
             )
 
     # gate 收口：scope 单调、next_required_action 一致性、capability 翻转 provenance。

@@ -1,0 +1,41 @@
+{
+  "schema_version": "2.0",
+  "candidate_id": "M",
+  "components": [
+    {
+      "component_id": "source_inventory",
+      "neighbor_ids": ["W-0001"],
+      "neighbor_fragment": "post-hoc labels on extracted triples",
+      "mechanical_gap": "source-first inventory is not post-hoc labeling of extracted triples"
+    }
+  ],
+  "wirings": [
+    {
+      "wiring_id": "posthoc_label",
+      "kind": "POSTHOC_LABEL",
+      "procedure": "run the neighbor then glue labels",
+      "status": "KILLED",
+      "kill_claim_ids": ["LC-0001"],
+      "whole_mapping_separates": true
+    },
+    {
+      "wiring_id": "schema_extension",
+      "kind": "SCHEMA_EXTENSION",
+      "procedure": "add fields and reuse neighbor provenance",
+      "status": "KILLED",
+      "kill_claim_ids": ["LC-0002"],
+      "whole_mapping_separates": true
+    },
+    {
+      "wiring_id": "rename",
+      "kind": "RENAME",
+      "procedure": "reverse the neighbor provenance pair",
+      "status": "KILLED",
+      "kill_claim_ids": ["LC-0003"],
+      "whole_mapping_separates": true
+    }
+  ],
+  "strongest_remaining": "",
+  "union_equals_candidate": false,
+  "reduction_failed_because": "each required wiring was killed on a whole-mapping published separation"
+}
