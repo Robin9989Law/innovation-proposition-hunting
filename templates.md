@@ -117,6 +117,10 @@ COMPUTE -> POSTCOMPUTE_CLAIM_FREEZE:
   --compute-evidence compute_evidence.json（必须声明 S4）
 POSTCOMPUTE_CLAIM_FREEZE -> FINAL_VALIDITY_AUDIT:
   --claim-bundle-manifest audit_manifest.json（manifest epoch 必须恰好 +1）
+INDEPENDENT_REVIEW FAIL:
+  iph reopen-validity-epoch（epoch+1，退回 CLAIM_FREEZE，N0 不变）
+iph review --verdict PASS：镜像 independent_audit 并升 V3/V4
+COMPUTE 内：iph advance-compute-stage --to S1|S2|S3|S4
 ```
 
 N0-1/N0-2/N0-3 时 `n0_4_locked=false`；只有 N0-4C 才为 true。CLI 拒绝跳态、

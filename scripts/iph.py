@@ -14,7 +14,9 @@ schema 3.0 起 active_track / active_layer / last_completed_state 不再持久�
   start-collision-round   从 N0-3 审计合规开启下一碰撞轮次
   revise-exact-statement  只改 L3 精确句：同轮、保留 L1/L2/K，跳回综合
   retract-novelty         从 N0_AUDIT/N0-4C 合法撤回为 N0-3/N0-1/N0-2
-  review                  subagent 登记 review 产物 hash 到 state（主 agent 只读）
+  review                  subagent 登记 review 产物；PASS 时原子升 V3/V4
+  reopen-validity-epoch   FAIL 复核后新开 validity epoch，退回 CLAIM_FREEZE
+  advance-compute-stage   COMPUTE 内只向前升级 S0→S1→S2→S3→S4
   clear-lock              完成恢复动作后解除 STOP 锁
   repair-artifact-pointer 保留旧证据并原子切换到版本化修正版
   register-exploration    把探索性数据/产物登记为永久探索级证据
@@ -1055,7 +1057,26 @@ def cmd_review(args: argparse.Namespace) -> int:
 
     digest = file_sha256(audit_path)
     state["review_artifact_sha256"] = digest
-    state["updated_at"] = utc_now()
+    now = utc_now()
+    state["updated_at"] = now
+    if args.verdict == "PASS":
+        mirrored = dict(audit)
+        mirrored["reviewer_agent_id"] = args.reviewer.strip()
+        mirrored["reviewer_thread_id"] = args.thread.strip()
+        state["independent_audit"] = mirrored
+        active = state.get("active_state")
+        if active == "INDEPENDENT_REVIEW":
+            state["validity_level"] = "V3"
+        elif active == "FINAL_VALIDITY_AUDIT":
+            state["validity_level"] = "V4"
+        if active == "INDEPENDENT_REVIEW":
+            state["next_required_action"] = (
+                "DIRECTION_LOCK is allowed; do not COMPUTE until authorized."
+            )
+        elif active == "FINAL_VALIDITY_AUDIT":
+            state["next_required_action"] = (
+                "FINAL_LOCK is allowed after V4 provenance."
+            )
     atomic_write_state(state_path, state)
     append_validation_log(
         root,
@@ -1066,6 +1087,167 @@ def cmd_review(args: argparse.Namespace) -> int:
         f"review 产物已登记：{audit_relative} sha256={digest[:12]} "
         f"reviewer={args.reviewer} verdict={args.verdict} —— 主 agent 此后只读不写"
     )
+    return int(ExitCode.READY)
+
+
+COMPUTE_STAGE_ORDER = ("S0", "S1", "S2", "S3", "S4")
+
+
+def cmd_reopen_validity_epoch(args: argparse.Namespace) -> int:
+    """FAIL 复核后新开 validity epoch，不改 N0，不打开计算。"""
+
+    root = Path(args.root).resolve()
+    state_path = Path(args.state).resolve()
+    if not nonempty_string(args.note):
+        raise SystemExit("reopen-validity-epoch 需要 --note")
+    if not args.no_validate:
+        exit_code = run_validate_all(
+            root, state_path, args.strict_new_checks, []
+        )
+        if exit_code != int(ExitCode.READY):
+            print(f"reopen-validity-epoch aborted: validation exit={exit_code}")
+            return exit_code
+
+    state = _load_json_object(state_path, "workflow_state.json")
+    active = state.get("active_state")
+    if active not in {"INDEPENDENT_REVIEW", "FINAL_VALIDITY_AUDIT"}:
+        raise SystemExit("只能从 INDEPENDENT_REVIEW 或 FINAL_VALIDITY_AUDIT 重开 epoch")
+    if state.get("gates", {}).get("compute_authorized") is True and active == "INDEPENDENT_REVIEW":
+        raise SystemExit("计算已授权后不得从独立复核重开 epoch")
+    if state.get("validity_level") not in {"V2", "V3", "V4"}:
+        raise SystemExit("validity 尚未冻结，无需 reopen-validity-epoch")
+
+    artifacts = state.get("artifacts")
+    audit_relative = (
+        artifacts.get("independent_audit")
+        if isinstance(artifacts, dict) and artifacts.get("independent_audit")
+        else "independent_audit.json"
+    )
+    audit_path = root / audit_relative
+    if not audit_path.is_file():
+        raise SystemExit("缺少独立复核产物，不能重开 epoch")
+    audit = _load_json_object(audit_path, "independent_audit")
+    if audit.get("verdict") != "FAIL":
+        raise SystemExit("只有 verdict=FAIL 的复核才能重开 validity epoch")
+    expected_hash = state.get("review_artifact_sha256")
+    if expected_hash != file_sha256(audit_path):
+        raise SystemExit("review 产物哈希与登记不一致，不能重开")
+
+    old_epoch = state.get("validation_epoch")
+    if not isinstance(old_epoch, int) or old_epoch < 1:
+        raise SystemExit("validation_epoch 必须是正整数")
+    new_epoch = old_epoch + 1
+    now = utc_now()
+    if active == "INDEPENDENT_REVIEW":
+        resume = "CLAIM_FREEZE"
+    else:
+        resume = "POSTCOMPUTE_CLAIM_FREEZE"
+    state["active_state"] = resume
+    state["resume_state"] = resume
+    state["validation_epoch"] = new_epoch
+    state["validity_level"] = "V0"
+    state["claim_bundle_sha256"] = ""
+    state["independent_audit"] = {}
+    state.pop("review_artifact_sha256", None)
+    state["updated_at"] = now
+    apply_state_repairs(state, {}, args.next_action)
+    if not nonempty_string(state.get("next_required_action")) or args.next_action is None:
+        state["next_required_action"] = (
+            f"Rebuild epoch {new_epoch} inventory and form artifacts after FAIL review."
+        )
+    state.setdefault("decision_log", []).append(
+        {
+            "at": now,
+            "state": resume,
+            "action": (
+                f"REOPEN_VALIDITY_EPOCH {old_epoch}->{new_epoch} "
+                f"from {active} FAIL. {args.note.strip()}"
+            ),
+        }
+    )
+    atomic_write_state(state_path, state)
+    append_validation_log(
+        root,
+        f"REOPEN_VALIDITY_EPOCH {old_epoch}->{new_epoch} from={active} "
+        f"note={args.note.strip()}",
+    )
+    print(f"reopened validity epoch {old_epoch} -> {new_epoch}; state={resume}")
+    if not args.no_validate:
+        exit_code = run_validate_all(
+            root, state_path, args.strict_new_checks, []
+        )
+        if exit_code != int(ExitCode.READY):
+            print(f"post-reopen validation exit={exit_code}")
+            return exit_code
+    return int(ExitCode.READY)
+
+
+def cmd_advance_compute_stage(args: argparse.Namespace) -> int:
+    """COMPUTE 内只允许 S0→S1→S2→S3→S4 前进。"""
+
+    root = Path(args.root).resolve()
+    state_path = Path(args.state).resolve()
+    target = args.to
+    if target not in COMPUTE_STAGE_ORDER:
+        raise SystemExit(f"--to 必须是 {COMPUTE_STAGE_ORDER}")
+    if not nonempty_string(args.note):
+        raise SystemExit("advance-compute-stage 需要 --note")
+    if not args.no_validate:
+        exit_code = run_validate_all(
+            root, state_path, args.strict_new_checks, []
+        )
+        if exit_code != int(ExitCode.READY):
+            print(f"advance-compute-stage aborted: validation exit={exit_code}")
+            return exit_code
+
+    state = _load_json_object(state_path, "workflow_state.json")
+    if state.get("active_state") != "COMPUTE":
+        raise SystemExit("只能在 COMPUTE 升级 compute_stage")
+    if state.get("gates", {}).get("compute_authorized") is not True:
+        raise SystemExit("未授权计算不得升级 compute_stage")
+    current = state.get("compute_stage")
+    if current not in COMPUTE_STAGE_ORDER:
+        raise SystemExit(f"当前 compute_stage 非法：{current!r}")
+    expected = COMPUTE_STAGE_ORDER[COMPUTE_STAGE_ORDER.index(current) + 1] if current != "S4" else None
+    if target != expected:
+        raise SystemExit(
+            f"compute_stage 只能前进一步：当前 {current}，下一合法目标 {expected}"
+        )
+    artifact_paths: list[str] = []
+    for raw in args.artifact or []:
+        if not canonical_relative_path(raw):
+            raise SystemExit(f"--artifact 必须是根内规范相对路径：{raw!r}")
+        if not (root / raw).is_file():
+            raise SystemExit(f"--artifact 不存在：{raw}")
+        artifact_paths.append(raw)
+    now = utc_now()
+    state["compute_stage"] = target
+    state["updated_at"] = now
+    apply_state_repairs(state, {}, args.next_action)
+    entry = {
+        "at": now,
+        "state": "COMPUTE",
+        "action": f"ADVANCE_COMPUTE_STAGE {current}->{target}. {args.note.strip()}",
+    }
+    if artifact_paths:
+        entry["artifacts"] = [
+            {"path": relative, "sha256": file_sha256(root / relative)}
+            for relative in artifact_paths
+        ]
+    state.setdefault("decision_log", []).append(entry)
+    atomic_write_state(state_path, state)
+    append_validation_log(
+        root,
+        f"ADVANCE_COMPUTE_STAGE {current}->{target} note={args.note.strip()}",
+    )
+    print(f"advanced compute stage {current} -> {target}")
+    if not args.no_validate:
+        exit_code = run_validate_all(
+            root, state_path, args.strict_new_checks, []
+        )
+        if exit_code != int(ExitCode.READY):
+            print(f"post-stage validation exit={exit_code}")
+            return exit_code
     return int(ExitCode.READY)
 
 
@@ -1685,6 +1867,29 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--thread", required=True)
     p.add_argument("--verdict", required=True, choices=["PASS", "FAIL"])
     p.set_defaults(func=cmd_review)
+
+    p = sub.add_parser(
+        "reopen-validity-epoch",
+        help="FAIL 复核后新开 validity epoch，退回 CLAIM_FREEZE 或计算后冻结",
+    )
+    add_root_state(p)
+    p.add_argument("--note", required=True)
+    p.add_argument("--next-action")
+    p.add_argument("--no-validate", action="store_true")
+    p.set_defaults(func=cmd_reopen_validity_epoch)
+
+    p = sub.add_parser(
+        "advance-compute-stage",
+        help="COMPUTE 内只向前升级 S0→S1→S2→S3→S4",
+    )
+    add_root_state(p)
+    p.add_argument("--to", required=True, choices=["S1", "S2", "S3", "S4"])
+    p.add_argument("--note", required=True)
+    p.add_argument("--artifact", action="append", metavar="PATH")
+    p.add_argument("--next-action")
+    p.add_argument("--no-validate", action="store_true")
+    p.set_defaults(func=cmd_advance_compute_stage)
+
     p = sub.add_parser("clear-lock", help="完成恢复动作后解除 STOP 锁")
     add_root_state(p)
     p.add_argument("--recovery-note", required=True)

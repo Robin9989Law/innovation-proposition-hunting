@@ -1375,6 +1375,80 @@ class ReviewCommandTests(unittest.TestCase):
             result = run_all_validator(project)
             self.assertIn("REVIEW_ARTIFACT_TAMPERED", result.stdout)
 
+    def test_review_pass_promotes_v3_and_mirrors_audit(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V2")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "INDEPENDENT_REVIEW"
+            state["resume_state"] = "INDEPENDENT_REVIEW"
+            state["validity_level"] = "V2"
+            state["independent_audit"] = {}
+            write_json(project / "workflow_state.json", state)
+            audit_path = project / "independent_audit.json"
+            audit = load_json(audit_path)
+            audit["review_answers"] = {
+                "data_authenticity": "no compute dataset is claimed",
+                "baseline_execution": "comparator ran on published Example 5",
+                "claim_strength": "wording matches decide_mapping",
+                "falsification_attempt": "tried SAT absence; SAT helper exists",
+            }
+            write_json(audit_path, audit)
+            review = run_iph(
+                project,
+                "review",
+                "--reviewer",
+                "agent-b",
+                "--thread",
+                "thread-b",
+                "--verdict",
+                "PASS",
+            )
+            self.assertEqual(0, review.returncode, review.stdout + review.stderr)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("V3", state["validity_level"])
+            self.assertEqual("PASS", state["independent_audit"]["verdict"])
+            self.assertEqual("agent-b", state["independent_audit"]["reviewer_agent_id"])
+
+    def test_reopen_validity_epoch_after_fail(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V2")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "INDEPENDENT_REVIEW"
+            state["resume_state"] = "INDEPENDENT_REVIEW"
+            state["validity_level"] = "V2"
+            state["validation_epoch"] = 1
+            state["gates"]["compute_authorized"] = False
+            write_json(project / "workflow_state.json", state)
+            audit_path = project / "independent_audit.json"
+            audit = load_json(audit_path)
+            audit["verdict"] = "FAIL"
+            write_json(audit_path, audit)
+            review = run_iph(
+                project,
+                "review",
+                "--reviewer",
+                "agent-b",
+                "--thread",
+                "thread-b",
+                "--verdict",
+                "FAIL",
+            )
+            self.assertEqual(0, review.returncode, review.stdout + review.stderr)
+            reopened = run_iph(
+                project,
+                "reopen-validity-epoch",
+                "--note",
+                "FAIL review: rebuild inventory and implementation",
+                "--no-validate",
+            )
+            self.assertEqual(0, reopened.returncode, reopened.stdout + reopened.stderr)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("CLAIM_FREEZE", state["active_state"])
+            self.assertEqual("V0", state["validity_level"])
+            self.assertEqual(2, state["validation_epoch"])
+            self.assertEqual("", state["claim_bundle_sha256"])
+            self.assertEqual({}, state["independent_audit"])
+
     def test_review_rejects_pass_without_answers(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V3")
         with temporary_directory:

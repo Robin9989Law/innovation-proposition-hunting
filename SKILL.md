@@ -173,7 +173,10 @@ decision_log 记录裁决、占据/可推导证据与处置（关闭、吸收或
 继续进入 `CLAIM_FREEZE`。唯一写入口是 `iph retract-novelty --to N0-3|N0-1|N0-2`：
 仅允许 `N0_AUDIT + N0-4C + V0`，同一事务把 `n0_4_locked` 置假、登记新的
 novelty-audit，并保持 `active_state=N0_AUDIT`。有效性已冻结或计算已授权后
-不得撤回，只能新开 epoch。撤回后的 `N0-3` 才可 `start-collision-round` 或
+不得撤回新颖性。独立复核 `verdict=FAIL` 时，唯一修主张/实现的写入口是
+`iph reopen-validity-epoch`：`validation_epoch += 1`，validity 回到 V0，
+状态退回 `CLAIM_FREEZE`（计算后 FAIL 则退回 `POSTCOMPUTE_CLAIM_FREEZE`），
+不清 N0-4C，不打开计算。撤回后的 `N0-3` 才可 `start-collision-round` 或
 `revise-exact-statement`。只改精确句不得开新轮；新轮且 L1/L2 未变时加
 `--keep-layers`。N0-4C 须先杀死组合表三种必做接线（后贴标签 /
 schema-extension / 换名）；有未尝试或仍活接线不得锁。用户要 4C 不是授权。
@@ -313,7 +316,9 @@ PASS，也不得因此跳过对已经存在产物的矛盾检查。
 进入 `INDEPENDENT_REVIEW` / `FINAL_VALIDITY_AUDIT` 后、reviewer 尚未封印当前
 bundle 的短暂状态是合法的 **review pending**：总校验器仍严格验证作者侧 manifest、
 epoch、bundle 与 form artifacts，但跳过尚不存在的 independent-audit provenance。
-只有 `iph-reviewer` 通过 `iph review` 写入运行时身份后才提升 V3/V4；进入
+只有 `iph review --verdict PASS` 才把复核产物镜像进
+`workflow_state.independent_audit`，并在 `INDEPENDENT_REVIEW` 升 V3、在
+`FINAL_VALIDITY_AUDIT` 升 V4。`FAIL` 不升 V。进入
 `DIRECTION_LOCK` / `FINAL_LOCK` 时 provenance 恢复为硬门。pending 不得掩盖已有
 审计产物的矛盾，也不得进入最终锁。
 
@@ -375,7 +380,8 @@ FINAL_LOCK = N0-4C AND V4 AND current independent audit
 `compute_authorized`，也不能代替 V3。其余数值预实验仍须当天登记
 `exploration_registry.json`，其数字不得进入冻结工件。
 
-`DIRECTION_LOCK` 只锁方向。计算按 S0-SCREEN–S4 逐级升级；只有 S4 完成且 state 中的
+`DIRECTION_LOCK` 只锁方向。计算按 S0-SCREEN–S4 逐级升级：`iph advance-compute-stage
+--to S1|S2|S3|S4` 只允许前进一步并登记阶段产物。只有 S4 完成且 state 中的
 `compute_evidence` 指向当前 epoch、当前哈希的计算证据，才能进入
 `POSTCOMPUTE_CLAIM_FREEZE`。计算结果改变主张、强度或适用边界时必须新开 epoch；
 随后完成 `FINAL_VALIDITY_AUDIT`，由不同 agent 对新 bundle 复核，才可 `FINAL_LOCK`。
