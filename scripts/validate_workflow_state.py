@@ -245,11 +245,46 @@ NEW_CHECK_CODES = frozenset(
 # 主线是 L1→L2→L3 逐段构建；证据深度按段供给（SKILL.md §3.1、R-LAYER-13）。
 # 证据层级 -> (全文预算, 原子观点预算)；超出即报 EVIDENCE_DEPTH_EXCEEDS_LAYER。
 # schema 3.0 起状态机按段排布，合规流程不会超预算，故本检查为常驻 INVALID。
+# L3 默认可被课题规模证伪：decision_log 登记
+# `EVIDENCE_DEPTH_WAIVER fulltext<=N claims<=M` 后，用登记上限（不得低于默认，
+# 且不得突破硬顶）。L1/L2 不得豁免。
 EVIDENCE_DEPTH_BUDGETS = {
     "L1": (0, 0),
     "L2": (12, 0),
     "L3": (20, 60),
 }
+EVIDENCE_DEPTH_HARD_CAPS = {"L3": (40, 100)}
+EVIDENCE_DEPTH_WAIVER_RE = re.compile(
+    r"EVIDENCE_DEPTH_WAIVER\s+fulltext<=(\d+)\s+claims<=(\d+)"
+)
+
+
+def resolve_evidence_depth_budget(
+    state: dict[str, Any], tier: str
+) -> tuple[int, int]:
+    """L3 可用 decision_log 登记的上限替换默认预算；L1/L2 不得豁免。"""
+
+    default_fulltext, default_claims = EVIDENCE_DEPTH_BUDGETS[tier]
+    if tier != "L3":
+        return default_fulltext, default_claims
+    hard_fulltext, hard_claims = EVIDENCE_DEPTH_HARD_CAPS["L3"]
+    waived_fulltext = default_fulltext
+    waived_claims = default_claims
+    for entry in state.get("decision_log") or []:
+        if not isinstance(entry, dict):
+            continue
+        action = entry.get("action")
+        if not isinstance(action, str):
+            continue
+        match = EVIDENCE_DEPTH_WAIVER_RE.search(action)
+        if match is None:
+            continue
+        waived_fulltext = max(waived_fulltext, int(match.group(1)))
+        waived_claims = max(waived_claims, int(match.group(2)))
+    return (
+        min(waived_fulltext, hard_fulltext),
+        min(waived_claims, hard_claims),
+    )
 
 # 证据层级不再持久化（design-schema-3.0 §4），由 effective_state 派生：
 # 未列出的状态（L3_EVIDENCE 段、VALIDITY/COMPUTE 轴、COMPLETE）均为 L3。
@@ -1683,7 +1718,7 @@ def validate(
 
     # R-LAYER-13：证据深度按段供给；超段超量取证即主次颠倒。
     tier = evidence_tier(str(effective_state))
-    fulltext_budget, claim_budget = EVIDENCE_DEPTH_BUDGETS[tier]
+    fulltext_budget, claim_budget = resolve_evidence_depth_budget(state, tier)
     fulltext_count, claim_count, scope_issues = count_current_evidence(root, state)
     for code, detail in scope_issues:
         add(errors, code, detail)

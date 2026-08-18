@@ -905,6 +905,31 @@ class EvidenceDepthBudgetTests(unittest.TestCase):
         result = self.run_state("--current-year", "2026")
         self.assertNotIn("EVIDENCE_DEPTH_EXCEEDS_LAYER", result.stdout)
 
+    def test_l3_waiver_allows_user_authorized_overage(self) -> None:
+        self.set_tier("L3")
+        self.write_registries(fulltext=21, claims=40)
+        state = load_json(self.project / "workflow_state.json")
+        state.setdefault("decision_log", []).append(
+            {
+                "at": "2026-08-18T00:00:00Z",
+                "state": "N0_AUDIT",
+                "action": (
+                    "EVIDENCE_DEPTH_WAIVER fulltext<=24 claims<=65 "
+                    "reason=user authorized extra K to kill invert-pi wiring"
+                ),
+            }
+        )
+        write_json(self.project / "workflow_state.json", state)
+        result = self.run_state("--current-year", "2026")
+        self.assertNotIn("EVIDENCE_DEPTH_EXCEEDS_LAYER", result.stdout)
+
+    def test_l3_without_waiver_still_blocks_overage(self) -> None:
+        self.set_tier("L3")
+        self.write_registries(fulltext=21, claims=40)
+        result = self.run_state("--current-year", "2026")
+        self.assertIn("INVALID\tEVIDENCE_DEPTH_EXCEEDS_LAYER", result.stdout)
+        self.assertIn("tier:L3;fulltext:21>budget:20", result.stdout)
+
     def test_missing_registries_do_not_crash(self) -> None:
         self.set_tier("L3")
         result = self.run_state("--current-year", "2026")
