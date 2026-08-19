@@ -121,9 +121,10 @@ POSTCOMPUTE_CLAIM_FREEZE -> FINAL_VALIDITY_AUDIT:
   --claim-bundle-manifest audit_manifest.json（manifest epoch 必须恰好 +1）
 INDEPENDENT_REVIEW FAIL:
   iph reopen-validity-epoch（epoch+1，退回 CLAIM_FREEZE，N0 不变）
-用户否决 FINAL_LOCK / COMPLETE / V4：
+用户否决 DIRECTION_LOCK / FINAL_LOCK / COMPLETE / V3 / V4：
   iph reopen-validity-epoch --user-reject-complete
-  （epoch+1，退回 CLAIM_FREEZE，关闭计算，N0 不变；可用 --set-artifact 切到新 epoch 产物）
+  （epoch+1，退回 CLAIM_FREEZE，关闭计算，N0 不变；可用 --set-artifact 切到新 epoch 产物。
+  DIRECTION_LOCK 上用于否决当前 V3 束并改实现，不得手改 state）
 iph review --verdict PASS：镜像 independent_audit 并升 V3/V4；
   硬 FAIL 表成立时拒绝（hard-gates.md）
 COMPUTE 内：iph advance-compute-stage --to S1|S2|S3|S4

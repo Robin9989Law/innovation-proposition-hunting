@@ -177,9 +177,10 @@ novelty-audit，并保持 `active_state=N0_AUDIT`。有效性已冻结或计算�
 不得撤回新颖性。独立复核 `verdict=FAIL` 时，唯一修主张/实现的写入口是
 `iph reopen-validity-epoch`：`epoch += 1`，validity 回 V0，退回
 `CLAIM_FREEZE`（计算后 FAIL 则退回 `POSTCOMPUTE_CLAIM_FREEZE`），不清
-N0-4C，不打开计算。用户否决 `FINAL_LOCK`/`COMPLETE`/V4 时不得手改
+N0-4C，不打开计算。用户否决 `DIRECTION_LOCK`/`FINAL_LOCK`/`COMPLETE`/V3/V4 时不得手改
 state 或把 PASS 改写成 FAIL，走
-`iph reopen-validity-epoch --user-reject-complete`。撤回后的 `N0-3` 才可
+`iph reopen-validity-epoch --user-reject-complete`
+（`DIRECTION_LOCK` 上用于否决当前 V3 束、改实现后再冻）。撤回后的 `N0-3` 才可
 `start-collision-round` 或 `revise-exact-statement`。只改精确句不得开新轮；
 新轮且 L1/L2 未变时加 `--keep-layers`。N0-4C 须先杀死组合表三种必做接线
 （后贴标签 / schema-extension / 换名）；有未尝试或仍活接线不得锁。用户要

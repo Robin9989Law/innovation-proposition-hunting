@@ -1191,7 +1191,9 @@ def cmd_review(args: argparse.Namespace) -> int:
 COMPUTE_STAGE_ORDER = ("S0", "S1", "S2", "S3", "S4")
 
 
-USER_REJECT_COMPLETE_STATES = frozenset({"FINAL_LOCK", "COMPLETE"})
+USER_REJECT_COMPLETE_STATES = frozenset(
+    {"DIRECTION_LOCK", "FINAL_LOCK", "COMPLETE"}
+)
 
 
 def cmd_reopen_validity_epoch(args: argparse.Namespace) -> int:
@@ -1215,7 +1217,7 @@ def cmd_reopen_validity_epoch(args: argparse.Namespace) -> int:
     if user_reject:
         if active not in USER_REJECT_COMPLETE_STATES:
             raise SystemExit(
-                "--user-reject-complete 只能从 FINAL_LOCK 或 COMPLETE 重开"
+                "--user-reject-complete 只能从 DIRECTION_LOCK、FINAL_LOCK 或 COMPLETE 重开"
             )
         if state.get("validity_level") not in {"V3", "V4"}:
             raise SystemExit("用户否决 COMPLETE 需要已冻结的 V3/V4")
@@ -2026,7 +2028,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--user-reject-complete",
         action="store_true",
-        help="用户否决 FINAL_LOCK/COMPLETE/V4：退回 CLAIM_FREEZE，关闭计算，保留 N0-4C",
+        help="用户否决 DIRECTION_LOCK/FINAL_LOCK/COMPLETE/V3/V4：退回 CLAIM_FREEZE，关闭计算，保留 N0-4C",
     )
     p.add_argument(
         "--set-artifact",

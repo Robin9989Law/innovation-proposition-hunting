@@ -1496,6 +1496,34 @@ class ReviewCommandTests(unittest.TestCase):
             self.assertNotIn("compute_evidence", state)
             self.assertEqual({}, state["independent_audit"])
 
+    def test_reopen_user_reject_from_direction_lock(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V3")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "DIRECTION_LOCK"
+            state["resume_state"] = "DIRECTION_LOCK"
+            state["novelty_level"] = "N0-4C"
+            state["validity_level"] = "V3"
+            state["validation_epoch"] = 2
+            state["gates"]["n0_4_locked"] = True
+            state["gates"]["compute_authorized"] = False
+            write_json(project / "workflow_state.json", state)
+            reopened = run_iph(
+                project,
+                "reopen-validity-epoch",
+                "--user-reject-complete",
+                "--note",
+                "user rejected V3 bundle to rebuild the compiler",
+                "--no-validate",
+            )
+            self.assertEqual(0, reopened.returncode, reopened.stdout + reopened.stderr)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("CLAIM_FREEZE", state["active_state"])
+            self.assertEqual("V0", state["validity_level"])
+            self.assertEqual(3, state["validation_epoch"])
+            self.assertEqual("N0-4C", state["novelty_level"])
+            self.assertFalse(state["gates"]["compute_authorized"])
+
     def test_compute_rejects_insufficient_authorization(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V3")
         with temporary_directory:
