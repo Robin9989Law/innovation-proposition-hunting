@@ -3,26 +3,30 @@
 本文件定义谓词映射实战证伪过、必须由校验器执行的门。`SKILL.md` 只索引
 RULE-ID，不复制字段。未实现的句子不得当作已执行。
 
-## 1. COMPLETE 必须有用户接受原句（R-ACCEPT-27）
+## 1. COMPLETE 必须有用户接受原句（R-ACCEPT-27 / R-EXIT-31）
 
 ```text
-COMPLETE = N0-4C AND V4 AND current independent audit
+COMPLETE = N0-4C AND V3 AND current independent audit
            AND final_acceptance.note
 ```
 
-进入 `COMPLETE` 只能：
+IPH 在 `DIRECTION_LOCK` 立题交接后结束。进入 `COMPLETE` 只能：
 
 ```bash
 iph advance --to COMPLETE \
-  --accept-complete --acceptance-note "<用户明确接受本次最终锁定的原句>"
+  --accept-complete --acceptance-note "<用户明确接受本次立题交接的原句>"
 ```
 
+`DIRECTION_LOCK` 的唯一正向目标是 `COMPLETE`。新项目 `iph advance --to COMPUTE`
+必须拒绝。S1–S4 实验与论文写作不在 IPH 内。已进入 COMPUTE 的旧项目仍可从
+`FINAL_LOCK` 进入 `COMPLETE`，但不得把实验完成或论文完稿当成立题交接。
+
 下列用语不是接受：「推进到 N0-4C」「继续推进」「继续直到所有完成」
-「完成全流程」「用户要求完成全流程」。计算授权不是最终锁定接受。
+「完成全流程」「用户要求完成全流程」。计算授权不是立题交接接受。
 授权 note 必须同时含动词（授权 / authorize）、计算对象（计算 / compute）、
 确认对象（S4 / sealed / 封存 / 未见 / 确认），并引用本项目 `workflow_id`
 或文献 `W-####` / 冻结 `claim_id`。接受 note 必须同时含动词（接受 / accept）、
-锁定对象（锁定 / complete / 最终）、本次指示（本次 / this / 这次），并引用
+锁定对象（锁定 / complete / 最终 / 立题 / 交接）、本次指示（本次 / this / 这次），并引用
 本项目锚点。`exact_alignment=NARROWER` 时还须承认窄兑现
 （窄 / narrower / 子句 / 不背书）。「我授权打开未见的 S4 计算」不够。
 
@@ -123,4 +127,4 @@ iph advance --to COMPLETE \
 `SYNTHETIC_DATA_NAMED_AS_REAL`、`ATOMIC_CLAIM_NO_ANCHOR`、
 `WIRING_KIND_MISSING`、`WIRINGS_MISSING`、`COMPOSITION_AUDIT_INVALID`、
 `COMPOSITION_REDUCES`、`OCCUPATION_EVIDENCE_MISSING`、
-`REDUCTION_EVIDENCE_MISSING`、`COMPLETE_REQUIRES_FINAL_LOCK_CONDITIONS`。
+`REDUCTION_EVIDENCE_MISSING`、`COMPLETE_REQUIRES_DIRECTION_LOCK_CONDITIONS`。

@@ -36,7 +36,7 @@ class SkillContractTests(unittest.TestCase):
             "MIGRATION_REQUIRED = 3",
             "N0-4C AND V3 AND compute_authorized",
             "N0-4C AND V4 AND current independent audit",
-            "COMPLETE = FINAL_LOCK AND user acceptance quote",
+            "COMPLETE = DIRECTION_LOCK AND user acceptance quote",
             "hard-gates.md",
         ):
             with self.subTest(required=required):
@@ -64,7 +64,10 @@ class SkillContractTests(unittest.TestCase):
         text = self.read("SKILL.md")
         frontmatter = text.split("---", 2)[1]
         self.assertIn("description: >-", frontmatter)
-        self.assertIn("Use when defining, auditing, revising, computing", frontmatter)
+        collapsed = " ".join(frontmatter.split())
+        self.assertIn("Use when defining, auditing, or revising", collapsed)
+        self.assertIn("experiments and writing are independent", collapsed)
+        self.assertNotIn("computing, or preparing to submit", collapsed)
         self.assertNotIn("Guides literature-constrained", frontmatter)
 
     def test_templates_cover_every_schema_v2_artifact(self):

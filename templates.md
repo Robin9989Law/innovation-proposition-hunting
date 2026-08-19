@@ -111,11 +111,11 @@ EVIDENCE_VALIDATE -> N0_AUDIT:
 CLAIM_FREEZE -> VALIDITY_AUDIT:
   --claim-bundle-manifest audit_manifest.json（CLI 派生 V1 并登记当前 epoch bundle）
 VALIDITY_AUDIT -> INDEPENDENT_REVIEW: CLI 派生 V2
-DIRECTION_LOCK -> COMPUTE:
-  --authorize-compute --authorization-note <用户明确授权计算的原句>（CLI 派生 S0；
-  必须同时含授权动词、计算对象和 S4/封存/未见；「推进到 N0-4C」
-  「继续直到所有完成」「完成全流程」「authorized compute」会被拒绝）
-COMPUTE -> POSTCOMPUTE_CLAIM_FREEZE:
+DIRECTION_LOCK -> COMPLETE:
+  --accept-complete --acceptance-note <用户接受本次立题交接的原句>
+  （必须同时含接受动词、锁定/立题/交接对象和本次/this；计算授权不够）
+DIRECTION_LOCK -> COMPUTE：新项目禁止。实验不在 IPH 内。
+COMPUTE -> POSTCOMPUTE_CLAIM_FREEZE:（仅已进入 COMPUTE 的旧项目）
   --compute-evidence compute_evidence.json（必须声明 S4）
 POSTCOMPUTE_CLAIM_FREEZE -> FINAL_VALIDITY_AUDIT:
   --claim-bundle-manifest audit_manifest.json（manifest epoch 必须恰好 +1）
@@ -127,10 +127,10 @@ INDEPENDENT_REVIEW FAIL:
   DIRECTION_LOCK 上用于否决当前 V3 束并改实现，不得手改 state）
 iph review --verdict PASS：镜像 independent_audit 并升 V3/V4；
   硬 FAIL 表成立时拒绝（hard-gates.md）
-COMPUTE 内：iph advance-compute-stage --to S1|S2|S3|S4
-FINAL_LOCK -> COMPLETE:
-  --accept-complete --acceptance-note <用户接受本次锁定的原句>
-  （必须同时含接受动词、锁定对象和本次/this）
+COMPUTE 内：iph advance-compute-stage --to S1|S2|S3|S4（遗留）
+FINAL_LOCK -> COMPLETE:（仅已进入计算的旧项目）
+  --accept-complete --acceptance-note <用户接受本次立题交接的原句>
+  （必须同时含接受动词、锁定/立题/交接对象和本次/this）
 ```
 
 N0-1/N0-2/N0-3 时 `n0_4_locked=false`；只有 N0-4C 才为 true。CLI 拒绝跳态、

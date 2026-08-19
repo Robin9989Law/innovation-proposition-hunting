@@ -72,8 +72,12 @@ TARGET_COMPLETION_GATES = {
     "OUTPUT_CLAIM_BIND": "output_claims_traced",
     "EVIDENCE_VALIDATE": "evidence_validated",
 }
-# STOP 恢复只允许补这些漏写的机械门；不得改 n0_4_locked / compute_authorized。
-RECOVERABLE_COMPLETION_GATES = set(TARGET_COMPLETION_GATES.values())
+# STOP 恢复只允许补漏写的机械完成门；不得改 n0_4_locked / compute_authorized。
+# 含 K_FULLTEXT/K_CLAIM_REGISTER 的显式 --set-gate（旧 advance 漏置时）。
+RECOVERABLE_COMPLETION_GATES = set(TARGET_COMPLETION_GATES.values()) | {
+    "k_fulltext_complete",
+    "k_claims_complete",
+}
 
 POSITIVE_STATE_SEQUENCE = (
     "BOOT",
@@ -212,6 +216,18 @@ def validate_transition_target(state: dict[str, Any], target: str) -> None:
         return
     if current == "BLOCKED":
         raise SystemExit("BLOCKED 只能通过 clear-lock --resume-blocked 恢复")
+    if current == "DIRECTION_LOCK":
+        if target == "COMPUTE":
+            raise SystemExit(
+                "实验不在 IPH 内：DIRECTION_LOCK 的唯一正向目标是 COMPLETE"
+                "（立题交接）。题目锁定后脱离本技能，实验与写作为独立工作。"
+            )
+        if target != "COMPLETE":
+            raise SystemExit(
+                "禁止跳态：active_state='DIRECTION_LOCK' 的唯一正向目标是 "
+                f"'COMPLETE'，收到 {target!r}"
+            )
+        return
     expected = NEXT_POSITIVE_STATE.get(current)
     if expected != target:
         raise SystemExit(
@@ -299,8 +315,8 @@ def apply_transition_semantics(
             args.acceptance_note, collect_project_anchor_tokens(root, state)
         ):
             raise SystemExit(
-                "最终锁定接受依据不足：acceptance-note 必须同时含接受动词"
-                "（接受/accept）、锁定对象（锁定/complete/最终）、本次指示"
+                "立题交接接受依据不足：acceptance-note 必须同时含接受动词"
+                "（接受/accept）、锁定对象（锁定/complete/最终/立题/交接）、本次指示"
                 "（本次/this/这次），并引用本项目 workflow_id 或冻结 claim_id；"
                 "计算授权或「完成全流程」不够"
             )
@@ -333,10 +349,17 @@ def apply_transition_semantics(
             "note": args.acceptance_note.strip(),
             "at": utc_now(),
         }
+        if getattr(args, "next_action", None) is None:
+            state["next_required_action"] = (
+                "Leave IPH. Experiments and writing are independent work."
+            )
     elif getattr(args, "accept_complete", False) or getattr(
         args, "acceptance_note", None
     ) is not None:
-        raise SystemExit("最终锁定接受参数只允许用于 FINAL_LOCK -> COMPLETE")
+        raise SystemExit(
+            "立题交接接受参数只允许用于 DIRECTION_LOCK -> COMPLETE "
+            "或 FINAL_LOCK -> COMPLETE"
+        )
 
     if target == "POSTCOMPUTE_CLAIM_FREEZE":
         if not args.compute_evidence:
@@ -1169,7 +1192,7 @@ def cmd_review(args: argparse.Namespace) -> int:
             state["validity_level"] = "V4"
         if active == "INDEPENDENT_REVIEW":
             state["next_required_action"] = (
-                "DIRECTION_LOCK is allowed; do not COMPUTE until authorized."
+                "DIRECTION_LOCK is allowed; after lock, leave IPH."
             )
         elif active == "FINAL_VALIDITY_AUDIT":
             state["next_required_action"] = (
@@ -1881,6 +1904,8 @@ def cmd_handover(args: argparse.Namespace) -> int:
     print(f"blocked reasons: {state.get('blocked_reasons') or []}")
     print(f"compute_authorized: {gates.get('compute_authorized')}")
     print(f"next_required_action: {state.get('next_required_action')}")
+    if active_state == "COMPLETE":
+        print("IPH 边界: 立题已交接。脱离本技能；实验与写作为独立工作。")
     print("# 锚点抽查（R-REVIEW-20，交接前必须完成并留痕）")
     print("1. 抽查 ≥5% 的原子观点 normalized_statement，回原文核对数值/locator 真实性")
     print("2. 抽查 ≥1 条碰撞类结论的 evidence，回全文核对数值锚点是否真实（防 U-Sophistry 假证据）")
@@ -1946,7 +1971,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--accept-complete",
         action="store_true",
-        help="仅进入 COMPLETE 时登记用户已接受本次最终锁定",
+        help="仅进入 COMPLETE 时登记用户已接受本次立题交接",
     )
     p.add_argument(
         "--acceptance-note",

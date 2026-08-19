@@ -70,8 +70,8 @@ L1、L2 或贡献架构通过并不代表创新成立。N0 新颖性评级只用
       → LAYER_DECISION → K_FULLTEXT → K_CLAIM_REGISTER
       → ... → N0_AUDIT → N0-4C
 有效性：CLAIM_FREEZE → VALIDITY_AUDIT → INDEPENDENT_REVIEW
-       → DIRECTION_LOCK → COMPUTE → POSTCOMPUTE_CLAIM_FREEZE
-       → FINAL_VALIDITY_AUDIT → FINAL_LOCK
+       → DIRECTION_LOCK → COMPLETE
+       （题目锁定后脱离 IPH；实验与写作是独立工作）
 ```
 
 新颖性轴按三段排布证据深度：L1_SCOUT 段只动元数据，L2_TRIAGE 段试读并选拔
@@ -80,6 +80,7 @@ K 集合，L3_EVIDENCE 段只对 K 集合跑全文归档与原子观点提取。
 每个研究主题都必须维护工作流状态文件（`workflow_state.json`）。智能体一次只能
 执行一个 `active_state`，并同时报告新颖性 N0-1 至 N0-4C 与有效性 V0 至 V4。
 用户要求“继续”时只能从 `next_required_action` 恢复，不得重新选择创新路径。
+`COMPLETE` 之后必须脱离本技能，不得继续用 IPH 跑实验或写论文。
 
 ### 诚实判断机制（falsification-first）
 
@@ -266,11 +267,12 @@ hierarchy_status.md
 
 ## 适用边界
 
-本技能（skill）约束的是研究发现、证据注册和创新裁决过程。它不能替代：
+本技能（skill）只立题：约束研究发现、证据注册和创新裁决，直到方向锁定并
+经用户接受。题目立好后必须脱离 IPH。它不能替代：
 
 - 领域专家和导师的实质判断；
 - 合法的全文访问权限；
-- 独立证明审查、实验复现或正式同行评审；
+- 后续实验、论文/学位论文写作、独立证明审查或正式同行评审；
 - 对“首次提出”或“无人研究”的绝对保证。
 
 ## Contributing

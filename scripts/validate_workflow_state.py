@@ -2293,12 +2293,12 @@ def validate(
     validate_sealed_confirmation(root, state, errors)
     validate_exact_inventory_alignment(root, state, errors)
 
-    # COMPLETE 是终态，必须满足与 FINAL_LOCK 等价的条件。
+    # COMPLETE 是立题交接终态，必须满足与 DIRECTION_LOCK 等价的条件。
     if effective_state == "COMPLETE":
         complete_problems: list[str] = []
         if novelty_level != "N0-4C":
             complete_problems.append(f"novelty_level:{novelty_level}")
-        if current_validity < 4:
+        if current_validity < 3:
             complete_problems.append(f"validity_level:{validity_level}")
         state_audit = state.get("independent_audit")
         capability_unavailable = (
@@ -2310,7 +2310,7 @@ def validate(
         if complete_problems:
             add(
                 errors,
-                "COMPLETE_REQUIRES_FINAL_LOCK_CONDITIONS",
+                "COMPLETE_REQUIRES_DIRECTION_LOCK_CONDITIONS",
                 ";".join(complete_problems),
             )
         acceptance = state.get("final_acceptance")

@@ -1,18 +1,20 @@
 ---
 name: innovation-proposition-hunting
 description: >-
-  Use when defining, auditing, revising, computing, or preparing to submit
-  innovation propositions for dissertations or journal articles, especially
-  when recent-literature coverage, dangerous near neighbors, theorem
-  correctness, algorithm/protocol fidelity, evidence traceability, or research
-  claim readiness must be adjudicated.
+  Use when defining, auditing, or revising innovation propositions for
+  dissertations or journal articles, especially when recent-literature
+  coverage, dangerous near neighbors, theorem correctness, algorithm/protocol
+  fidelity, evidence traceability, or research claim readiness must be
+  adjudicated. After the proposition is locked, leave this skill; experiments
+  and writing are independent work.
 ---
 
 # 创新命题狩猎：Schema 3.0 强制协议
 
-本技能用于把文献约束下的研究方向收敛成可证伪、可追溯、可审计的命题。它同时
-审计两个正交问题：命题是否新（N 轴），以及准备声称的精确内容是否成立（V 轴）。
-新颖性不能代偿正确性，实验通过不能代偿定理，格式完整不能代偿证据。
+本技能只立题：把文献约束下的研究方向收敛成可证伪、可追溯、可审计的冻结命题。
+它同时审计两个正交问题：命题是否新（N 轴），以及准备声称的精确内容是否
+形式成立（V 轴）。新颖性不能代偿正确性，实验通过不能代偿定理，格式完整
+不能代偿证据。题目锁定后必须脱离本技能；后续实验与论文写作为独立工作。
 
 ## 1. 规范词与资源路由
 
@@ -29,8 +31,8 @@ description: >-
 | 创建/迁移状态或任何模板产物 | [templates.md](templates.md) 对应节 |
 | 判 V0–V4、G9、理论或算法责任 | [reference.md](reference.md) |
 | 检索、全文、观点、证据级或重要性变化 | [evidence-pipeline.md](evidence-pipeline.md) |
-| 获准计算、升级或停止 | [compute-funnel.md](compute-funnel.md) |
-| 复核硬 FAIL、S4 资格、COMPLETE 人接受、exact 对齐 | [hard-gates.md](hard-gates.md) |
+| 立题期实例探针；S1–S4 不在 IPH | [compute-funnel.md](compute-funnel.md) |
+| 复核硬 FAIL、立题交接、exact 对齐 | [hard-gates.md](hard-gates.md) |
 | 诊断已知反模式 | [case-lessons.md](case-lessons.md) |
 
 详细字段只在 [templates.md](templates.md) 定义；本文件不复制模板字段。
@@ -45,9 +47,9 @@ description: >-
 - **BLOCKED_CAPABILITY**：BLOCKED 退出码的条目形态；绝不能伪造 reviewer、
   thread 或 PASS 来绕过。
 - **五种"锁"**：`scope_lock`（课题冻结文件）、`SYNTHESIS_LOCK`（search_mode，
-  检索综合锁）、`DIRECTION_LOCK`（状态，只锁研究方向）、`FINAL_LOCK`（状态，
-  最终锁定）、STOP 锁（`.workflow_stop.lock`，校验非零退出后落地，锁期间状态
-  被推进即 INVALID）。五者互不可替代。
+  检索综合锁）、`DIRECTION_LOCK`（状态，锁研究方向，IPH 退出前最后一锁）、
+  `FINAL_LOCK`（遗留计算后锁，不是 IPH 退出）、STOP 锁（`.workflow_stop.lock`，
+  校验非零退出后落地，锁期间状态被推进即 INVALID）。五者互不可替代。
 - **探索级证据**：`exploration_registry.json` 登记的永久探索产物；其数字不得
   进入任何冻结工件（`EXPLORATION_LEAK`），只能定性转述。
 
@@ -150,7 +152,7 @@ work ID；其他近邻仍留在全局账本中以保证发现完整性，但不�
 | `N0-1` | 正式出版近邻直接占据 | 关闭或吸收 |
 | `N0-2` | 可由已知结果机械推出 | 关闭或降级 |
 | `N0-3` | 非机械性、前沿或专属门未完 | HOLD；不得计算 |
-| `N0-4C` | 前沿完整且候选通过路径、形式和非机械性门 | 进入有效性轴；仍未获计算权 |
+| `N0-4C` | 前沿完整且候选通过路径、形式和非机械性门 | 进入有效性轴；不是实验授权 |
 
 预印本只能形成威胁并保持开放，不能单独产生终局 N0-1/N0-2。arXiv、bioRxiv、
 medRxiv、SSRN 等预印本页面可以核验作品身份或版本存在，但不能作为
@@ -168,7 +170,7 @@ N0-1/N0-2 是**合法终局**，不是失败状态：裁决落定后项目停留
 decision_log 记录裁决、占据/可推导证据与处置（关闭、吸收或降级去向），负结果
 产物（碰撞综合、机械推导审计、改写后的管理推论）保留在册，
 `next_required_action` 写明终局去向。不得为抵达 `COMPLETE` 而硬撑候选、补做
-无关计算或把 N0-2 包装成 N0-4C——`COMPLETE` 只属于 FINAL_LOCK 路径。
+无关计算或把 N0-2 包装成 N0-4C——`COMPLETE` 只属于 DIRECTION_LOCK 立题交接。
 
 若用户或独立复核证伪已经写入的 `N0-4C`，不得手改 `novelty_level`，也不得
 继续进入 `CLAIM_FREEZE`。唯一写入口是 `iph retract-novelty --to N0-3|N0-1|N0-2`：
@@ -219,8 +221,7 @@ evidence，列可归约近邻与机械归约路径，缺即 `REDUCTION_EVIDENCE_
 
 ```text
 N0_AUDIT → CLAIM_FREEZE → VALIDITY_AUDIT → INDEPENDENT_REVIEW
-→ DIRECTION_LOCK → COMPUTE → POSTCOMPUTE_CLAIM_FREEZE
-→ FINAL_VALIDITY_AUDIT → FINAL_LOCK
+→ DIRECTION_LOCK → COMPLETE
 ```
 
 | 等级 | 必须已完成 |
@@ -229,7 +230,7 @@ N0_AUDIT → CLAIM_FREEZE → VALIDITY_AUDIT → INDEPENDENT_REVIEW
 | `V1` | 高风险 claim inventory 已冻结并选择 claim profile |
 | `V2` | G9 form audit 已通过：理论责任和/或协议、代码、测试、基线责任全部可执行 |
 | `V3` | 不同 agent 对当前 epoch 的精确 claim bundle 独立复核并 PASS |
-| `V4` | 计算后新 epoch 的 claim bundle 由不同 agent 再复核并 PASS |
+| `V4` | 遗留：已进入计算的旧项目，计算后新 epoch 再复核 PASS |
 
 状态先决条件不可倒置：`CLAIM_FREEZE` 要求 N0-4C；`VALIDITY_AUDIT` 要求 V1；
 `INDEPENDENT_REVIEW` 要求 V2；`DIRECTION_LOCK` 要求 N0-4C 与 V3。
@@ -246,13 +247,12 @@ gate 置真以 `decision_log` 中对应状态的完成记录（含本状态产�
 状态语义变化也必须由同一事务派生，不能要求 agent 手改 state：进入 `N0_AUDIT`
 必须用 `--novelty-level` 并让 `n0_4_locked` 与裁决互证；进入 `VALIDITY_AUDIT` /
 `INDEPENDENT_REVIEW` 由 CLI 分别原子提升到 V1 / V2（进入 V1 同时用
-`--claim-bundle-manifest` 登记当前 epoch bundle）；进入 `COMPUTE` 必须同时提供
-`--authorize-compute --authorization-note`，CLI 才写入授权并从 S0-SCREEN 开始；
-进入 `POSTCOMPUTE_CLAIM_FREEZE` 用 `--compute-evidence` 登记 S4 pointer；进入
-`FINAL_VALIDITY_AUDIT` 用 `--claim-bundle-manifest` 原子切换到恰好 `+1` 的 epoch
-与新 bundle。`iph advance` 只接受当前状态的唯一正向目标（任意状态可显式进入
-BLOCKED）；BLOCKED 恢复仍只走 `clear-lock --resume-blocked`。这些参数不能在其他
-目标上借用。
+`--claim-bundle-manifest` 登记当前 epoch bundle）；`DIRECTION_LOCK` 的唯一正向
+目标是 `COMPLETE`（须 `--accept-complete`）。`COMPUTE` /
+`POSTCOMPUTE_CLAIM_FREEZE` / `FINAL_VALIDITY_AUDIT` / `FINAL_LOCK` 仍在枚举中，
+只兼容已进入计算的旧项目；新项目不得从 DIRECTION_LOCK 进入 COMPUTE。
+`iph advance` 只接受当前状态的唯一正向目标（任意状态可显式进入 BLOCKED）；
+BLOCKED 恢复仍只走 `clear-lock --resume-blocked`。这些参数不能在其他目标上借用。
 
 `LAYER_DECISION → K_FULLTEXT` 跨越 L2/L3 边界时，必须由 `iph advance` 在同一
 原子状态写入中激活贡献：期刊未显式指定时自动设为 `M`，显式指定的非法贡献
@@ -262,7 +262,7 @@ BLOCKED）；BLOCKED 恢复仍只走 `clear-lock --resume-blocked`。这些参�
 
 ## 4. 强制 claim inventory 与 form router
 
-扫描所有声明的 Markdown/TeX 稿件源。任何 exact、universal、bounded、guaranteed、
+扫描所有声明的命题冻结文本（Markdown/TeX），不得代写论文或学位论文正文。任何 exact、universal、bounded、guaranteed、
 necessary、sufficient、online、first/首次、strong/fair/matched-budget，以及定理、
 引理、推论等高风险出现，必须恰好绑定到一个 inventory claim。允许的 `claim_type`
 枚举、稳定 occurrence ID 算法和完整 JSON 见 [templates.md](templates.md)。
@@ -367,31 +367,31 @@ CRITICAL/IMPORTANT → CONTEXT 的降级都要有全文 E2/E4、独立 reviewer/
 E2 必须来自 full article，E4 必须到 proof/appendix 或有覆盖证明机器的 locator。
 完整数据合同见 [evidence-pipeline.md](evidence-pipeline.md)。
 
-## 8. 计算与最终锁公式
+## 8. 立题完成与脱离
 
-以下公式是硬门，不是建议：
+IPH 只立题。硬门止于方向锁定：
 
 ```text
-COMPUTE = N0-4C AND V3 AND compute_authorized
-FINAL_LOCK = N0-4C AND V4 AND current independent audit
-COMPLETE = FINAL_LOCK AND user acceptance quote
+DIRECTION_LOCK = N0-4C AND V3 AND current independent audit
+COMPLETE = DIRECTION_LOCK AND user acceptance quote
 ```
 
-用户授权只是 `compute_authorized=true` 的必要条件，**不构成硬门旁路**：N0-4C
-与 V3 仍必须先满足。"用户指定/导师要求"不能替代其中任何一项。
-`--authorization-note` 必须引用用户明确授权**计算**的原句；「推进到 N0-4C」
-「继续直到所有完成」「完成全流程」不是计算授权。COMPUTE 门前禁止数据集级
-或训练级数值实验。唯一例外是 `N0_AUDIT / N0-3 / V0` 下用户显式授权的实例
-探针：`iph authorize-instance-probe` 之后最多登记 5 条锚定已发表原文的单
-实例度量；禁止把数据集总体分数当成单条成功阈值。探针数字可进 novelty-audit，
-但不打开 `compute_authorized`，也不能代替 V3。其余数值预实验须当天登记
-`exploration_registry.json`，其数字不得进入冻结工件。
+进入 `COMPLETE` 必须 `--accept-complete --acceptance-note`。接受的是本次立题
+交接，不是实验完成或论文完稿。`COMPLETE` 之后必须脱离本技能：不得再用 IPH
+跑数据集/训练级实验，不得代写论文或学位论文正文。
 
-`DIRECTION_LOCK` 只锁方向。计算按 S0–S4 前进。S4 资格、协议与封存一致性、
-复核硬 FAIL、exact/inventory 对齐见 [hard-gates.md](hard-gates.md)。进入
-`COMPLETE` 必须 `--accept-complete --acceptance-note`。只有 S4 完成且
-`compute_evidence` 指向当前 epoch/哈希，才能进入
-`POSTCOMPUTE_CLAIM_FREEZE`。计算结果改变主张时必须新开 epoch。
+IPH 可以冻结实验设计（protocol、baseline、claim-code、理论见证），那是立题
+合同，不是实验执行。S0-SCREEN 与实例探针仍属立题；S1–S4、V4、FINAL_LOCK
+不是 IPH 退出路径。已进入 COMPUTE 的旧项目仍按 compute-funnel.md /
+hard-gates.md 校验。遗留公式 `COMPUTE = N0-4C AND V3 AND compute_authorized`
+与 `FINAL_LOCK = N0-4C AND V4 AND current independent audit` 只约束这些旧项目。
+
+COMPUTE 门前禁止数据集级或训练级数值实验。唯一例外是 `N0_AUDIT / N0-3 / V0`
+下用户显式授权的实例探针：`iph authorize-instance-probe` 之后最多登记 5 条
+锚定已发表原文的单实例度量；禁止把数据集总体分数当成单条成功阈值。探针
+数字可进 novelty-audit，但不打开 `compute_authorized`，也不能代替 V3。其余
+数值预实验须当天登记 `exploration_registry.json`，其数字不得进入冻结工件。
+exact/inventory 对齐与复核硬 FAIL 见 [hard-gates.md](hard-gates.md)。
 
 ## 9. 校验器与四个退出码
 
@@ -451,8 +451,8 @@ N level、V level、claim profile、validation epoch、bundle hash、frontier/�
 引用本节，不复制。
 
 > 核心纪律：先证明候选达到 N0-4C，再冻结准备声称的 exact claim；用 form-sensitive
-> audit 证明它可被反驳和复现，用不同 agent 审精确 bundle；只有 V3 才能计算，计算
-> 后必须新 epoch 达 V4，才允许最终锁定。
+> audit 证明它可被反驳和复现，用不同 agent 审精确 bundle；V3 方向锁定并经用户
+> 接受后 COMPLETE，脱离 IPH。实验与写作不在本技能内。
 
 ## 11. 规则注册表（RULE-ID）
 
@@ -462,11 +462,12 @@ INVALID（§9）。
 
 | RULE-ID | 规则 | 权威节 |
 |---|---|---|
-| R-AUTH-01 | 用户授权只是 `compute_authorized` 的必要条件，不构成硬门旁路：N0-4C 与 V3 仍须先满足；「推进到 N0-4C / 完成全流程」不是计算授权 | §8 |
+| R-AUTH-01 | 新项目不得用计算授权打开 IPH 计算轴；「推进到 N0-4C / 完成全流程」不是立题完成 | §8 |
+| R-EXIT-31 | COMPLETE 是立题交接：DIRECTION_LOCK + 用户接受后必须脱离 IPH；实验与写作独立 | §8 |
 | R-SEAL-25 | 终态窗口协议不得仍写 `NOT_YET_ACCESSED`；常驻 INVALID | hard-gates §3 |
 | R-SEAL-26 | S4 指纹须是 sealed runner 内标识符词令；改名同构或长字面量泄漏亦 INVALID | hard-gates §3 |
 | R-SEAL-29 | sealed 须声明并覆盖全部 FAIL-* 合取；decision 必须落在 output_file | hard-gates §3 |
-| R-ACCEPT-27 | COMPLETE 必须登记用户接受原句；计算授权不够 | hard-gates §1 |
+| R-ACCEPT-27 | COMPLETE 必须登记用户接受立题交接原句；计算授权不够 | hard-gates §1 |
 | R-REVIEW-28 | 硬 FAIL 表成立时 review PASS 必须拒绝 | hard-gates §2 |
 | R-ALIGN-30 | inventory 冻结句须在 exact 中，或 NARROWER 且不背书宽句 | hard-gates §4 |
 | R-COMPUTE-02 | COMPUTE 门前禁止数据集级或训练级数值实验。N0-3 下经 `iph authorize-instance-probe` 授权的实例探针（≤5 条、必须锚定已发表原文、不得把数据集均值当成功阈值）可以产生数值，登记后可进入 novelty-audit。其余数值仍须 `exploration_registry`，且不得进入冻结工件（`UNREGISTERED_COMPUTE_ARTIFACT` / `EXPLORATION_LEAK`） | §8、compute-funnel §2、templates §12 |

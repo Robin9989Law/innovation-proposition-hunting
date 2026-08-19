@@ -644,7 +644,7 @@ class AdvanceTests(unittest.TestCase):
             self.assertEqual(0, v2.returncode, v2.stderr)
             self.assertEqual("V2", load_json(project / "workflow_state.json")["validity_level"])
 
-    def test_compute_entry_requires_and_records_explicit_authorization(self) -> None:
+    def test_compute_entry_is_outside_iph(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V3")
         with temporary_directory:
             state = load_json(project / "workflow_state.json")
@@ -661,6 +661,7 @@ class AdvanceTests(unittest.TestCase):
                 "--no-validate",
             )
             self.assertNotEqual(0, denied.returncode)
+            self.assertIn("实验不在 IPH 内", denied.stderr)
             authorized = run_iph(
                 project,
                 "advance",
@@ -673,10 +674,11 @@ class AdvanceTests(unittest.TestCase):
                 "user explicitly authorized schema-v3-test compute S4 on unseen sealed units",
                 "--no-validate",
             )
-            self.assertEqual(0, authorized.returncode, authorized.stderr)
+            self.assertNotEqual(0, authorized.returncode)
+            self.assertIn("实验不在 IPH 内", authorized.stderr)
             state = load_json(project / "workflow_state.json")
-            self.assertTrue(state["gates"]["compute_authorized"])
-            self.assertEqual("S0", state["compute_stage"])
+            self.assertFalse(state["gates"]["compute_authorized"])
+            self.assertEqual("DIRECTION_LOCK", state["active_state"])
 
 
     def prepare_layer_decision(self, project) -> None:
@@ -1524,7 +1526,7 @@ class ReviewCommandTests(unittest.TestCase):
             self.assertEqual("N0-4C", state["novelty_level"])
             self.assertFalse(state["gates"]["compute_authorized"])
 
-    def test_compute_rejects_insufficient_authorization(self) -> None:
+    def test_direction_lock_completes_topic_handoff(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V3")
         with temporary_directory:
             state = load_json(project / "workflow_state.json")
@@ -1535,58 +1537,33 @@ class ReviewCommandTests(unittest.TestCase):
                 project,
                 "advance",
                 "--to",
-                "COMPUTE",
+                "COMPLETE",
                 "--note",
-                "open compute",
-                "--authorize-compute",
-                "--authorization-note",
-                "用户要求完成全流程",
+                "finish topic",
                 "--no-validate",
             )
             self.assertNotEqual(0, denied.returncode)
-            self.assertIn("计算授权依据不足", denied.stderr)
-            denied_marker = run_iph(
+            self.assertIn("accept-complete", denied.stderr)
+            accepted = run_iph(
                 project,
                 "advance",
                 "--to",
-                "COMPUTE",
+                "COMPLETE",
                 "--note",
-                "open compute",
-                "--authorize-compute",
-                "--authorization-note",
-                "请开始实验并跑完全部确认",
+                "finish topic",
+                "--accept-complete",
+                "--acceptance-note",
+                "我接受本次立题交接 schema-v3-test",
                 "--no-validate",
             )
-            self.assertNotEqual(0, denied_marker.returncode)
-            self.assertIn("计算授权依据不足", denied_marker.stderr)
-            marker_only = run_iph(
-                project,
-                "advance",
-                "--to",
-                "COMPUTE",
-                "--note",
-                "open compute",
-                "--authorize-compute",
-                "--authorization-note",
-                "authorized compute",
-                "--no-validate",
+            self.assertEqual(0, accepted.returncode, accepted.stderr)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("COMPLETE", state["active_state"])
+            self.assertEqual(
+                "我接受本次立题交接 schema-v3-test",
+                state["final_acceptance"]["note"],
             )
-            self.assertNotEqual(0, marker_only.returncode)
-            self.assertIn("计算授权依据不足", marker_only.stderr)
-            no_confirm = run_iph(
-                project,
-                "advance",
-                "--to",
-                "COMPUTE",
-                "--note",
-                "open compute",
-                "--authorize-compute",
-                "--authorization-note",
-                "我授权打开本次计算实验并跑完全部单元",
-                "--no-validate",
-            )
-            self.assertNotEqual(0, no_confirm.returncode)
-            self.assertIn("计算授权依据不足", no_confirm.stderr)
+            self.assertIn("Leave IPH", state["next_required_action"])
 
     def test_complete_requires_user_acceptance_quote(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V4")

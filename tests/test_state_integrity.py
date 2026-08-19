@@ -661,12 +661,14 @@ class L3ContractG4CompositionTests(unittest.TestCase):
             self.assertIn("CONTRIBUTION", completed.stdout)
             self.assertIn("tier:L1;expected:NONE", completed.stdout)
 
-    def test_complete_requires_final_lock_conditions(self) -> None:
-        temporary_directory, project = make_valid_project(validity_level="V3")
+    def test_complete_requires_direction_lock_conditions(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V2")
         with temporary_directory:
             state = load_json(project / "workflow_state.json")
             state["active_state"] = "COMPLETE"
             state["resume_state"] = "COMPLETE"
+            state["novelty_level"] = "N0-4C"
+            state["gates"]["n0_4_locked"] = True
             state["gates"]["scope_locked"] = True
             state["gates"]["evidence_validated"] = True
             write_json(project / "workflow_state.json", state)
@@ -676,7 +678,7 @@ class L3ContractG4CompositionTests(unittest.TestCase):
                 ["--current-year", "2026", "--strict-new-checks"],
             )
             self.assertIn(
-                "COMPLETE_REQUIRES_FINAL_LOCK_CONDITIONS", completed.stdout
+                "COMPLETE_REQUIRES_DIRECTION_LOCK_CONDITIONS", completed.stdout
             )
             self.assertIn("COMPLETE_REQUIRES_USER_ACCEPTANCE", completed.stdout)
 

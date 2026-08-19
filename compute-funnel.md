@@ -1,5 +1,10 @@
 # L3 多保真计算漏斗
 
+本文件不是 IPH 退出路径。IPH 只立题，在 `DIRECTION_LOCK` → `COMPLETE` 后
+脱离；S1–S4 确认实验与论文写作是独立工作。下文只约束两类情况：立题期内的
+S0-SCREEN / 实例探针 / 探索登记；以及已经进入 `COMPUTE` 的旧项目。新项目
+`iph advance --to COMPUTE` 必须拒绝。
+
 ## 目录
 
 1. 原则
