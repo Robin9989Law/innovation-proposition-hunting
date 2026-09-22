@@ -1791,6 +1791,32 @@ class PlainLanguageStopTests(unittest.TestCase):
             self.assertIn("等你决定收不收", completed.stdout)
             self.assertIn("不要只回", completed.stdout)
             self.assertIn("N0-4C", completed.stdout)
+            self.assertIn("第 5 段", completed.stdout)
+
+    def test_mid_pass_is_bookkeeping_not_another_research_task(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V0")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "PRIOR_CLAIM_DRAIN"
+            state["resume_state"] = "PRIOR_CLAIM_DRAIN"
+            write_json(project / "workflow_state.json", state)
+            completed = run_iph(project, "explain")
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            self.assertIn("第 2 段", completed.stdout)
+            self.assertIn("不用你做决定", completed.stdout)
+            self.assertIn("删掉也不影响判断", completed.stdout)
+            self.assertNotIn("这是要你看的地方", completed.stdout)
+
+    def test_new_topic_next_state_is_complete_not_compute(self) -> None:
+        sys.path.insert(0, str(REPOSITORY_ROOT / "scripts"))
+        import iph
+
+        self.assertEqual("COMPLETE", iph.NEXT_POSITIVE_STATE["DIRECTION_LOCK"])
+        self.assertEqual(
+            "POSTCOMPUTE_CLAIM_FREEZE", iph.NEXT_POSITIVE_STATE["COMPUTE"]
+        )
+        self.assertEqual("COMPLETE", iph.NEXT_POSITIVE_STATE["FINAL_LOCK"])
+        self.assertNotIn("COMPUTE", iph.POSITIVE_STATE_SEQUENCE)
 
     def test_continue_does_not_leave_the_neighbor_table(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V0")

@@ -80,6 +80,7 @@ RECOVERABLE_COMPLETION_GATES = set(TARGET_COMPLETION_GATES.values()) | {
     "k_claims_complete",
 }
 
+# 新课题只走到定题。不要把实验接在 DIRECTION_LOCK 后面。
 POSITIVE_STATE_SEQUENCE = (
     "BOOT",
     "SCOPE_LOCK",
@@ -99,6 +100,10 @@ POSITIVE_STATE_SEQUENCE = (
     "VALIDITY_AUDIT",
     "INDEPENDENT_REVIEW",
     "DIRECTION_LOCK",
+    "COMPLETE",
+)
+# 已经走进实验的旧项目。这条链的入口不是 DIRECTION_LOCK。
+LEGACY_COMPUTE_SEQUENCE = (
     "COMPUTE",
     "POSTCOMPUTE_CLAIM_FREEZE",
     "FINAL_VALIDITY_AUDIT",
@@ -106,6 +111,7 @@ POSITIVE_STATE_SEQUENCE = (
     "COMPLETE",
 )
 NEXT_POSITIVE_STATE = dict(zip(POSITIVE_STATE_SEQUENCE, POSITIVE_STATE_SEQUENCE[1:]))
+NEXT_POSITIVE_STATE.update(zip(LEGACY_COMPUTE_SEQUENCE, LEGACY_COMPUTE_SEQUENCE[1:]))
 VALID_NOVELTY_LEVELS = {"N0-1", "N0-2", "N0-3", "N0-4C"}
 # 这四步离开前必须带上用户自己的话。DIRECTION_LOCK 仍走 acceptance-note。
 HUMAN_STOP_STATES = frozenset(
@@ -1892,6 +1898,27 @@ def _count_records(payload: Any, keys: tuple[str, ...]) -> int | None:
     return None
 
 
+_EXPLAIN_PASS = {
+    "BOOT": "第 1 段，定范围",
+    "SCOPE_LOCK": "第 1 段，定范围",
+    "PRIOR_CLAIM_DRAIN": "第 2 段，写研究卡片",
+    "RECENT_FRONTIER": "第 2 段，写研究卡片",
+    "LITERATURE_REGISTER": "第 2 段，写研究卡片",
+    "L1_FREEZE": "第 2 段，写研究卡片",
+    "L2_TRIAGE": "第 3 段，写近邻表",
+    "LAYER_DECISION": "第 3 段，写近邻表",
+    "K_FULLTEXT": "第 4 段，试着推翻那一句",
+    "K_CLAIM_REGISTER": "第 4 段，试着推翻那一句",
+    "SYNTHESIZE_COLLISION": "第 4 段，试着推翻那一句",
+    "OUTPUT_CLAIM_BIND": "第 4 段，试着推翻那一句",
+    "EVIDENCE_VALIDATE": "第 4 段，试着推翻那一句",
+    "N0_AUDIT": "第 4 段，试着推翻那一句",
+    "CLAIM_FREEZE": "第 5 段，定下那一句",
+    "VALIDITY_AUDIT": "第 5 段，定下那一句",
+    "INDEPENDENT_REVIEW": "第 5 段，定下那一句",
+    "DIRECTION_LOCK": "第 5 段，定下那一句",
+    "COMPLETE": "五段已经走完",
+}
 _EXPLAIN_WHERE = {
     "BOOT": "还没开工。先把论文类型、新东西从哪来、最后交什么，这三件事说清楚。",
     "SCOPE_LOCK": "范围写下来了，等你看是不是你要的那一块。没点头之前，后面的文献都先别当真。",
@@ -1979,6 +2006,9 @@ def explain_state(state: dict[str, Any]) -> str:
             f"现在的步骤是 {active}。说明书里没有这一种，先停下来问它这步在干什么。",
         )
     ]
+    pass_name = _EXPLAIN_PASS.get(active)
+    if pass_name:
+        lines.append(f"整段流程里，这是{pass_name}。")
     if active in _EXPLAIN_STOPS:
         lines.append(f"这是要你看的地方：{_EXPLAIN_STOPS[active]}。")
         lines.append(_EXPLAIN_YOU.get(active, "用自己的话回答。不要只回「继续」。"))
@@ -1990,8 +2020,8 @@ def explain_state(state: dict[str, Any]) -> str:
         if reasons:
             lines.append("缺的是这些：" + "；".join(str(item) for item in reasons))
     else:
-        lines.append("这一步不用你做决定。做完它会在下一个要你看的地方停下来。")
-        lines.append("不要只回「继续」去跳过那些检查。")
+        lines.append("这一步不用你做决定。同一段里可以继续记账，下一处要你看的地方会停。")
+        lines.append("不要为了把状态往前挪，去写删掉也不影响判断的句子。")
     artifacts = state.get("artifacts")
     if isinstance(artifacts, dict):
         files = [

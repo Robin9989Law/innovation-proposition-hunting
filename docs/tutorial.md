@@ -207,10 +207,10 @@ research-topic/
 禁止混入的旧主题：<范围>
 关键比较基线：<基线>
 
-请先完整读取 SKILL.md，并按需读取 templates.md 和 evidence-pipeline.md。
-第一步只创建并验证 workflow_state.json，随后创建 scope_lock.md。
-一次只推进一个 active_state；每完成一步先落盘产物、更新门禁（gate），再改变状态。
-不要开始实验、模型调用或无界检索。
+请先完整读取 SKILL.md 第 3 节的五段，并按需读取 templates.md 和 evidence-pipeline.md。
+第一步只创建并验证 workflow_state.json，随后创建 scope_lock.md，然后停下来等我看范围。
+五段里的状态名是记账顺序，不是二十项研究。每一段先写一页我能读的东西，到停点就停。
+不要为了过门去写删了也不影响判断的句子。不要开始实验，也不要无界检索。
 ```
 
 如果是期刊论文，把成果类型改为 `JOURNAL_ARTICLE`。
@@ -294,6 +294,8 @@ next_required_action = "Provide a lawful author manuscript or institutional acce
 ---
 
 ## 7. 一步一步怎么走
+
+下面每一小节都是五段里的记账，不是让你再开一项研究。做完这一段给人看的那一页，就停下来等人。人只看五个停点。
 
 先定范围，再圈那一小块，最后才写那一句。文献是配上来的。
 
@@ -1437,6 +1439,9 @@ INNOVATION_PATH_DRIFT，列出重启收益、损失和必须失效的审计或�
 15. 用更多参数、数据或算力，把算法创新包装得看起来更大。
 16. 选了算法优化，发现一条定理，就改去做理论创新。
 17. 用 `MIXED`、新开一轮或改措辞，掩盖主线已经换了。
+18. 五个停点没停，用填表把状态推完。
+19. 近邻表还没有，就批量下全文、批量抽观点。
+20. 删掉也不影响判断的句子，为了过检查写进去。
 
 ---
 
