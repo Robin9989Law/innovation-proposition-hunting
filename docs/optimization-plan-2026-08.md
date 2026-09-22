@@ -1,5 +1,7 @@
 # 技能优化方案 v2（整合版）：整体评审 + 事故修复
 
+> 这是 2026 年 8 月的施工记录，不是现在的用法。现在怎么用，看 [给人看.md](给人看.md)。
+
 > **状态：已实施（2026-08，分支 `refactor/2026-08-skill-overhaul`）。**
 > 第 0-5 期全部落地：状态完整性核心、iph CLI + ProjectContext（校验提速 83%）、
 > 探索防火墙（EXPLORATION_LEAK/UNREGISTERED_COMPUTE_ARTIFACT）、见证咬合力
