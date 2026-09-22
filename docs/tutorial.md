@@ -210,6 +210,7 @@ research-topic/
 请先完整读取 SKILL.md 第 3 节的五段，并按需读取 templates.md 和 evidence-pipeline.md。
 第一步只创建并验证 workflow_state.json，随后创建 scope_lock.md，然后停下来等我看范围。
 五段里的状态名是记账顺序，不是二十项研究。每一段先写一页我能读的东西，到停点就停。
+长读之前先跑 iph judge。它说停或等人，就停。装了 laya 再加 --laya，只看这一页像不像空话。
 不要为了过门去写删了也不影响判断的句子。不要开始实验，也不要无界检索。
 ```
 

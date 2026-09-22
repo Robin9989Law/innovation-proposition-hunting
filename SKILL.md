@@ -36,6 +36,7 @@ description: >-
 | 复核硬 FAIL、立题交接、exact 对齐 | [hard-gates.md](hard-gates.md) |
 | 诊断已知反模式 | [case-lessons.md](case-lessons.md) |
 | 对人说明现在走到哪、该不该点头 | [docs/给人看.md](docs/给人看.md) |
+| 这一步该停、继续记账，还是这页是空的 | `iph judge`；`--laya` 才做内容快筛 |
 
 详细字段只在 [templates.md](templates.md) 定义；本文件不复制模板字段。
 
@@ -101,6 +102,7 @@ python3 <skill>/scripts/migrate_v1_to_v2.py \
 | 定下那一句 | `DIRECTION_LOCK` | `CLAIM_FREEZE` → `VALIDITY_AUDIT` → `INDEPENDENT_REVIEW` → `DIRECTION_LOCK` → `COMPLETE` |
 
 离开前四个停点必须 `--human-decision`。第五段用 `--accept-complete`。
+记账前先跑 `iph judge`。加上 `--laya` 时用 [laya](https://github.com/NandhaKishorM/laya) 看这一页像不像空话。快筛不能放宽停点，也不判断新不新。
 
 ### 3.1 新颖性轴
 

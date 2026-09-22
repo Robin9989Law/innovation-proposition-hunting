@@ -1818,6 +1818,60 @@ class PlainLanguageStopTests(unittest.TestCase):
         self.assertEqual("COMPLETE", iph.NEXT_POSITIVE_STATE["FINAL_LOCK"])
         self.assertNotIn("COMPUTE", iph.POSITIVE_STATE_SEQUENCE)
 
+    def test_judge_waits_at_the_topic_stop(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V3")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "DIRECTION_LOCK"
+            state["resume_state"] = "DIRECTION_LOCK"
+            write_json(project / "workflow_state.json", state)
+            completed = run_iph(project, "judge")
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            self.assertIn("第 5 段", completed.stdout)
+            self.assertIn("停下来等你", completed.stdout)
+            self.assertIn("不能放宽", completed.stdout)
+
+    def test_judge_closes_a_covered_idea(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V0")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "N0_AUDIT"
+            state["resume_state"] = "N0_AUDIT"
+            state["novelty_level"] = "N0-1"
+            write_json(project / "workflow_state.json", state)
+            completed = run_iph(project, "judge")
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            self.assertIn("该停", completed.stdout)
+            self.assertNotIn("继续记账", completed.stdout)
+
+    def test_laya_cannot_loosen_a_human_stop(self) -> None:
+        sys.path.insert(0, str(REPOSITORY_ROOT / "scripts"))
+        import node_judge
+
+        answers = {"hollow": {"noul": 0.1}, "off_node": {"noul": 0.05}}
+        self.assertEqual(
+            "wait_for_human",
+            node_judge.apply_screen("wait_for_human", answers),
+        )
+        self.assertEqual(
+            "page_is_empty",
+            node_judge.apply_screen(
+                "keep_bookkeeping",
+                {"hollow": {"noul": 0.91}, "off_node": {"noul": 0.2}},
+            ),
+        )
+        self.assertEqual(
+            "keep_bookkeeping",
+            node_judge.apply_screen(
+                "keep_bookkeeping",
+                {"hollow": {"noul": 0.5}, "off_node": {"noul": 0.4}},
+            ),
+        )
+        self.assertEqual(
+            "stop_legacy",
+            node_judge.structural_action({"active_state": "COMPUTE"}),
+        )
+
     def test_continue_does_not_leave_the_neighbor_table(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V0")
         with temporary_directory:
