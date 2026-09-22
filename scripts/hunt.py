@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""按四步找悬而未决的命题。
+"""凝练当前热点圈，再写出圈里悬而未决的命题。
 
-1. 用题目和摘要找到最危险近邻。是不是同一个东西，只认读者的原话。
-2. 从这篇出发，只收近三年的直接前作和后续，收成包括主题的最小圈子。
-3. 圈子里被其他篇引用最多的，当作核心。读者可以改。
-4. 核心读全文，由读者写下悬而未决的命题。
+不要拿还没想清楚的观点去和论文对撞。对象和动作只是热点的叫法。
+读者确认哪一篇是当前热点的入口，再收近三年的最小圈子，最后只读核心的全文。
 """
 
 from __future__ import annotations
@@ -17,8 +15,6 @@ from pathlib import Path
 from typing import Any
 
 STATE_NAME = "neighbor_hunt.json"
-DANGERS = ("占住", "能推出来", "只是像")
-DANGER_RANK = {"占住": 2, "能推出来": 1}
 FATES = ("没有价值", "已经被攻克")
 RECENT_SPAN = 2
 
@@ -136,28 +132,19 @@ def reject_question(text: str) -> None:
         raise SystemExit("不要写成问句。把判断写死。")
 
 
-def parse_same(text: str) -> str:
+def parse_hotspot(text: str) -> str:
     reject_question(text)
-    if "是不是同一个东西" in text:
-        raise SystemExit(
-            "是不是同一个东西，要写死。"
-            "是同一个东西，才能当锚点。不是同一个东西，就换一篇。"
-        )
-    rejected = "不是同一个东西" in text
-    confirmed = "是同一个东西" in text.replace("不是同一个东西", "")
+    if "是不是当前热点" in text:
+        raise SystemExit("是不是当前热点，要写死。是当前热点，或不是当前热点。")
+    rejected = "不是当前热点" in text
+    confirmed = "是当前热点" in text.replace("不是当前热点", "")
     if rejected and confirmed:
-        raise SystemExit(
-            "是不是同一个东西，要写死。"
-            "是同一个东西，才能当锚点。不是同一个东西，就换一篇。"
-        )
+        raise SystemExit("是不是当前热点，要写死。是当前热点，或不是当前热点。")
     if rejected:
         return "no"
     if confirmed:
         return "yes"
-    raise SystemExit(
-        "对象是不是同一个东西，要你自己写。"
-        "是同一个东西，才能当锚点。不是同一个东西，就换一篇。"
-    )
+    raise SystemExit("这篇是不是当前热点，要你自己写。是当前热点，或不是当前热点。")
 
 
 def parse_topic(text: str) -> str:
@@ -181,8 +168,8 @@ def parse_fate(text: str) -> str:
     return hits[0]
 
 
-def is_dangerous(decision: dict[str, Any]) -> bool:
-    return decision.get("same") == "yes" and decision.get("danger") in DANGER_RANK
+def is_hotspot(decision: dict[str, Any]) -> bool:
+    return decision.get("hotspot") == "yes"
 
 
 def ring_ids(paper: dict[str, Any]) -> list[str]:
@@ -329,7 +316,7 @@ def after_anchor(state: dict[str, Any], anchor_id: str) -> dict[str, Any]:
         return _base(
             kind="open",
             phase="open",
-            note="读这一篇的全文，写下它悬而未决的命题。",
+            note="读这一篇的全文，写下它悬而未决的命题。这一句是创新突破的思路，也是有攻关价值的地方。",
             anchor_id=anchor_id,
             dropped=dropped,
             old=old,
@@ -360,11 +347,11 @@ def present(state: dict[str, Any]) -> dict[str, Any]:
             return _base(
                 kind="ask",
                 phase="scan",
-                note="还没有最危险近邻。现在只看这一篇的题目和摘要。",
+                note="还没有热点入口。现在只看题目和摘要，不要拿自己的观点去对。",
                 paper=paper,
                 dropped=dropped,
             )
-        if is_dangerous(decision):
+        if is_hotspot(decision):
             anchor_id = paper["id"]
             break
     if anchor_id is None:
@@ -377,7 +364,7 @@ def present(state: dict[str, Any]) -> dict[str, Any]:
         return _base(
             kind="unclear",
             phase="unclear",
-            note="看不清。没有一篇是你确认过的危险近邻。不要把领域扫一遍当成蓝海。",
+            note="看不清。近三年里还没有你确认的热点入口。不要把领域扫一遍当成热点。",
             dropped=dropped,
         )
     result = after_anchor(state, anchor_id)
@@ -400,39 +387,39 @@ def render(state: dict[str, Any], result: dict[str, Any]) -> str:
     if kind == "ask":
         paper = result["paper"]
         if result["anchor_id"]:
-            lines.append(f"最危险近邻：{result['anchor_id']}。近三年是 {window_label(state)}。")
+            lines.append(f"热点入口：{result['anchor_id']}。近三年是 {window_label(state)}。")
         lines.append(result["note"])
         lines.append(f"编号：{paper['id']}")
         lines.append(f"年份：{paper['year']}")
         lines.append(f"题目：{paper['title']}")
         lines.append(f"摘要：{paper['abstract']}")
         if result["phase"] == "scan":
-            lines.append("你写：是同一个东西，或不是同一个东西。")
-            lines.append("如果是，再写这一句是占住、能推出来，还是只是像。")
+            lines.append("你写：是当前热点，或不是当前热点。")
         else:
             lines.append("你写：算这个主题，或不算这个主题。")
     elif kind == "core":
-        lines.append(f"最危险近邻：{result['anchor_id']}")
+        lines.append(f"热点入口：{result['anchor_id']}")
         lines.append(f"建议的核心：{result['core_id']}")
         lines.append(result["note"])
     elif kind == "open":
-        lines.append(f"最危险近邻：{result['anchor_id']}")
+        lines.append(f"热点入口：{result['anchor_id']}")
         lines.append(f"核心：{result['core_id']}")
         lines.append(result["note"])
     elif kind == "done":
-        lines.append(f"最危险近邻：{result['anchor_id']}")
+        lines.append(f"热点入口：{result['anchor_id']}")
         lines.append(f"核心：{result['core_id']}")
         lines.append(f"悬而未决：{result['note']}")
+        lines.append("这一句是创新突破的思路，也是有攻关价值的地方。")
     elif kind == "closed":
-        lines.append(f"最危险近邻：{result['anchor_id']}")
+        lines.append(f"热点入口：{result['anchor_id']}")
         lines.append(result["note"])
     elif kind == "fate":
-        lines.append(f"最危险近邻：{result['anchor_id']}")
+        lines.append(f"热点入口：{result['anchor_id']}")
         lines.append(f"近三年是 {window_label(state)}。")
         lines.append(result["note"])
     else:
         if result.get("anchor_id"):
-            lines.append(f"最危险近邻：{result['anchor_id']}")
+            lines.append(f"热点入口：{result['anchor_id']}")
         lines.append(result["note"])
     return "\n".join(lines)
 
@@ -444,19 +431,11 @@ def _expect(state: dict[str, Any], kind: str, phase: str | None = None) -> dict[
     return result
 
 
-def decide(state: dict[str, Any], paper_id: str, same_text: str, danger: str | None) -> None:
+def decide(state: dict[str, Any], paper_id: str, text: str) -> None:
     result = _expect(state, "ask", "scan")
     if result["paper"]["id"] != paper_id:
         raise SystemExit(f"现在只要看这一篇：{result['paper']['id']}")
-    same = parse_same(same_text)
-    if same == "no":
-        if danger:
-            raise SystemExit("不是同一个东西，就不用再写占住、能推出来或只是像。")
-        state["decisions"][paper_id] = {"same": "no", "danger": None}
-        return
-    if danger not in DANGERS:
-        raise SystemExit("是同一个东西之后，要写占住、能推出来，或只是像。")
-    state["decisions"][paper_id] = {"same": "yes", "danger": danger}
+    state["decisions"][paper_id] = {"hotspot": parse_hotspot(text)}
 
 
 def mark_topic(state: dict[str, Any], paper_id: str, text: str) -> None:
@@ -507,6 +486,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     print(f"对象：{args.object.strip()}")
     print(f"动作：{args.action.strip()}")
     print(f"近三年是 {this_year - RECENT_SPAN}–{this_year}。")
+    print("对象和动作是热点的叫法，不是你要证明的句子。")
     print("同义词之后用 add-name 加上。没有写明的叫法不能拿来匹配。")
 
 
@@ -554,7 +534,7 @@ def cmd_next(args: argparse.Namespace) -> None:
 def cmd_decide(args: argparse.Namespace) -> None:
     root = args.root.resolve()
     state = load_state(root)
-    decide(state, require_id(args.id), args.same, args.danger)
+    decide(state, require_id(args.id), args.words)
     save_state(root, state)
     print(render(state, present(state)))
 
@@ -592,7 +572,7 @@ def cmd_open(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="hunt", description="找到最危险近邻，再收近三年的最小圈子")
+    parser = argparse.ArgumentParser(prog="hunt", description="凝练当前热点圈，写下悬而未决的命题")
     sub = parser.add_subparsers(dest="command", required=True)
 
     init = sub.add_parser("init", help="写下对象和动作")
@@ -622,11 +602,10 @@ def build_parser() -> argparse.ArgumentParser:
     nxt.add_argument("--root", type=Path, default=Path("."))
     nxt.set_defaults(func=cmd_next)
 
-    decision = sub.add_parser("decide", help="确认这篇是不是最危险近邻")
+    decision = sub.add_parser("decide", help="确认这篇是不是当前热点的入口")
     decision.add_argument("--root", type=Path, default=Path("."))
     decision.add_argument("--id", required=True)
-    decision.add_argument("--same", required=True)
-    decision.add_argument("--danger", choices=DANGERS)
+    decision.add_argument("--words", required=True)
     decision.set_defaults(func=cmd_decide)
 
     topic = sub.add_parser("topic", help="确认这篇算不算这个主题")

@@ -70,26 +70,26 @@ class SlotTests(unittest.TestCase):
 class IdentityTests(unittest.TestCase):
     def test_reader_must_write_same_or_not(self) -> None:
         with self.assertRaises(SystemExit) as caught:
-            hunt.parse_same("看起来挺像")
+            hunt.parse_hotspot("看起来挺像")
         self.assertIn("要你自己写", str(caught.exception))
 
     def test_question_is_not_a_decision(self) -> None:
         with self.assertRaises(SystemExit) as caught:
-            hunt.parse_same("是不是同一个东西")
+            hunt.parse_hotspot("是不是当前热点")
         self.assertIn("写死", str(caught.exception))
         with self.assertRaises(SystemExit):
-            hunt.parse_same("是同一个东西吗")
+            hunt.parse_hotspot("是当前热点吗")
 
     def test_negative_is_not_counted_as_yes(self) -> None:
-        self.assertEqual("no", hunt.parse_same("不是同一个东西"))
-        self.assertEqual("yes", hunt.parse_same("是同一个东西"))
+        self.assertEqual("no", hunt.parse_hotspot("不是当前热点"))
+        self.assertEqual("yes", hunt.parse_hotspot("是当前热点"))
 
     def test_not_same_drops_the_paper_and_scan_continues(self) -> None:
         state = base(
             paper("甲", "负荷时移甲", "负荷，时移。"),
             paper("乙", "负荷时移乙", "负荷，时移。"),
         )
-        hunt.decide(state, "甲", "不是同一个东西", None)
+        hunt.decide(state, "甲", "不是当前热点")
         result = hunt.present(state)
         self.assertEqual("乙", result["paper"]["id"])
         self.assertIsNone(result["anchor_id"])
@@ -100,7 +100,7 @@ class IdentityTests(unittest.TestCase):
             paper("乙", "负荷时移乙", "负荷，时移。"),
         )
         with self.assertRaises(SystemExit) as caught:
-            hunt.decide(state, "乙", "是同一个东西", "占住")
+            hunt.decide(state, "乙", "是当前热点")
         self.assertIn("甲", str(caught.exception))
         self.assertNotIn("乙", state["decisions"])
 
@@ -111,7 +111,7 @@ class AnchorTests(unittest.TestCase):
             paper("甲", "负荷时移甲", "负荷，时移。", references=["圈"]),
             paper("乙", "负荷时移乙", "负荷，时移。"),
         )
-        hunt.decide(state, "甲", "是同一个东西", "占住")
+        hunt.decide(state, "甲", "是当前热点")
         result = hunt.present(state)
         self.assertEqual("甲", result["anchor_id"])
         self.assertNotEqual("乙", (result.get("paper") or {}).get("id"))
@@ -121,14 +121,14 @@ class AnchorTests(unittest.TestCase):
             paper("甲", "负荷时移甲", "负荷，时移。"),
             paper("乙", "负荷时移乙", "负荷，时移。"),
         )
-        hunt.decide(state, "甲", "是同一个东西", "只是像")
+        hunt.decide(state, "甲", "不是当前热点")
         result = hunt.present(state)
         self.assertEqual("乙", result["paper"]["id"])
         self.assertIsNone(result["anchor_id"])
 
     def test_no_anchor_is_unclear(self) -> None:
         state = base(paper("甲", "负荷时移甲", "负荷，时移。"))
-        hunt.decide(state, "甲", "不是同一个东西", None)
+        hunt.decide(state, "甲", "不是当前热点")
         result = hunt.present(state)
         self.assertEqual("unclear", result["kind"])
         self.assertIn("看不清", result["note"])
@@ -136,7 +136,7 @@ class AnchorTests(unittest.TestCase):
     def test_not_same_does_not_take_a_danger_word(self) -> None:
         state = base(paper("甲", "负荷时移甲", "负荷，时移。"))
         with self.assertRaises(SystemExit):
-            hunt.decide(state, "甲", "不是同一个东西", "占住")
+            hunt.decide(state, "甲", "是不是当前热点")
 
 
 class CircleTests(unittest.TestCase):
@@ -149,7 +149,7 @@ class CircleTests(unittest.TestCase):
             paper("外", "负荷时移圈外", "负荷，时移。", year=2026),
             paper("丙", "负荷时移再远", "负荷，时移。", year=2026),
         )
-        hunt.decide(state, "锚", "是同一个东西", "占住")
+        hunt.decide(state, "锚", "是当前热点")
         self.assertEqual("前", hunt.present(state)["paper"]["id"])
         hunt.mark_topic(state, "前", "算这个主题")
         self.assertEqual("后", hunt.present(state)["paper"]["id"])
@@ -168,7 +168,7 @@ class CircleTests(unittest.TestCase):
             paper("锚", "负荷时移", "负荷，时移。", references=["旧"], year=2019),
             paper("旧", "负荷时移旧作", "负荷，时移。", year=2015),
         )
-        hunt.decide(state, "锚", "是同一个东西", "占住")
+        hunt.decide(state, "锚", "是当前热点")
         result = hunt.present(state)
         self.assertEqual("fate", result["kind"])
         self.assertIn("没有价值", result["note"])
@@ -183,7 +183,7 @@ class CircleTests(unittest.TestCase):
             paper("锚", "负荷时移", "负荷，时移。", cited_by=["新"], year=2019),
             paper("新", "负荷时移新作", "负荷，时移。", references=["锚"], year=2025),
         )
-        hunt.decide(state, "锚", "是同一个东西", "能推出来")
+        hunt.decide(state, "锚", "是当前热点")
         self.assertEqual("新", hunt.present(state)["paper"]["id"])
         hunt.mark_topic(state, "新", "算这个主题")
         result = hunt.present(state)
@@ -197,7 +197,7 @@ class CircleTests(unittest.TestCase):
 
     def test_missing_direct_id_blocks_the_circle(self) -> None:
         state = base(paper("锚", "负荷时移", "负荷，时移。", references=["缺"], year=2026))
-        hunt.decide(state, "锚", "是同一个东西", "能推出来")
+        hunt.decide(state, "锚", "是当前热点")
         result = hunt.present(state)
         self.assertEqual("missing", result["kind"])
         self.assertEqual(["缺"], result["missing"])
@@ -208,7 +208,7 @@ class CircleTests(unittest.TestCase):
             paper("乙", "负荷时移乙", "负荷，时移。", references=["甲"], year=2025),
             paper("丙", "负荷时移丙", "负荷，时移。", references=["甲"], year=2026),
         )
-        hunt.decide(state, "甲", "是同一个东西", "占住")
+        hunt.decide(state, "甲", "是当前热点")
         hunt.mark_topic(state, "乙", "算这个主题")
         hunt.mark_topic(state, "丙", "算这个主题")
         result = hunt.present(state)
@@ -270,16 +270,14 @@ class CommandTests(unittest.TestCase):
                     str(root),
                     "--id",
                     "甲",
-                    "--same",
-                    "是同一个东西",
-                    "--danger",
-                    "占住",
+                    "--words",
+                    "是当前热点",
                 ],
                 check=True,
                 capture_output=True,
                 text=True,
             )
-            self.assertIn("最危险近邻：甲", decided.stdout)
+            self.assertIn("热点入口：甲", decided.stdout)
             self.assertIn("悬而未决", decided.stdout)
             self.assertNotIn("编号：乙", decided.stdout)
 
