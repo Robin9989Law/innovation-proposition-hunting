@@ -34,6 +34,7 @@ description: >-
 | 立题期实例探针；S1–S4 不在 IPH | [compute-funnel.md](compute-funnel.md) |
 | 复核硬 FAIL、立题交接、exact 对齐 | [hard-gates.md](hard-gates.md) |
 | 诊断已知反模式 | [case-lessons.md](case-lessons.md) |
+| 对人说明现在走到哪、该不该点头 | [docs/给人看.md](docs/给人看.md) |
 
 详细字段只在 [templates.md](templates.md) 定义；本文件不复制模板字段。
 
@@ -448,7 +449,9 @@ N level、V level、claim profile、validation epoch、bundle hash、frontier/�
 独立 reviewer provenance、四退出码中的最终值、blocked reasons 和唯一
 `next_required_action`。避免“基本完成”“大致有效”等非状态词。标准动作：
 `iph handover`（从机器状态自动生成交接报告）；本清单是唯一权威版本，其他文档
-引用本节，不复制。
+引用本节，不复制。对人先跑 `iph explain`，按 [docs/给人看.md](docs/给人看.md)
+说话。五个停点必须等用户自己的话。「继续」不算看过。离开 `SCOPE_LOCK`、
+`L1_FREEZE`、`LAYER_DECISION`、`N0_AUDIT` 必须带 `--human-decision`。
 
 > 核心纪律：先证明候选达到 N0-4C，再冻结准备声称的 exact claim；用 form-sensitive
 > audit 证明它可被反驳和复现，用不同 agent 审精确 bundle；V3 方向锁定并经用户
@@ -492,6 +495,7 @@ INVALID（§9）。
 | R-AXIS-22 | 停止轴必须是已声明 `inputs` 或 `generated` 的函数；exact 句写了 `p_loc` 却未声明 `p` 即 `AXIS_NOT_IN_INPUT` | §3.1、templates §16 |
 | R-G4-23 | G4 角色含 `RECONSTRUCTION`；走查/非阈值/跨系统推断不得单独支撑 N0-4C | §3.1、templates §12.1 |
 | R-COMP-24 | N0-4C 必须登记并杀死 `POSTHOC_LABEL`/`SCHEMA_EXTENSION`/`RENAME`；`KILLED` 须有 `kill_claim_ids` 且 `whole_mapping_separates=true`；仍活或未尝试则 CLI 拒锁 | §3.1、templates §17 |
+| R-HUMAN-32 | 对人用白话。五个停点必须等用户自己的话；「继续」不算看过。离开范围、研究卡片、近邻表、新不新须 `--human-decision` | docs/给人看.md |
 
 ## 12. 修改技能仓库的自律规则
 

@@ -25,8 +25,8 @@ iph advance --to COMPLETE \
 「完成全流程」「用户要求完成全流程」。计算授权不是立题交接接受。
 授权 note 必须同时含动词（授权 / authorize）、计算对象（计算 / compute）、
 确认对象（S4 / sealed / 封存 / 未见 / 确认），并引用本项目 `workflow_id`
-或文献 `W-####` / 冻结 `claim_id`。接受 note 必须同时含动词（接受 / accept）、
-锁定对象（锁定 / complete / 最终 / 立题 / 交接）、本次指示（本次 / this / 这次），并引用
+或文献 `W-####` / 冻结 `claim_id`。接受 note 必须同时含动词（接受 / 同意 / accept）、
+锁定对象（题目 / 锁定 / complete / 最终 / 立题 / 交接）、本次指示（本次 / this / 这次），并引用
 本项目锚点。`exact_alignment=NARROWER` 时还须承认窄兑现
 （窄 / narrower / 子句 / 不背书）。「我授权打开未见的 S4 计算」不够。
 

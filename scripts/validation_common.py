@@ -147,8 +147,8 @@ COMPUTE_GRANT_CONFIRMATION = (
     "held-out",
     "确认",
 )
-ACCEPTANCE_GRANT_VERBS = ("接受", "accept")
-ACCEPTANCE_GRANT_OBJECTS = ("锁定", "complete", "最终", "立题", "交接")
+ACCEPTANCE_GRANT_VERBS = ("接受", "同意", "accept")
+ACCEPTANCE_GRANT_OBJECTS = ("题目", "锁定", "complete", "最终", "立题", "交接")
 ACCEPTANCE_GRANT_THIS = ("本次", "this", "该次", "这次", "此次")
 PROTOCOL_CONTRADICTION_STATES = frozenset(
     {"FINAL_VALIDITY_AUDIT", "FINAL_LOCK", "COMPLETE"}

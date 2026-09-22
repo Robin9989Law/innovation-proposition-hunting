@@ -536,6 +536,8 @@ class AdvanceTests(unittest.TestCase):
                 "K_FULLTEXT",
                 "--note",
                 "enter L3 evidence",
+                "--human-decision",
+                "我看过近邻表，同意按这个往下读全文",
                 "--no-validate",
             )
             self.assertEqual(0, completed.returncode, completed.stdout)
@@ -558,6 +560,8 @@ class AdvanceTests(unittest.TestCase):
                 "L2_TRIAGE",
                 "--note",
                 "reopen L2",
+                "--human-decision",
+                "范围卡片我看过了，同意进入下一小块",
                 "--no-validate",
             )
             self.assertEqual(0, completed.returncode, completed.stdout)
@@ -762,6 +766,8 @@ class AdvanceTests(unittest.TestCase):
                 "K_FULLTEXT",
                 "--note",
                 "L2 frozen, enter K fulltext",
+                "--human-decision",
+                "我看过近邻表，同意按这个往下读全文",
                 "--set-gate",
                 "l2_frozen=true",
                 "--set-gate",
@@ -835,6 +841,8 @@ class AdvanceTests(unittest.TestCase):
                 "K_FULLTEXT",
                 "--note",
                 "enter L3 with contribution A",
+                "--human-decision",
+                "我看过近邻表，同意按这个往下读全文",
                 "--contribution",
                 "A",
                 "--no-validate",
@@ -1005,6 +1013,8 @@ class ReviseExactStatementTests(unittest.TestCase):
                 "l3-exact.r11.md",
                 "--note",
                 "identity requires lexicon I; stop is ATP or 10 iterations",
+                "--human-decision",
+                "我同意只改这一句，研究范围不动",
                 "--no-validate",
             )
             self.assertEqual(0, completed.returncode, completed.stderr)
@@ -1114,6 +1124,8 @@ class KeepLayersCollisionTests(unittest.TestCase):
                 "--keep-layers",
                 "--note",
                 "same L1/L2; only refresh K after new neighbors",
+                "--human-decision",
+                "我同意再查一轮，范围和近邻表先不动",
                 "--no-validate",
             )
             self.assertEqual(0, completed.returncode, completed.stderr + completed.stdout)
@@ -1140,6 +1152,8 @@ class KeepLayersCollisionTests(unittest.TestCase):
                 "start-collision-round",
                 "--note",
                 "program itself changed",
+                "--human-decision",
+                "我同意再查一轮，这次连范围也要重看",
                 "--no-validate",
             )
             self.assertEqual(0, completed.returncode, completed.stderr + completed.stdout)
@@ -1302,7 +1316,7 @@ class InstanceProbeTests(unittest.TestCase):
                 "should fail",
             )
             self.assertNotEqual(0, completed.returncode)
-            self.assertIn("只能在 N0-3 HOLD", completed.stderr)
+            self.assertIn("不要开实验", completed.stderr)
 
 
 class RegisterExplorationTests(unittest.TestCase):
@@ -1762,6 +1776,86 @@ class HandoverTests(unittest.TestCase):
             self.assertIn("成果合同", completed.stdout)
             self.assertIn("N level", completed.stdout)
             self.assertIn("next_required_action", completed.stdout)
+
+
+class PlainLanguageStopTests(unittest.TestCase):
+    def test_explain_says_where_the_person_should_look(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V3")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "DIRECTION_LOCK"
+            state["resume_state"] = "DIRECTION_LOCK"
+            write_json(project / "workflow_state.json", state)
+            completed = run_iph(project, "explain")
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            self.assertIn("等你决定收不收", completed.stdout)
+            self.assertIn("不要只回", completed.stdout)
+            self.assertIn("N0-4C", completed.stdout)
+
+    def test_continue_does_not_leave_the_neighbor_table(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V0")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "LAYER_DECISION"
+            state["resume_state"] = "LAYER_DECISION"
+            state["active_contribution"] = "NONE"
+            write_json(project / "workflow_state.json", state)
+            before = load_json(project / "workflow_state.json")
+            passive = run_iph(
+                project,
+                "advance",
+                "--to",
+                "K_FULLTEXT",
+                "--note",
+                "user said continue",
+                "--human-decision",
+                "继续",
+                "--no-validate",
+            )
+            self.assertNotEqual(0, passive.returncode)
+            self.assertIn("不算看过", passive.stderr)
+            self.assertEqual(before, load_json(project / "workflow_state.json"))
+            accepted = run_iph(
+                project,
+                "advance",
+                "--to",
+                "K_FULLTEXT",
+                "--note",
+                "user read the neighbor table",
+                "--human-decision",
+                "这张近邻表我认，漏的那篇不用补",
+                "--no-validate",
+            )
+            self.assertEqual(0, accepted.returncode, accepted.stderr)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("K_FULLTEXT", state["active_state"])
+            self.assertEqual(
+                "这张近邻表我认，漏的那篇不用补",
+                state["decision_log"][-1]["human_decision"],
+            )
+
+    def test_natural_acceptance_can_finish_the_topic(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V3")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "DIRECTION_LOCK"
+            state["resume_state"] = "DIRECTION_LOCK"
+            write_json(project / "workflow_state.json", state)
+            accepted = run_iph(
+                project,
+                "advance",
+                "--to",
+                "COMPLETE",
+                "--note",
+                "user accepted the topic",
+                "--accept-complete",
+                "--acceptance-note",
+                "我同意这次把题目定下来 schema-v3-test",
+                "--no-validate",
+            )
+            self.assertEqual(0, accepted.returncode, accepted.stderr)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("COMPLETE", state["active_state"])
 
 
 class ProjectContextTests(unittest.TestCase):

@@ -1,5 +1,7 @@
 # 创新命题狩猎（Innovation Proposition Hunting）详细使用教程
 
+看不懂术语时，先读 [给人看.md](给人看.md)。这篇是展开说明。
+
 本教程面向第一次使用该技能（skill）的研究者、导师和人工智能智能体
 （AI agent）操作者。它不重复
 `SKILL.md` 的全部规范，而是解释如何把规范落实为一个可运行、可中断、可恢复的
@@ -1188,9 +1190,11 @@ search_mode = SYNTHESIS_LOCK
 
 ---
 
-## 14. 计算验证怎么启动
+## 14. 定题之后不要在这里开实验
 
-（本节涉及的有效性轴 V0–V4 与状态 CLAIM_FREEZE → FINAL_LOCK，
+新课题走到「收下题目」就停。实验和写论文不在这个工具里做。下面的公式只约束已经跑进实验阶段的旧项目，不能当成下一步。
+
+（旧项目才会碰到有效性轴 V0–V4 里计算之后的状态，
 定义见 [SKILL.md](../SKILL.md) §3.2 双轴状态机。）
 
 以下公式是硬门，不是建议：
@@ -1219,14 +1223,12 @@ N0-4C 与 V3 中的任何一项。COMPUTE 门之前禁止任何产生数值输�
 
 S0-SCREEN 是该阶段的语义名；state 的 `compute_stage` 枚举值仍为 `S0`。
 
-计算授权提示词：
+收到题目时可以这样说：
 
 ```text
-当前 L3 已达到 N0-4C。先运行：
-python3 scripts/iph.py validate --root . --state workflow_state.json
-只有全部零错误且我明确授权后，才设置 compute_authorized=true 并用 iph advance
-推进。先填写 S0-SCREEN/S1 阶段卡、资源上限、最低效果、保护门、同预算匹配
-（matched-budget）基线和无效性停止条件。不得直接进入 S4。
+先运行 iph explain，用白话告诉我现在在哪、要我看哪份文件。
+五个该停的地方停下来等我。不要只因为我说「继续」就往下跑。
+题目定下来之后就结束。不要开实验，也不要写论文。
 ```
 
 ---

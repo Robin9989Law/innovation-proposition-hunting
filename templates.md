@@ -112,8 +112,11 @@ CLAIM_FREEZE -> VALIDITY_AUDIT:
   --claim-bundle-manifest audit_manifest.json（CLI 派生 V1 并登记当前 epoch bundle）
 VALIDITY_AUDIT -> INDEPENDENT_REVIEW: CLI 派生 V2
 DIRECTION_LOCK -> COMPLETE:
-  --accept-complete --acceptance-note <用户接受本次立题交接的原句>
-  （必须同时含接受动词、锁定/立题/交接对象和本次/this；计算授权不够）
+  --accept-complete --acceptance-note <用户自己说的那句>
+  （要有接受或同意、题目或立题或交接、这次或本次，并带上项目编号。只说继续不算）
+离开 SCOPE_LOCK、L1_FREEZE、LAYER_DECISION、N0_AUDIT，以及从 N0-3 再查一轮或只改句子：
+  --human-decision <用户原话>
+  整句只是「继续」「完成全流程」时 CLI 拒绝，状态不动。
 DIRECTION_LOCK -> COMPUTE：新项目禁止。实验不在 IPH 内。
 COMPUTE -> POSTCOMPUTE_CLAIM_FREEZE:（仅已进入 COMPUTE 的旧项目）
   --compute-evidence compute_evidence.json（必须声明 S4）
