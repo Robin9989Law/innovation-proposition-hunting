@@ -1890,7 +1890,8 @@ class PlainLanguageStopTests(unittest.TestCase):
         self.assertIn("一圈", node_judge.dig_instruction("红海", "大"))
         self.assertIn("锚点", node_judge.dig_instruction("红海", "中"))
         fast = node_judge.format_report({"active_state": "L1_FREEZE"}, "", None)
-        self.assertIn("最危险", fast)
+        self.assertIn("对象", fast)
+        self.assertIn("动作", fast)
         self.assertIn("一圈", fast)
         self.assertIn("100 篇", fast)
         self.assertEqual(
