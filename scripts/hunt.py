@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""凝练当前热点圈，再写出圈里悬而未决的命题。
+"""用最近近邻当跳板，走进紧密圈子，再沿最短的路到核心。
 
-不要拿还没想清楚的观点去和论文对撞。对象和动作只是热点的叫法。
-读者确认哪一篇是当前热点的入口，再收近三年的最小圈子，最后只读核心的全文。
+跳板不必在核心里。紧密圈子只留它近三年、并且彼此有引用的直接前作和后续。
+只读核心全文，写下开放命题。
 """
 
 from __future__ import annotations
@@ -134,30 +134,30 @@ def reject_question(text: str) -> None:
 
 def parse_hotspot(text: str) -> str:
     reject_question(text)
-    if "是不是当前热点" in text:
-        raise SystemExit("是不是当前热点，要写死。是当前热点，或不是当前热点。")
-    rejected = "不是当前热点" in text
-    confirmed = "是当前热点" in text.replace("不是当前热点", "")
+    if "是不是最近的" in text:
+        raise SystemExit("是不是最近的，要写死。是最近的，或不是最近的。")
+    rejected = "不是最近的" in text
+    confirmed = "是最近的" in text.replace("不是最近的", "")
     if rejected and confirmed:
-        raise SystemExit("是不是当前热点，要写死。是当前热点，或不是当前热点。")
+        raise SystemExit("是不是最近的，要写死。是最近的，或不是最近的。")
     if rejected:
         return "no"
     if confirmed:
         return "yes"
-    raise SystemExit("这篇是不是当前热点，要你自己写。是当前热点，或不是当前热点。")
+    raise SystemExit("这篇是不是最近的，要你自己写。是最近的，或不是最近的。")
 
 
 def parse_topic(text: str) -> str:
     reject_question(text)
-    rejected = "不算这个主题" in text
-    confirmed = "算这个主题" in text.replace("不算这个主题", "")
+    rejected = "不算这个圈子" in text
+    confirmed = "算这个圈子" in text.replace("不算这个圈子", "")
     if rejected and confirmed:
-        raise SystemExit("算不算这个主题，要写死。算这个主题，或不算这个主题。")
+        raise SystemExit("算不算这个圈子，要写死。算这个圈子，或不算这个圈子。")
     if rejected:
         return "no"
     if confirmed:
         return "yes"
-    raise SystemExit("这一篇算不算这个主题，要你自己写。算这个主题，或不算这个主题。")
+    raise SystemExit("这一篇算不算这个圈子，要你自己写。算这个圈子，或不算这个圈子。")
 
 
 def parse_fate(text: str) -> str:
@@ -180,6 +180,74 @@ def ring_ids(paper: dict[str, Any]) -> list[str]:
                 continue
             seen.append(paper_id)
     return seen
+
+
+def neighbor_links(state: dict[str, Any], paper_ids: list[str]) -> dict[str, set[str]]:
+    nodes = set(paper_ids)
+    links = {paper_id: set() for paper_id in paper_ids}
+    for paper_id in paper_ids:
+        paper = paper_by_id(state, paper_id)
+        if paper is None:
+            continue
+        for other in list(paper["references"]) + list(paper["cited_by"]):
+            if other in nodes and other != paper_id:
+                links[paper_id].add(other)
+                links[other].add(paper_id)
+    return links
+
+
+def tight_members(state: dict[str, Any], paper_ids: list[str]) -> list[str]:
+    """彼此至少有一条引用的那些留下。只连着跳板、彼此不连的丢掉。"""
+    if len(paper_ids) <= 1:
+        return list(paper_ids)
+    links = neighbor_links(state, paper_ids)
+    remaining = set(paper_ids)
+    while True:
+        loose = [
+            paper_id
+            for paper_id in remaining
+            if not (links[paper_id] & (remaining - {paper_id}))
+        ]
+        if not loose:
+            break
+        remaining.difference_update(loose)
+    ordered = [paper_id for paper_id in paper_ids if paper_id in remaining]
+    if not ordered:
+        return []
+    entry = ordered[0]
+    seen: list[str] = []
+    stack = [entry]
+    while stack:
+        current = stack.pop()
+        if current in seen:
+            continue
+        seen.append(current)
+        stack.extend(links[current] & remaining)
+    seen_set = set(seen)
+    return [paper_id for paper_id in ordered if paper_id in seen_set]
+
+
+def shortest_path(
+    links: dict[str, set[str]], start: str, goal: str, nodes: list[str]
+) -> list[str]:
+    if start == goal:
+        return [start]
+    inside = set(nodes)
+    previous: dict[str, str | None] = {start: None}
+    queue = [start]
+    for current in queue:
+        for nxt in links[current]:
+            if nxt not in inside or nxt in previous:
+                continue
+            previous[nxt] = current
+            if nxt == goal:
+                path = [goal]
+                while previous[path[-1]] is not None:
+                    path.append(previous[path[-1]])
+                path.reverse()
+                return path
+            queue.append(nxt)
+    return [start]
 
 
 def suggest_core(state: dict[str, Any], members: list[str]) -> str:
@@ -231,6 +299,7 @@ def _base(
         "old": old,
         "circle": circle or [],
         "core_id": core_id,
+        "path": [],
         "note": note,
     }
 
@@ -238,13 +307,11 @@ def _base(
 def after_anchor(state: dict[str, Any], anchor_id: str) -> dict[str, Any]:
     anchor = paper_by_id(state, anchor_id)
     if anchor is None:
-        raise SystemExit(f"锚点 {anchor_id} 不在名单里。")
+        raise SystemExit(f"跳板 {anchor_id} 不在名单里。")
     missing: list[str] = []
     dropped = 0
     old = 0
-    members: list[str] = []
-    if is_recent(state, anchor):
-        members.append(anchor_id)
+    recent_hits: list[str] = []
     for paper_id in ring_ids(anchor):
         paper = paper_by_id(state, paper_id)
         if paper is None:
@@ -256,20 +323,9 @@ def after_anchor(state: dict[str, Any], anchor_id: str) -> dict[str, Any]:
         if not slot_hit(state, paper):
             dropped += 1
             continue
-        topic = state["topic"].get(paper_id)
-        if topic is None:
-            return _base(
-                kind="ask",
-                phase="circle",
-                note="近三年里，这一篇算不算这个主题。",
-                paper=paper,
-                anchor_id=anchor_id,
-                missing=list(missing),
-                dropped=dropped,
-                old=old,
-            )
-        if topic == "yes":
-            members.append(paper_id)
+        if state["topic"].get(paper_id) == "no":
+            continue
+        recent_hits.append(paper_id)
     if missing:
         return _base(
             kind="missing",
@@ -280,12 +336,13 @@ def after_anchor(state: dict[str, Any], anchor_id: str) -> dict[str, Any]:
             dropped=dropped,
             old=old,
         )
+    members = tight_members(state, recent_hits)
     if not members:
         if not state.get("fate"):
             return _base(
                 kind="fate",
                 phase="circle",
-                note="近三年的直接前作和后续里，没有包括这个主题的圈子。你写没有价值，或已经被攻克。",
+                note="跳板旁边的近三年论文彼此不连，或者一篇都没有。收不成紧密圈子。你写没有价值，或已经被攻克。",
                 anchor_id=anchor_id,
                 dropped=dropped,
                 old=old,
@@ -298,20 +355,30 @@ def after_anchor(state: dict[str, Any], anchor_id: str) -> dict[str, Any]:
             dropped=dropped,
             old=old,
         )
-    core_id = state.get("core_id") or (members[0] if len(members) == 1 else None)
-    if len(members) > 1 and not state.get("core_id"):
-        return _base(
-            kind="core",
-            phase="core",
-            note="被圈子里其他论文引用最多的是这一篇。你写是核心，或指定圈子里的另一篇。",
-            anchor_id=anchor_id,
-            dropped=dropped,
-            old=old,
-            circle=members,
-            core_id=suggest_core(state, members),
-        )
-    if core_id not in members:
-        raise SystemExit("核心必须是最小圈子里的一篇。")
+    chosen = state.get("core_id")
+    if chosen and chosen not in members:
+        raise SystemExit("核心必须在紧密圈子里。")
+    core_id = chosen or suggest_core(state, members)
+    links = neighbor_links(state, members)
+    path = shortest_path(links, members[0], core_id, members)
+    for paper_id in path:
+        if state["topic"].get(paper_id) is None:
+            step = path.index(paper_id) + 1
+            note = (
+                f"从跳板往核心走，第 {step} 步，共 {len(path)} 步。"
+                + ("这一篇是核心。" if paper_id == core_id else "先确认它在圈子里。")
+            )
+            return _base(
+                kind="ask",
+                phase="circle",
+                note=note,
+                paper=paper_by_id(state, paper_id),
+                anchor_id=anchor_id,
+                dropped=dropped,
+                old=old,
+                circle=members,
+                core_id=core_id,
+            )
     if not state.get("open_problem"):
         return _base(
             kind="open",
@@ -347,7 +414,7 @@ def present(state: dict[str, Any]) -> dict[str, Any]:
             return _base(
                 kind="ask",
                 phase="scan",
-                note="还没有热点入口。现在只看题目和摘要，不要拿自己的观点去对。",
+                note="还没有最近近邻。按最近的顺序看题目和摘要。不要拿自己的观点去对。",
                 paper=paper,
                 dropped=dropped,
             )
@@ -359,12 +426,12 @@ def present(state: dict[str, Any]) -> dict[str, Any]:
             return _base(
                 kind="empty",
                 phase="scan",
-                note="名单是空的。按最可疑的顺序加论文，只加题目、摘要和年份。",
+                note="名单是空的。按最近的顺序加论文，只加题目、摘要和年份。",
             )
         return _base(
             kind="unclear",
             phase="unclear",
-            note="看不清。近三年里还没有你确认的热点入口。不要把领域扫一遍当成热点。",
+            note="看不清。还没有你确认的最近近邻。不要把领域扫一遍。",
             dropped=dropped,
         )
     result = after_anchor(state, anchor_id)
@@ -387,39 +454,39 @@ def render(state: dict[str, Any], result: dict[str, Any]) -> str:
     if kind == "ask":
         paper = result["paper"]
         if result["anchor_id"]:
-            lines.append(f"热点入口：{result['anchor_id']}。近三年是 {window_label(state)}。")
+            lines.append(f"跳板：{result['anchor_id']}。近三年是 {window_label(state)}。")
         lines.append(result["note"])
         lines.append(f"编号：{paper['id']}")
         lines.append(f"年份：{paper['year']}")
         lines.append(f"题目：{paper['title']}")
         lines.append(f"摘要：{paper['abstract']}")
         if result["phase"] == "scan":
-            lines.append("你写：是当前热点，或不是当前热点。")
+            lines.append("你写：是最近的，或不是最近的。")
         else:
-            lines.append("你写：算这个主题，或不算这个主题。")
+            lines.append("你写：算这个圈子，或不算这个圈子。")
     elif kind == "core":
-        lines.append(f"热点入口：{result['anchor_id']}")
+        lines.append(f"跳板：{result['anchor_id']}")
         lines.append(f"建议的核心：{result['core_id']}")
         lines.append(result["note"])
     elif kind == "open":
-        lines.append(f"热点入口：{result['anchor_id']}")
+        lines.append(f"跳板：{result['anchor_id']}")
         lines.append(f"核心：{result['core_id']}")
         lines.append(result["note"])
     elif kind == "done":
-        lines.append(f"热点入口：{result['anchor_id']}")
+        lines.append(f"跳板：{result['anchor_id']}")
         lines.append(f"核心：{result['core_id']}")
         lines.append(f"悬而未决：{result['note']}")
         lines.append("这一句是创新突破的思路，也是有攻关价值的地方。")
     elif kind == "closed":
-        lines.append(f"热点入口：{result['anchor_id']}")
+        lines.append(f"跳板：{result['anchor_id']}")
         lines.append(result["note"])
     elif kind == "fate":
-        lines.append(f"热点入口：{result['anchor_id']}")
+        lines.append(f"跳板：{result['anchor_id']}")
         lines.append(f"近三年是 {window_label(state)}。")
         lines.append(result["note"])
     else:
         if result.get("anchor_id"):
-            lines.append(f"热点入口：{result['anchor_id']}")
+            lines.append(f"跳板：{result['anchor_id']}")
         lines.append(result["note"])
     return "\n".join(lines)
 
@@ -451,7 +518,9 @@ def mark_fate(state: dict[str, Any], text: str) -> None:
 
 
 def mark_core(state: dict[str, Any], text: str, paper_id: str | None) -> None:
-    result = _expect(state, "core")
+    result = present(state)
+    if result["kind"] != "open":
+        raise SystemExit("现在还没到这一步。先运行 next，看它要你写什么。")
     members = result["circle"]
     if paper_id:
         chosen = require_id(paper_id)
