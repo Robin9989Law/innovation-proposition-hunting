@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""用最近近邻当跳板，找到紧密的主题生态，再直指主题核心。
+"""用最近近邻当跳板，找到近期直接邻居里最密的一团，再走到被引最多的汇合点。
 
 四件事要能核对：近邻是不是真的近，能不能通过它找到圈子，紧密程度有没有数对，进核心是不是有限步。
-近三年只限制最多看多少篇。最密的那一团里，每篇至少连着两篇。
-内核不紧密，或者有限步进不到核心，就换近邻，最多换 10 次。
-全程只看题目和摘要，不必读全文。
+这一轮只看近三年的直接邻居。最密的那一团里，每篇至少连着两篇。
+内核不紧密，或者这一团被否散，就换近邻，最多换 10 次。
+圈子里的判断记在跳板下面，换了跳板不带过来。全程只看题目和摘要。
 """
 
 from __future__ import annotations
@@ -20,6 +20,8 @@ STATE_NAME = "neighbor_hunt.json"
 FATES = ("没有价值", "已经被攻克")
 RECENT_SPAN = 2
 SWITCH_LIMIT = 10
+NO_GAP = "没有悬而未决"
+ROLES = ("candidate", "ring")
 
 
 def normalize(text: str) -> str:
@@ -38,10 +40,17 @@ def load_state(root: Path) -> dict[str, Any]:
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise SystemExit("neighbor_hunt.json 坏了。")
-    data.setdefault("topic", {})
+    topic = data.setdefault("topic", {})
+    flat_topic = any(not isinstance(value, dict) for value in topic.values())
+    if flat_topic or data.get("core_id") or data.get("open_problem"):
+        raise SystemExit(
+            "这份 neighbor_hunt.json 是旧格式，圈子里的判断没有记在跳板下面。换个目录重新 init。"
+        )
+    data.pop("core_id", None)
+    data.pop("open_problem", None)
+    data.setdefault("cores", {})
+    data.setdefault("openings", {})
     data.setdefault("fate", None)
-    data.setdefault("core_id", None)
-    data.setdefault("open_problem", None)
     data.setdefault("this_year", date.today().year)
     return data
 
@@ -62,9 +71,9 @@ def blank_state(object_name: str, action_name: str, this_year: int) -> dict[str,
         "papers": [],
         "decisions": {},
         "topic": {},
+        "cores": {},
+        "openings": {},
         "fate": None,
-        "core_id": None,
-        "open_problem": None,
     }
 
 
@@ -143,6 +152,13 @@ def _near_prompt(state: dict[str, Any], paper: dict[str, Any]) -> str:
     )
 
 
+EDGE_MARKS = "。．.，,、；;：:！!「」『』“”\"'‘’（）()"
+
+
+def plain(text: str) -> str:
+    return "".join(text.split()).strip(EDGE_MARKS)
+
+
 def reject_question(text: str) -> None:
     if any(mark in text for mark in ("吗", "？", "?")):
         raise SystemExit("不要写成问句。把判断写死。")
@@ -150,42 +166,50 @@ def reject_question(text: str) -> None:
 
 def parse_hotspot(text: str) -> str:
     reject_question(text)
-    if "是不是最近的" in text:
-        raise SystemExit("是不是最近的，要写死。是最近的，或不是最近的。")
-    rejected = "不是最近的" in text
-    confirmed = "是最近的" in text.replace("不是最近的", "")
-    if rejected and confirmed:
-        raise SystemExit("是不是最近的，要写死。是最近的，或不是最近的。")
-    if rejected:
-        return "no"
-    if confirmed:
+    said = plain(text)
+    if said == "是最近的":
         return "yes"
-    raise SystemExit("这篇是不是最近的，要你自己写。是最近的，或不是最近的。")
+    if said == "不是最近的":
+        return "no"
+    raise SystemExit(
+        "这篇是不是最近的，要你自己写死。整句只写是最近的，或不是最近的。不一定、未必这类话不算。"
+    )
 
 
 def parse_topic(text: str) -> str:
     reject_question(text)
-    rejected = "不算这个圈子" in text
-    confirmed = "算这个圈子" in text.replace("不算这个圈子", "")
-    if rejected and confirmed:
-        raise SystemExit("算不算这个圈子，要写死。算这个圈子，或不算这个圈子。")
-    if rejected:
-        return "no"
-    if confirmed:
+    said = plain(text)
+    if said == "算这个圈子":
         return "yes"
-    raise SystemExit("这一篇算不算这个圈子，要你自己写。算这个圈子，或不算这个圈子。")
+    if said == "不算这个圈子":
+        return "no"
+    raise SystemExit(
+        "这一篇算不算这个圈子，要你自己写死。整句只写算这个圈子，或不算这个圈子。不太算、未必算这类话不算。"
+    )
 
 
 def parse_fate(text: str) -> str:
     reject_question(text)
-    hits = [name for name in FATES if name in text]
-    if len(hits) != 1:
-        raise SystemExit("走不到紧密核心。你写没有价值，或已经被攻克。两个都写，或都不写，都不算。")
-    return hits[0]
+    said = plain(text)
+    if said in FATES:
+        return said
+    raise SystemExit("走不到紧密核心。整句只写没有价值，或已经被攻克。别的说法都不算。")
 
 
 def is_hotspot(decision: dict[str, Any]) -> bool:
     return decision.get("hotspot") == "yes"
+
+
+def is_candidate(paper: dict[str, Any]) -> bool:
+    return paper.get("role", "candidate") == "candidate"
+
+
+def topic_of(state: dict[str, Any], anchor_id: str) -> dict[str, str]:
+    return state["topic"].get(anchor_id, {})
+
+
+def rejected_anywhere(state: dict[str, Any], paper_id: str) -> bool:
+    return any(judged.get(paper_id) == "no" for judged in state["topic"].values())
 
 
 def ring_ids(paper: dict[str, Any]) -> list[str]:
@@ -393,14 +417,17 @@ def _four_lines(
                 "近不近是你写的是最近的。"
             ),
             f"圈里每一篇都直接连着这篇近邻：{'、'.join(circle)}。",
-            "这是近三年篇数里、按已填引用边算出来的最密一团。三年前的直接文献这轮不看，所以这不是历史上的源头。",
+            "这一轮只看近三年的直接邻居。三年前的直接文献不进这一团，所以这不是历史上的源头。",
             "这团只按名单里写下的引用边计算。没写上的边不算。",
             (
                 f"紧密程度：每篇至少连着 {tightness} 篇。"
-                f"被引最多的汇合点是「{core_id}」，在圈内被引 {core_links} 次。"
+                f"被引最多的汇合点是「{core_id}」，在圈内被引 {core_links} 次。被引一样多时更早的优先。"
                 "要攻的那篇可以改成团里另一篇。"
             ),
-            f"进入核心：最短 {hops} 步，最多 {step_bound} 步，不往外扩。",
+            (
+                f"进入核心：团是连通的，最短 {hops} 步，最多 {step_bound} 步，不往外扩。"
+                "不收敛只会是你否掉路上的论文以后，这一团散了。"
+            ),
         ]
     )
 
@@ -417,12 +444,8 @@ def _off_path_block(state: dict[str, Any], circle: list[str], path: list[str]) -
     return "\n".join(lines)
 
 
-def _walk_started(state: dict[str, Any], anchor: dict[str, Any]) -> bool:
-    return any(state["topic"].get(paper_id) is not None for paper_id in ring_ids(anchor))
-
-
 def _fail(anchor_id: str, reason: str, dropped: int, old: int) -> dict[str, Any]:
-    note = "内核不紧密。" if reason == "loose" else "不收敛。"
+    note = {"loose": "内核不紧密。", "diverge": "不收敛。", "nogap": "核心摘要里看不见缝。"}[reason]
     return _base(
         kind="fate",
         phase="circle",
@@ -437,7 +460,8 @@ def _fail(anchor_id: str, reason: str, dropped: int, old: int) -> dict[str, Any]
 def _switch_sentence(failed: list[tuple[str, str]]) -> str:
     labels = {
         "loose": "内核不紧密，通过它找不到圈子",
-        "diverge": "不收敛，有限步进不到核心",
+        "diverge": "不收敛，你否掉路上的论文以后，这一团散了",
+        "nogap": "走到了汇合点，但核心摘要里看不见缝",
     }
     return "".join(f"近邻 {paper_id} {labels.get(reason, reason)}。" for paper_id, reason in failed)
 
@@ -462,7 +486,7 @@ def _stop_for_failed(
             anchor_id=anchor_id,
             dropped=dropped,
         )
-    matched = len(state["papers"]) - dropped
+    matched = sum(1 for paper in state["papers"] if is_candidate(paper)) - dropped
     bits = [_switch_sentence(failed)]
     if dropped > 0 and dropped >= matched:
         bits.append(
@@ -473,7 +497,9 @@ def _stop_for_failed(
     if "loose" in reasons:
         bits.append("这张名单里没有紧密圈子。")
     if "diverge" in reasons:
-        bits.append("有限步进不到核心。")
+        bits.append("走的途中团被否散了。")
+    if "nogap" in reasons:
+        bits.append("走到的汇合点摘要里看不见缝。")
     if capped:
         bits.append(f"已经换了 {SWITCH_LIMIT} 次近邻，到上限了。")
     else:
@@ -511,8 +537,6 @@ def after_anchor(state: dict[str, Any], anchor_id: str) -> dict[str, Any]:
         if not slot_hit(state, paper):
             dropped += 1
             continue
-        if state["topic"].get(paper_id) == "no":
-            continue
         recent_hits.append(paper_id)
     if missing:
         return _base(
@@ -524,21 +548,15 @@ def after_anchor(state: dict[str, Any], anchor_id: str) -> dict[str, Any]:
             dropped=dropped,
             old=old,
         )
-    members, tightness = tight_kernel(state, recent_hits)
+    group, _group_tightness = tight_kernel(state, recent_hits)
+    if not group:
+        return _fail(anchor_id, "loose", dropped, old)
+    judged = topic_of(state, anchor_id)
+    kept = [paper_id for paper_id in group if judged.get(paper_id) != "no"]
+    members, tightness = tight_kernel(state, kept)
     if not members:
-        reason = "diverge" if _walk_started(state, anchor) else "loose"
-        if not state.get("fate"):
-            return _fail(anchor_id, reason, dropped, old)
-        return _base(
-            kind="closed",
-            phase="closed",
-            note=f"你的判断：{state['fate']}。",
-            anchor_id=anchor_id,
-            dropped=dropped,
-            old=old,
-            switch_reason=reason,
-        )
-    chosen = state.get("core_id")
+        return _fail(anchor_id, "diverge", dropped, old)
+    chosen = state["cores"].get(anchor_id)
     if chosen not in members:
         chosen = None
     counts = in_degrees(state, members)
@@ -548,8 +566,6 @@ def after_anchor(state: dict[str, Any], anchor_id: str) -> dict[str, Any]:
     hops = max(len(path) - 1, 0)
     step_bound = max(len(members) - 1, 0)
     core_links = counts.get(core_id, 0)
-    if path[-1] != core_id or hops > step_bound:
-        return _fail(anchor_id, "diverge", dropped, old)
     measured = dict(
         path=path,
         tightness=tightness,
@@ -560,9 +576,11 @@ def after_anchor(state: dict[str, Any], anchor_id: str) -> dict[str, Any]:
     verdict = _four_lines(
         state, anchor_id, members, core_id, tightness, core_links, hops, step_bound
     )
+    if len(members) < len(group):
+        verdict += f"\n你否掉了 {len(group) - len(members)} 篇，剩下的仍在原来这一团里。"
     aside = _off_path_block(state, members, path)
     for paper_id in path:
-        if state["topic"].get(paper_id) is None:
+        if judged.get(paper_id) is None:
             step = path.index(paper_id) + 1
             where = "这一篇是被引最多的汇合点。" if paper_id == core_id else "先确认它算这个圈子。"
             note = "\n".join(
@@ -586,19 +604,14 @@ def after_anchor(state: dict[str, Any], anchor_id: str) -> dict[str, Any]:
                 core_id=core_id,
                 **measured,
             )
-    if not state.get("open_problem"):
+    opening = state["openings"].get(anchor_id)
+    if opening and opening.get("core_id") == core_id:
+        if plain(opening.get("text", "")) == NO_GAP:
+            return _fail(anchor_id, "nogap", dropped, old)
         return _base(
-            kind="open",
-            phase="open",
-            note="\n".join(
-                part
-                for part in (
-                    verdict,
-                    aside,
-                    "看汇合点的题目和摘要，把看见的缝写下来。这是核心摘要里看见的缝。要拿去攻，再只核对这一篇全文。全文不进这一轮。",
-                )
-                if part
-            ),
+            kind="done",
+            phase="done",
+            note=opening["text"],
             anchor_id=anchor_id,
             dropped=dropped,
             old=old,
@@ -607,9 +620,18 @@ def after_anchor(state: dict[str, Any], anchor_id: str) -> dict[str, Any]:
             **measured,
         )
     return _base(
-        kind="done",
-        phase="done",
-        note=state["open_problem"],
+        kind="open",
+        phase="open",
+        note="\n".join(
+            part
+            for part in (
+                verdict,
+                aside,
+                "看汇合点的题目和摘要，把看见的缝写下来。这是核心摘要里看见的缝。"
+                "要拿去攻，再只核对这一篇全文。全文不进这一轮。看不见缝，就写没有悬而未决。",
+            )
+            if part
+        ),
         anchor_id=anchor_id,
         dropped=dropped,
         old=old,
@@ -622,11 +644,12 @@ def after_anchor(state: dict[str, Any], anchor_id: str) -> dict[str, Any]:
 def present(state: dict[str, Any]) -> dict[str, Any]:
     dropped = 0
     failed: list[tuple[str, str]] = []
-    for paper in state["papers"]:
+    candidates = [paper for paper in state["papers"] if is_candidate(paper)]
+    for paper in candidates:
         if not slot_hit(state, paper):
             dropped += 1
             continue
-        if state["topic"].get(paper["id"]) == "no":
+        if rejected_anywhere(state, paper["id"]):
             continue
         decision = state["decisions"].get(paper["id"])
         if decision is None:
@@ -654,11 +677,11 @@ def present(state: dict[str, Any]) -> dict[str, Any]:
         return result
     if failed:
         return _stop_for_failed(state, failed, dropped, capped=len(failed) > SWITCH_LIMIT)
-    if not state["papers"]:
+    if not candidates:
         return _base(
             kind="empty",
             phase="scan",
-            note="名单是空的。按最近的顺序加论文，只加题目、摘要和年份。",
+            note="还没有候选近邻。按最近的顺序加论文，只加题目、摘要和年份。圈里的邻居加 --role ring，不算候选。",
         )
     return _base(
         kind="unclear",
@@ -673,9 +696,12 @@ def render(state: dict[str, Any], result: dict[str, Any]) -> str:
     if result["dropped"]:
         lines.append(f"对不上的已丢掉 {result['dropped']} 篇。对象和动作要两处都中。")
     if result["old"]:
-        lines.append(f"近三年只限制最多看多少篇。更早的这轮先不看：{result['old']} 篇。")
+        lines.append(f"这一轮只看近三年的直接邻居。更早的这轮不看：{result['old']} 篇。")
     if result["missing"]:
-        lines.append("这些编号还没进名单，补年份、题目和摘要，不要搜词：")
+        lines.append(
+            "这些编号还没进名单，用 add --role ring 补上，不要搜词。"
+            "近三年的写年份、题目和摘要，三年前的只写年份："
+        )
         lines.extend(f"- {paper_id}" for paper_id in result["missing"])
     if result["circle"]:
         lines.append("最密的一团：" + "、".join(result["circle"]))
@@ -683,9 +709,7 @@ def render(state: dict[str, Any], result: dict[str, Any]) -> str:
     if kind == "ask":
         paper = result["paper"]
         if result["anchor_id"]:
-            lines.append(
-                f"跳板：{result['anchor_id']}。近三年是 {window_label(state)}，只限制最多看多少篇。"
-            )
+            lines.append(f"跳板：{result['anchor_id']}。近三年是 {window_label(state)}。")
         lines.append(result["note"])
         lines.append(f"编号：{paper['id']}")
         lines.append(f"年份：{paper['year']}")
@@ -695,10 +719,6 @@ def render(state: dict[str, Any], result: dict[str, Any]) -> str:
             lines.append("你写：是最近的，或不是最近的。")
         else:
             lines.append("你写：算这个圈子，或不算这个圈子。")
-    elif kind == "core":
-        lines.append(f"跳板：{result['anchor_id']}")
-        lines.append(f"建议的核心：{result['core_id']}")
-        lines.append(result["note"])
     elif kind == "open":
         core = paper_by_id(state, result["core_id"]) if result.get("core_id") else None
         lines.append(f"跳板：{result['anchor_id']}")
@@ -717,7 +737,7 @@ def render(state: dict[str, Any], result: dict[str, Any]) -> str:
         lines.append(result["note"])
     elif kind == "fate":
         lines.append(f"跳板：{result['anchor_id']}")
-        lines.append(f"近三年是 {window_label(state)}，只限制最多看多少篇。")
+        lines.append(f"近三年是 {window_label(state)}。这一轮只看近三年的直接邻居。")
         lines.append(result["note"])
     else:
         if result.get("anchor_id"):
@@ -744,7 +764,7 @@ def mark_topic(state: dict[str, Any], paper_id: str, text: str) -> None:
     result = _expect(state, "ask", "circle")
     if result["paper"]["id"] != paper_id:
         raise SystemExit(f"现在只要看这一篇：{result['paper']['id']}")
-    state["topic"][paper_id] = parse_topic(text)
+    state["topic"].setdefault(result["anchor_id"], {})[paper_id] = parse_topic(text)
 
 
 def mark_fate(state: dict[str, Any], text: str) -> None:
@@ -757,26 +777,25 @@ def mark_core(state: dict[str, Any], text: str, paper_id: str | None) -> None:
     if result["kind"] != "open":
         raise SystemExit("现在还没到这一步。先运行 next，看它要你写什么。")
     members = result["circle"]
+    anchor_id = result["anchor_id"]
     if paper_id:
         chosen = require_id(paper_id)
         if chosen not in members:
-            raise SystemExit("核心必须是最小圈子里的一篇。")
-        state["core_id"] = chosen
+            raise SystemExit("要攻的那篇必须在最密的这一团里。")
+        state["cores"][anchor_id] = chosen
         return
     reject_question(text)
-    if "不是核心" in text:
-        raise SystemExit("写下核心是圈子里的哪一篇编号。")
-    if "是核心" not in text:
-        raise SystemExit("你写是核心，或用 --id 指定圈子里的另一篇。")
-    state["core_id"] = result["core_id"]
+    if plain(text) != "是核心":
+        raise SystemExit("整句只写是核心，或用 --id 指定这一团里的另一篇。")
+    state["cores"][anchor_id] = result["core_id"]
 
 
 def mark_open(state: dict[str, Any], text: str) -> None:
-    _expect(state, "open")
+    result = _expect(state, "open")
     cleaned = " ".join(text.split())
     if cleaned in {"继续", "好", "好的", "知道了"} or len(cleaned) < 4:
-        raise SystemExit("把核心摘要里看见的缝写下来。没有的话，写没有悬而未决。")
-    state["open_problem"] = cleaned
+        raise SystemExit("把核心摘要里看见的缝写下来。看不见的话，写没有悬而未决。")
+    state["openings"][result["anchor_id"]] = {"core_id": result["core_id"], "text": cleaned}
 
 
 def cmd_init(args: argparse.Namespace) -> None:
@@ -789,10 +808,10 @@ def cmd_init(args: argparse.Namespace) -> None:
     save_state(root, blank_state(args.object, args.action, this_year))
     print(f"对象：{args.object.strip()}")
     print(f"动作：{args.action.strip()}")
-    print(f"近三年是 {this_year - RECENT_SPAN}–{this_year}，只限制最多看多少篇。")
+    print(f"近三年是 {this_year - RECENT_SPAN}–{this_year}。这一轮只看近三年的直接邻居。")
     print(f"换近邻最多 {SWITCH_LIMIT} 次。全程只看题目和摘要，不必读全文。")
-    print("对象和动作是热点的叫法，不是你要证明的句子。")
-    print("同义词之后用 add-name 加上。没有写明的叫法不能拿来匹配。")
+    print("对象和动作只是这个方向的叫法，不是你要证明的句子。")
+    print("同义词之后用 add-name 加上。没有写明的叫法不能拿来匹配。圈里的邻居用 add --role ring 加。")
 
 
 def cmd_add_name(args: argparse.Namespace) -> None:
@@ -808,27 +827,57 @@ def cmd_add_name(args: argparse.Namespace) -> None:
     print(f"已记下{label}叫法：{name}")
 
 
+def add_paper(
+    state: dict[str, Any],
+    *,
+    paper_id: str,
+    year: int,
+    title: str = "",
+    abstract: str = "",
+    references: str = "",
+    cited_by: str = "",
+    role: str = "candidate",
+) -> dict[str, Any]:
+    paper_id = require_id(paper_id)
+    if paper_by_id(state, paper_id):
+        raise SystemExit(f"这篇已经在名单里：{paper_id}")
+    if role not in ROLES:
+        raise SystemExit("角色只能是 candidate 或 ring。")
+    year = require_year(year)
+    title = title.strip()
+    abstract = abstract.strip()
+    old_ring = role == "ring" and year < recent_cutoff(state)
+    if not old_ring and (not title or not abstract):
+        raise SystemExit("题目和摘要都要有。没有摘要就不能快判。三年前的圈内邻居才可以只写年份。")
+    paper = {
+        "id": paper_id,
+        "year": year,
+        "title": title,
+        "abstract": abstract,
+        "references": split_ids(references),
+        "cited_by": split_ids(cited_by),
+        "role": role,
+    }
+    state["papers"].append(paper)
+    return paper
+
+
 def cmd_add(args: argparse.Namespace) -> None:
     root = args.root.resolve()
     state = load_state(root)
-    paper_id = require_id(args.id)
-    if paper_by_id(state, paper_id):
-        raise SystemExit(f"这篇已经在名单里：{paper_id}")
-    title = args.title.strip()
-    abstract = args.abstract.strip()
-    if not title or not abstract:
-        raise SystemExit("题目和摘要都要有。没有摘要就不能快判。")
-    paper = {
-        "id": paper_id,
-        "year": require_year(args.year),
-        "title": title,
-        "abstract": abstract,
-        "references": split_ids(args.references),
-        "cited_by": split_ids(args.cited_by),
-    }
-    state["papers"].append(paper)
+    paper = add_paper(
+        state,
+        paper_id=args.id,
+        year=args.year,
+        title=args.title,
+        abstract=args.abstract,
+        references=args.references,
+        cited_by=args.cited_by,
+        role=args.role,
+    )
     save_state(root, state)
-    print(f"已加入 {paper_id}")
+    label = "候选近邻" if paper["role"] == "candidate" else "圈内邻居"
+    print(f"已加入{label} {paper['id']}")
 
 
 def cmd_next(args: argparse.Namespace) -> None:
@@ -877,7 +926,7 @@ def cmd_open(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="hunt", description="凝练当前热点圈，写下悬而未决的命题")
+    parser = argparse.ArgumentParser(prog="hunt", description="从最近的近邻走进最密的一团，按汇合点的摘要写下看见的缝")
     sub = parser.add_subparsers(dest="command", required=True)
 
     init = sub.add_parser("init", help="写下对象和动作")
@@ -893,44 +942,45 @@ def build_parser() -> argparse.ArgumentParser:
     naming.add_argument("--name", required=True)
     naming.set_defaults(func=cmd_add_name)
 
-    add = sub.add_parser("add", help="按可疑程度加入一篇的题目、摘要和年份")
+    add = sub.add_parser("add", help="加入一篇。候选近邻按你觉得的远近顺序加，圈里的邻居加 --role ring")
     add.add_argument("--root", type=Path, default=Path("."))
     add.add_argument("--id", required=True)
     add.add_argument("--year", type=int, required=True)
-    add.add_argument("--title", required=True)
-    add.add_argument("--abstract", required=True)
+    add.add_argument("--title", default="")
+    add.add_argument("--abstract", default="")
     add.add_argument("--references", default="")
     add.add_argument("--cited-by", default="")
+    add.add_argument("--role", choices=ROLES, default="candidate")
     add.set_defaults(func=cmd_add)
 
     nxt = sub.add_parser("next", help="看现在该写什么")
     nxt.add_argument("--root", type=Path, default=Path("."))
     nxt.set_defaults(func=cmd_next)
 
-    decision = sub.add_parser("decide", help="确认这篇是不是当前热点的入口")
+    decision = sub.add_parser("decide", help="整句写是最近的，或不是最近的")
     decision.add_argument("--root", type=Path, default=Path("."))
     decision.add_argument("--id", required=True)
     decision.add_argument("--words", required=True)
     decision.set_defaults(func=cmd_decide)
 
-    topic = sub.add_parser("topic", help="确认这篇算不算这个主题")
+    topic = sub.add_parser("topic", help="整句写算这个圈子，或不算这个圈子")
     topic.add_argument("--root", type=Path, default=Path("."))
     topic.add_argument("--id", required=True)
     topic.add_argument("--words", required=True)
     topic.set_defaults(func=cmd_topic)
 
-    fate = sub.add_parser("fate", help="近邻都换完仍走不到紧密核心时，写下没有价值或已经被攻克")
+    fate = sub.add_parser("fate", help="走不通时，整句写没有价值，或已经被攻克")
     fate.add_argument("--root", type=Path, default=Path("."))
     fate.add_argument("--words", required=True)
     fate.set_defaults(func=cmd_fate)
 
-    core = sub.add_parser("core", help="确认核心，或改成圈子里的另一篇")
+    core = sub.add_parser("core", help="整句写是核心，或用 --id 改成这一团里的另一篇")
     core.add_argument("--root", type=Path, default=Path("."))
     core.add_argument("--words", default="")
     core.add_argument("--id")
     core.set_defaults(func=cmd_core)
 
-    opened = sub.add_parser("open", help="写下核心里悬而未决的命题")
+    opened = sub.add_parser("open", help="写下汇合点摘要里看见的缝，看不见就写没有悬而未决")
     opened.add_argument("--root", type=Path, default=Path("."))
     opened.add_argument("--text", required=True)
     opened.set_defaults(func=cmd_open)
