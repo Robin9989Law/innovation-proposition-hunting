@@ -1,5 +1,7 @@
 # 技能补缺计划 v3（2026-08-13，schema 3.0 实战复盘）
 
+> 这是当时的补缺记录，不是现在的用法。现在怎么用，看 [给人看.md](给人看.md)。
+
 > **状态：未实施。** 本计划是 v2（`optimization-plan-2026-08.md`）之后的第一份
 > 增量补缺方案，依据是一次真实全流程运行——m3 单 agent + subagent 从
 > `BOOT` 跑到 `FINAL_LOCK`（`/Users/robinlaw/Downloads/论文1-iph-restart`）。

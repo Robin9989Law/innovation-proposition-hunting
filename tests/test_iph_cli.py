@@ -536,6 +536,8 @@ class AdvanceTests(unittest.TestCase):
                 "K_FULLTEXT",
                 "--note",
                 "enter L3 evidence",
+                "--human-decision",
+                "我看过近邻表，同意按这个往下读全文",
                 "--no-validate",
             )
             self.assertEqual(0, completed.returncode, completed.stdout)
@@ -558,12 +560,18 @@ class AdvanceTests(unittest.TestCase):
                 "L2_TRIAGE",
                 "--note",
                 "reopen L2",
+                "--human-decision",
+                "范围卡片我看过了，是同一个东西，这片是红海，我的决心中，同意进入下一小块",
                 "--no-validate",
             )
             self.assertEqual(0, completed.returncode, completed.stdout)
             state = load_json(project / "workflow_state.json")
             self.assertEqual("L2_TRIAGE", state["active_state"])
             self.assertEqual("NONE", state["active_contribution"])
+            resolve = load_json(project / "dig_resolve.json")
+            self.assertEqual("红海", resolve["ocean"])
+            self.assertEqual("中", resolve["resolve"])
+            self.assertIs(True, resolve["same_thing"])
 
     def test_advance_rejects_skipped_positive_state(self) -> None:
         temporary_directory, project = self.make_boot_project()
@@ -762,6 +770,8 @@ class AdvanceTests(unittest.TestCase):
                 "K_FULLTEXT",
                 "--note",
                 "L2 frozen, enter K fulltext",
+                "--human-decision",
+                "我看过近邻表，同意按这个往下读全文",
                 "--set-gate",
                 "l2_frozen=true",
                 "--set-gate",
@@ -835,6 +845,8 @@ class AdvanceTests(unittest.TestCase):
                 "K_FULLTEXT",
                 "--note",
                 "enter L3 with contribution A",
+                "--human-decision",
+                "我看过近邻表，同意按这个往下读全文",
                 "--contribution",
                 "A",
                 "--no-validate",
@@ -1005,6 +1017,8 @@ class ReviseExactStatementTests(unittest.TestCase):
                 "l3-exact.r11.md",
                 "--note",
                 "identity requires lexicon I; stop is ATP or 10 iterations",
+                "--human-decision",
+                "我同意只改这一句，研究范围不动",
                 "--no-validate",
             )
             self.assertEqual(0, completed.returncode, completed.stderr)
@@ -1114,6 +1128,8 @@ class KeepLayersCollisionTests(unittest.TestCase):
                 "--keep-layers",
                 "--note",
                 "same L1/L2; only refresh K after new neighbors",
+                "--human-decision",
+                "我同意再查一轮，范围和近邻表先不动",
                 "--no-validate",
             )
             self.assertEqual(0, completed.returncode, completed.stderr + completed.stdout)
@@ -1140,6 +1156,8 @@ class KeepLayersCollisionTests(unittest.TestCase):
                 "start-collision-round",
                 "--note",
                 "program itself changed",
+                "--human-decision",
+                "我同意再查一轮，这次连范围也要重看",
                 "--no-validate",
             )
             self.assertEqual(0, completed.returncode, completed.stderr + completed.stdout)
@@ -1302,7 +1320,7 @@ class InstanceProbeTests(unittest.TestCase):
                 "should fail",
             )
             self.assertNotEqual(0, completed.returncode)
-            self.assertIn("只能在 N0-3 HOLD", completed.stderr)
+            self.assertIn("不要开实验", completed.stderr)
 
 
 class RegisterExplorationTests(unittest.TestCase):
@@ -1762,6 +1780,224 @@ class HandoverTests(unittest.TestCase):
             self.assertIn("成果合同", completed.stdout)
             self.assertIn("N level", completed.stdout)
             self.assertIn("next_required_action", completed.stdout)
+
+
+class PlainLanguageStopTests(unittest.TestCase):
+    def test_explain_says_where_the_person_should_look(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V3")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "DIRECTION_LOCK"
+            state["resume_state"] = "DIRECTION_LOCK"
+            write_json(project / "workflow_state.json", state)
+            completed = run_iph(project, "explain")
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            self.assertIn("等你决定收不收", completed.stdout)
+            self.assertIn("不要只回", completed.stdout)
+            self.assertIn("N0-4C", completed.stdout)
+            self.assertIn("第 5 段", completed.stdout)
+
+    def test_mid_pass_is_bookkeeping_not_another_research_task(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V0")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "PRIOR_CLAIM_DRAIN"
+            state["resume_state"] = "PRIOR_CLAIM_DRAIN"
+            write_json(project / "workflow_state.json", state)
+            completed = run_iph(project, "explain")
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            self.assertIn("第 2 段", completed.stdout)
+            self.assertIn("不用你做决定", completed.stdout)
+            self.assertIn("删掉也不影响判断", completed.stdout)
+            self.assertNotIn("这是要你看的地方", completed.stdout)
+
+    def test_new_topic_next_state_is_complete_not_compute(self) -> None:
+        sys.path.insert(0, str(REPOSITORY_ROOT / "scripts"))
+        import iph
+
+        self.assertEqual("COMPLETE", iph.NEXT_POSITIVE_STATE["DIRECTION_LOCK"])
+        self.assertEqual(
+            "POSTCOMPUTE_CLAIM_FREEZE", iph.NEXT_POSITIVE_STATE["COMPUTE"]
+        )
+        self.assertEqual("COMPLETE", iph.NEXT_POSITIVE_STATE["FINAL_LOCK"])
+        self.assertNotIn("COMPUTE", iph.POSITIVE_STATE_SEQUENCE)
+
+    def test_judge_waits_at_the_topic_stop(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V3")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "DIRECTION_LOCK"
+            state["resume_state"] = "DIRECTION_LOCK"
+            write_json(project / "workflow_state.json", state)
+            completed = run_iph(project, "judge")
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            self.assertIn("第 5 段", completed.stdout)
+            self.assertIn("停下来等你", completed.stdout)
+            self.assertIn("不能放宽", completed.stdout)
+
+    def test_judge_closes_a_covered_idea(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V0")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "N0_AUDIT"
+            state["resume_state"] = "N0_AUDIT"
+            state["novelty_level"] = "N0-1"
+            write_json(project / "workflow_state.json", state)
+            completed = run_iph(project, "judge")
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            self.assertIn("该停", completed.stdout)
+            self.assertNotIn("继续记账", completed.stdout)
+
+    def test_jev_needs_a_key_and_cannot_loosen_a_human_stop(self) -> None:
+        sys.path.insert(0, str(REPOSITORY_ROOT / "scripts"))
+        import os
+
+        import node_judge
+
+        self.assertEqual("https://api.typesafe.ai/v1/systemone", node_judge.JEV_URL)
+        self.assertEqual("jev-1.13.0", node_judge.jev_payload("页" * 80)["model"])
+        saved = os.environ.pop("TYPESAFE_API_KEY", None)
+        try:
+            missed = node_judge.run_jev("这一页已经写满，用来确认没有钥匙时不会去联网。" * 8)
+        finally:
+            if saved is not None:
+                os.environ["TYPESAFE_API_KEY"] = saved
+        self.assertFalse(missed["ok"])
+        self.assertIn("TYPESAFE_API_KEY", missed["reason"])
+        answers = {"hollow": {"noul": 0.1}, "off_node": {"noul": 0.05}}
+        self.assertEqual(
+            "wait_for_human",
+            node_judge.apply_screen("wait_for_human", answers),
+        )
+        self.assertEqual(
+            "page_is_empty",
+            node_judge.apply_screen(
+                "keep_bookkeeping",
+                {"hollow": {"noul": 0.91}, "off_node": {"noul": 0.2}},
+            ),
+        )
+        self.assertEqual(
+            "keep_bookkeeping",
+            node_judge.apply_screen(
+                "keep_bookkeeping",
+                {"hollow": {"noul": 0.5}, "off_node": {"noul": 0.4}},
+            ),
+        )
+        self.assertEqual(
+            "stop_legacy",
+            node_judge.structural_action({"active_state": "COMPUTE"}),
+        )
+        self.assertIn("停在这里", node_judge.dig_instruction("红海", "小"))
+        self.assertIn("一圈", node_judge.dig_instruction("红海", "大"))
+        self.assertIn("锚点", node_judge.dig_instruction("红海", "中"))
+        fast = node_judge.format_report({"active_state": "L1_FREEZE"}, "", None)
+        self.assertIn("对象", fast)
+        self.assertIn("动作", fast)
+        self.assertIn("一圈", fast)
+        self.assertIn("100 篇", fast)
+        self.assertIn("同一个东西", fast)
+        self.assertEqual(
+            ("蓝海", "中"),
+            node_judge.parse_fast_decision("是同一个东西。这片是蓝海，我的决心中"),
+        )
+        with self.assertRaises(SystemExit):
+            node_judge.parse_fast_decision("同意往下")
+        with self.assertRaises(SystemExit) as caught:
+            node_judge.parse_fast_decision("不是同一个东西。这片是红海，我的决心大")
+        self.assertIn("不能当锚点", str(caught.exception))
+        with self.assertRaises(SystemExit) as question:
+            node_judge.parse_fast_decision("是不是同一个东西。这片是红海，我的决心大")
+        self.assertIn("不要写成问句", str(question.exception))
+
+    def test_leaving_the_card_without_resolve_stays_put(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V0")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "L1_FREEZE"
+            state["resume_state"] = "L1_FREEZE"
+            state["active_contribution"] = "NONE"
+            write_json(project / "workflow_state.json", state)
+            before = load_json(project / "workflow_state.json")
+            refused = run_iph(
+                project,
+                "advance",
+                "--to",
+                "L2_TRIAGE",
+                "--note",
+                "skip the fast call",
+                "--human-decision",
+                "卡片我看过了，按这个往下",
+                "--no-validate",
+            )
+            self.assertNotEqual(0, refused.returncode)
+            self.assertIn("同一个东西", refused.stderr)
+            self.assertEqual(before, load_json(project / "workflow_state.json"))
+            self.assertFalse((project / "dig_resolve.json").exists())
+
+    def test_continue_does_not_leave_the_neighbor_table(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V0")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "LAYER_DECISION"
+            state["resume_state"] = "LAYER_DECISION"
+            state["active_contribution"] = "NONE"
+            write_json(project / "workflow_state.json", state)
+            before = load_json(project / "workflow_state.json")
+            passive = run_iph(
+                project,
+                "advance",
+                "--to",
+                "K_FULLTEXT",
+                "--note",
+                "user said continue",
+                "--human-decision",
+                "继续",
+                "--no-validate",
+            )
+            self.assertNotEqual(0, passive.returncode)
+            self.assertIn("不算看过", passive.stderr)
+            self.assertEqual(before, load_json(project / "workflow_state.json"))
+            accepted = run_iph(
+                project,
+                "advance",
+                "--to",
+                "K_FULLTEXT",
+                "--note",
+                "user read the neighbor table",
+                "--human-decision",
+                "这张近邻表我认，漏的那篇不用补",
+                "--no-validate",
+            )
+            self.assertEqual(0, accepted.returncode, accepted.stderr)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("K_FULLTEXT", state["active_state"])
+            self.assertEqual(
+                "这张近邻表我认，漏的那篇不用补",
+                state["decision_log"][-1]["human_decision"],
+            )
+
+    def test_natural_acceptance_can_finish_the_topic(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V3")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "DIRECTION_LOCK"
+            state["resume_state"] = "DIRECTION_LOCK"
+            write_json(project / "workflow_state.json", state)
+            accepted = run_iph(
+                project,
+                "advance",
+                "--to",
+                "COMPLETE",
+                "--note",
+                "user accepted the topic",
+                "--accept-complete",
+                "--acceptance-note",
+                "我同意这次把题目定下来 schema-v3-test",
+                "--no-validate",
+            )
+            self.assertEqual(0, accepted.returncode, accepted.stderr)
+            state = load_json(project / "workflow_state.json")
+            self.assertEqual("COMPLETE", state["active_state"])
 
 
 class ProjectContextTests(unittest.TestCase):

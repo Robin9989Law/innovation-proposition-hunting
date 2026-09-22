@@ -38,6 +38,9 @@ class SkillContractTests(unittest.TestCase):
             "N0-4C AND V4 AND current independent audit",
             "COMPLETE = DIRECTION_LOCK AND user acceptance quote",
             "hard-gates.md",
+            "docs/给人看.md",
+            "R-HUMAN-32",
+            "--human-decision",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, text)

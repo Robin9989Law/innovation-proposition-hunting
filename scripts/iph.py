@@ -23,6 +23,8 @@ schema 3.0 起 active_track / active_layer / last_completed_state 不再持久�
   authorize-instance-probe  N0-3 下授权小范围实例探针（≤5 条）
   register-instance-probe   登记一条已授权实例探针结果
   handover                按 SKILL.md §10 生成交接报告
+  explain                 用白话说明现在走到哪、要不要人点头
+  judge                   节点快筛：该停还是继续记账；--jev 才看这一页空不空
 """
 
 from __future__ import annotations
@@ -79,6 +81,7 @@ RECOVERABLE_COMPLETION_GATES = set(TARGET_COMPLETION_GATES.values()) | {
     "k_claims_complete",
 }
 
+# 新课题只走到定题。不要把实验接在 DIRECTION_LOCK 后面。
 POSITIVE_STATE_SEQUENCE = (
     "BOOT",
     "SCOPE_LOCK",
@@ -98,6 +101,10 @@ POSITIVE_STATE_SEQUENCE = (
     "VALIDITY_AUDIT",
     "INDEPENDENT_REVIEW",
     "DIRECTION_LOCK",
+    "COMPLETE",
+)
+# 已经走进实验的旧项目。这条链的入口不是 DIRECTION_LOCK。
+LEGACY_COMPUTE_SEQUENCE = (
     "COMPUTE",
     "POSTCOMPUTE_CLAIM_FREEZE",
     "FINAL_VALIDITY_AUDIT",
@@ -105,7 +112,37 @@ POSITIVE_STATE_SEQUENCE = (
     "COMPLETE",
 )
 NEXT_POSITIVE_STATE = dict(zip(POSITIVE_STATE_SEQUENCE, POSITIVE_STATE_SEQUENCE[1:]))
+NEXT_POSITIVE_STATE.update(zip(LEGACY_COMPUTE_SEQUENCE, LEGACY_COMPUTE_SEQUENCE[1:]))
 VALID_NOVELTY_LEVELS = {"N0-1", "N0-2", "N0-3", "N0-4C"}
+# 这四步离开前必须带上用户自己的话。DIRECTION_LOCK 仍走 acceptance-note。
+HUMAN_STOP_STATES = frozenset(
+    {"SCOPE_LOCK", "L1_FREEZE", "LAYER_DECISION", "N0_AUDIT"}
+)
+PASSIVE_HUMAN_REPLIES = frozenset(
+    {
+        "继续",
+        "继续吧",
+        "continue",
+        "next",
+        "下一步",
+        "往下做",
+        "往下",
+        "ok",
+        "okay",
+        "好",
+        "好的",
+        "嗯",
+        "知道了",
+        "可以",
+        "行",
+        "yes",
+        "是",
+        "是的",
+        "完成全流程",
+        "继续推进",
+        "用户要求完成全流程",
+    }
+)
 VALID_COMPUTE_STAGES = {"NOT_STARTED", "S0", "S1", "S2", "S3", "S4", "STOPPED"}
 LAYER_GATES = (
     "l1_frozen",
@@ -142,6 +179,22 @@ STATE_TO_TRACK = {
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def human_reply_is_passive(text: str | None) -> bool:
+    if not isinstance(text, str):
+        return True
+    folded = "".join(text.strip().split()).casefold().strip("。！!. ")
+    return not folded or folded in PASSIVE_HUMAN_REPLIES
+
+
+def require_human_reply(text: str | None) -> str:
+    if human_reply_is_passive(text):
+        raise SystemExit(
+            "这个回复不算看过。把你自己的话写进 --human-decision。"
+            "只回「继续」或「完成全流程」，程序不会往下走。"
+        )
+    return text.strip()
 
 
 def run_validate_all(
@@ -550,6 +603,14 @@ def cmd_advance(args: argparse.Namespace) -> int:
     state = json.loads(state_path.read_text(encoding="utf-8"))
     previous_state = state.get("active_state")
     validate_transition_target(state, target)
+    human_reply = None
+    if previous_state in HUMAN_STOP_STATES and target != "BLOCKED":
+        human_reply = require_human_reply(getattr(args, "human_decision", None))
+    fast_decision = None
+    if previous_state == "L1_FREEZE" and target != "BLOCKED":
+        from node_judge import parse_fast_decision
+
+        fast_decision = parse_fast_decision(human_reply or "")
     apply_transition_semantics(state, target, args, root, gate_updates)
 
     # schema 3.0 起证据层级由 active_state 派生：LAYER_DECISION -> K_FULLTEXT
@@ -616,10 +677,16 @@ def cmd_advance(args: argparse.Namespace) -> int:
             raise SystemExit(f"--artifact 不存在：{relative}")
         artifacts.append({"path": relative, "sha256": file_sha256(candidate)})
     entry = {"at": now, "state": target, "action": args.note.strip()}
+    if human_reply:
+        entry["human_decision"] = human_reply
     if artifacts:
         entry["artifacts"] = artifacts
     state.setdefault("decision_log", []).append(entry)
 
+    if fast_decision is not None:
+        from node_judge import write_dig_resolve
+
+        write_dig_resolve(root, fast_decision[0], fast_decision[1], human_reply or "")
     atomic_write_state(state_path, state)
     append_validation_log(
         root,
@@ -724,6 +791,7 @@ def cmd_start_collision_round(args: argparse.Namespace) -> int:
         raise SystemExit("只能从 N0-3 HOLD 开启新碰撞轮次")
     if state.get("validity_level") != "V0":
         raise SystemExit("新碰撞只能在有效性冻结前（V0）开启")
+    human_reply = require_human_reply(getattr(args, "human_decision", None))
 
     artifacts = state.get("artifacts")
     if not isinstance(artifacts, dict):
@@ -851,6 +919,7 @@ def cmd_start_collision_round(args: argparse.Namespace) -> int:
             f"Opened collision round {new_round} from N0-3 HOLD; {keep_note}"
             f"all prior-round claims were drained before P1. {args.note.strip()}"
         ),
+        "human_decision": human_reply,
     }
     state.setdefault("decision_log", []).append(entry)
     atomic_write_state(state_path, state)
@@ -990,6 +1059,7 @@ def cmd_revise_exact_statement(args: argparse.Namespace) -> int:
         raise SystemExit("有效性已冻结后不得修订 L3 精确句；应新开 epoch")
     if state.get("gates", {}).get("compute_authorized") is True:
         raise SystemExit("计算已授权后不得修订 L3 精确句")
+    human_reply = require_human_reply(getattr(args, "human_decision", None))
 
     collision_round = state.get("collision_round")
     if not isinstance(collision_round, int) or collision_round < 1:
@@ -1022,6 +1092,7 @@ def cmd_revise_exact_statement(args: argparse.Namespace) -> int:
         "artifacts": [
             {"path": args.path, "sha256": file_sha256(statement_path)}
         ],
+        "human_decision": human_reply,
     }
     state.setdefault("decision_log", []).append(entry)
     atomic_write_state(state_path, state)
@@ -1714,11 +1785,11 @@ def cmd_authorize_instance_probe(args: argparse.Namespace) -> int:
     if state.get("active_state") != "N0_AUDIT":
         raise SystemExit("实例探针只能在 N0_AUDIT 授权")
     if state.get("novelty_level") != "N0-3":
-        raise SystemExit("实例探针只能在 N0-3 HOLD 授权；N0-4C 应走正式 COMPUTE")
+        raise SystemExit("实例探针只能在还不能下结论时用。已经判成还活着，就去定题，不要开实验。")
     if state.get("validity_level") != "V0":
         raise SystemExit("有效性冻结后不得改用实例探针绕过计算漏斗")
     if state.get("gates", {}).get("compute_authorized") is True:
-        raise SystemExit("计算已授权时应走 S0–S4，而不是实例探针")
+        raise SystemExit("旧项目如果已经授权计算，不要再用探针绕开。新课题在这里定题，不跑实验。")
 
     registry_path = _instance_probe_registry_path(root, state)
     if registry_path.is_file():
@@ -1837,6 +1908,172 @@ def _count_records(payload: Any, keys: tuple[str, ...]) -> int | None:
     return None
 
 
+_EXPLAIN_PASS = {
+    "BOOT": "第 1 段，定范围",
+    "SCOPE_LOCK": "第 1 段，定范围",
+    "PRIOR_CLAIM_DRAIN": "第 2 段，写研究卡片",
+    "RECENT_FRONTIER": "第 2 段，写研究卡片",
+    "LITERATURE_REGISTER": "第 2 段，写研究卡片",
+    "L1_FREEZE": "第 2 段，写研究卡片",
+    "L2_TRIAGE": "第 3 段，写近邻表",
+    "LAYER_DECISION": "第 3 段，写近邻表",
+    "K_FULLTEXT": "第 4 段，试着推翻那一句",
+    "K_CLAIM_REGISTER": "第 4 段，试着推翻那一句",
+    "SYNTHESIZE_COLLISION": "第 4 段，试着推翻那一句",
+    "OUTPUT_CLAIM_BIND": "第 4 段，试着推翻那一句",
+    "EVIDENCE_VALIDATE": "第 4 段，试着推翻那一句",
+    "N0_AUDIT": "第 4 段，试着推翻那一句",
+    "CLAIM_FREEZE": "第 5 段，定下那一句",
+    "VALIDITY_AUDIT": "第 5 段，定下那一句",
+    "INDEPENDENT_REVIEW": "第 5 段，定下那一句",
+    "DIRECTION_LOCK": "第 5 段，定下那一句",
+    "COMPLETE": "五段已经走完",
+}
+_EXPLAIN_WHERE = {
+    "BOOT": "还没开工。先把论文类型、新东西从哪来、最后交什么，这三件事说清楚。",
+    "SCOPE_LOCK": "范围写下来了，等你看是不是你要的那一块。没点头之前，后面的文献都先别当真。",
+    "PRIOR_CLAIM_DRAIN": "它在消化你以前留下的旧想法，避免把旧结论当成新发现。",
+    "RECENT_FRONTIER": "它在查最近三年别人做到了哪里。",
+    "LITERATURE_REGISTER": "它在把查到的论文登成名单。这一步只登记，还不读全文。",
+    "L1_FREEZE": "研究范围已经写成卡片，等你看。",
+    "L2_TRIAGE": "它在这块范围里挑值得做的一小块，并写邻居论文各自做了什么。",
+    "LAYER_DECISION": "范围和那一小块都选定了，等你看近邻表。",
+    "K_FULLTEXT": "它只在读选中的那几篇关键论文的全文。",
+    "K_CLAIM_REGISTER": "它在从这些全文里抽出能改变判断的具体结论。",
+    "SYNTHESIZE_COLLISION": "它在拿你的候选和这些结论对撞，试着把候选推翻。",
+    "OUTPUT_CLAIM_BIND": "它在把写出来的每句结论，绑回某篇论文里的某句话。",
+    "EVIDENCE_VALIDATE": "它在检查这些引用能不能从结论走回原文。",
+    "N0_AUDIT": "新不新已经有判断了，等你看。",
+    "CLAIM_FREEZE": "准备写进论文的那一句已经定死，后面不能偷偷改字。",
+    "VALIDITY_AUDIT": "它在检查这句话在形式上站不站得住。定理要有证明责任，算法要有对照。",
+    "INDEPENDENT_REVIEW": "换了一个检查者在看。不能它自己给自己盖章。",
+    "DIRECTION_LOCK": "题目可以定了，等你决定收不收。实验和写论文都不在这一步。",
+    "COMPUTE": "状态进了实验阶段。这个工具定题之后就该停。你看到这里，说明它没停下来。",
+    "POSTCOMPUTE_CLAIM_FREEZE": "这是旧项目做完实验后的收尾。新课题不该走到这里。",
+    "FINAL_VALIDITY_AUDIT": "这是旧项目做完实验后的再次检查。新课题不该走到这里。",
+    "FINAL_LOCK": "这是旧项目的实验后锁定。新课题不该走到这里。",
+    "BLOCKED": "卡住了。这不是题目错了，是缺外部条件，比如下不了全文。",
+    "COMPLETE": "题目已经收下。这个工具到此结束。实验和写作另外做。",
+}
+_EXPLAIN_STOPS = {
+    "BOOT": "开工之前",
+    "SCOPE_LOCK": "开工之前",
+    "L1_FREEZE": "研究范围写下来以后",
+    "LAYER_DECISION": "近邻表写出来以后",
+    "N0_AUDIT": "新不新判完以后",
+    "DIRECTION_LOCK": "收下题目之前",
+    "COMPLETE": "题目已经收下",
+}
+_EXPLAIN_YOU = {
+    "BOOT": "用自己的话写清三件事：博士还是期刊，新东西从哪来，最后交什么。",
+    "SCOPE_LOCK": "看 scope_lock.md。范围对，就说按这个范围往下。不对，就指出哪一块不该算进来。",
+    "L1_FREEZE": "打开 l1-card.md。看研究对象、要对付的矛盾、现在谁在做。对象是不是同一个东西，要你自己写。再说这片是红海还是蓝海，以及决心大、中、小。",
+    "LAYER_DECISION": "打开 l2-card.md。每篇要紧邻居都要有三栏：做了什么、堵死了哪个想法、还剩什么问题。",
+    "N0_AUDIT": "打开 novelty-audit.md。看它为什么说该停，或者为什么说还活着。",
+    "DIRECTION_LOCK": "用自己的话写一句，说明你收的是这次定题。带上项目编号。不要只回「继续」。",
+    "COMPLETE": "你不用再做什么。接下来的实验和写作，不要再交给这个工具。",
+    "BLOCKED": "先看下面缺的是什么外部条件。条件补上之前，先别改结论。",
+}
+_EXPLAIN_LEGACY = frozenset(
+    {"COMPUTE", "POSTCOMPUTE_CLAIM_FREEZE", "FINAL_VALIDITY_AUDIT", "FINAL_LOCK"}
+)
+_EXPLAIN_NOVELTY = {
+    "N0-1": "别人已经正式发过同样的东西，这个想法该停",
+    "N0-2": "没有同名论文，但用已有结果就能推出来，这个想法该停",
+    "N0-3": "还不能下结论，先别说有创新",
+    "N0-4C": "该试的推翻办法试过了，这句话还在。这不是开实验",
+}
+_EXPLAIN_VALIDITY = {
+    "V0": "还没检查这句话在形式上站不站得住",
+    "V1": "要写进论文的那句话已经定下来了",
+    "V2": "作者这边的形式检查做完了",
+    "V3": "另一个检查者看过，而且通过了",
+    "V4": "旧项目做完实验后又查了一次。新课题定题不需要走到这里",
+}
+_EXPLAIN_FILES = {
+    "SCOPE_LOCK": ("scope_lock",),
+    "L1_FREEZE": ("l1_card", "scope_lock"),
+    "L2_TRIAGE": ("l2_card", "l1_card"),
+    "LAYER_DECISION": ("l2_card", "l1_card"),
+    "N0_AUDIT": ("hierarchy_novelty_audit", "novelty_audit"),
+    "CLAIM_FREEZE": ("exact_statement",),
+    "VALIDITY_AUDIT": ("exact_statement",),
+    "INDEPENDENT_REVIEW": ("exact_statement",),
+    "DIRECTION_LOCK": ("exact_statement",),
+    "COMPLETE": ("exact_statement",),
+}
+
+
+def explain_state(state: dict[str, Any]) -> str:
+    """给人看的进度。机器码只附在判断后面，方便核对。"""
+
+    active = state.get("active_state")
+    if not isinstance(active, str) or not active:
+        return "状态文件里没有写现在走到哪一步。"
+    lines = [
+        _EXPLAIN_WHERE.get(
+            active,
+            f"现在的步骤是 {active}。说明书里没有这一种，先停下来问它这步在干什么。",
+        )
+    ]
+    pass_name = _EXPLAIN_PASS.get(active)
+    if pass_name:
+        lines.append(f"整段流程里，这是{pass_name}。")
+    if active in _EXPLAIN_STOPS:
+        lines.append(f"这是要你看的地方：{_EXPLAIN_STOPS[active]}。")
+        lines.append(_EXPLAIN_YOU.get(active, "用自己的话回答。不要只回「继续」。"))
+    elif active in _EXPLAIN_LEGACY:
+        lines.append("你要做的事：叫它停。新课题不在这里做实验，也不在这里写论文。")
+    elif active == "BLOCKED":
+        lines.append(_EXPLAIN_YOU["BLOCKED"])
+        reasons = state.get("blocked_reasons") or []
+        if reasons:
+            lines.append("缺的是这些：" + "；".join(str(item) for item in reasons))
+    else:
+        lines.append("这一步不用你做决定。同一段里可以继续记账，下一处要你看的地方会停。")
+        lines.append("不要为了把状态往前挪，去写删掉也不影响判断的句子。")
+    artifacts = state.get("artifacts")
+    if isinstance(artifacts, dict):
+        files = [
+            artifacts[key]
+            for key in _EXPLAIN_FILES.get(active, ())
+            if isinstance(artifacts.get(key), str) and artifacts[key].strip()
+        ]
+        if files:
+            lines.append("可以打开：" + "，".join(files))
+    bits = []
+    novelty = state.get("novelty_level")
+    validity = state.get("validity_level")
+    if isinstance(novelty, str) and novelty in _EXPLAIN_NOVELTY:
+        bits.append(f"新不新：{_EXPLAIN_NOVELTY[novelty]}（{novelty}）")
+    if isinstance(validity, str) and validity in _EXPLAIN_VALIDITY:
+        bits.append(f"形式检查：{_EXPLAIN_VALIDITY[validity]}（{validity}）")
+    if bits:
+        lines.append("另外两句判断：" + "。".join(bits) + "。")
+    nxt = state.get("next_required_action")
+    if isinstance(nxt, str) and nxt.strip():
+        lines.append(f"程序自己写的下一步是：{nxt.strip()}")
+        lines.append("这句是写给程序的。你点不点头，按上面说的办。")
+    return "\n".join(lines)
+
+
+def cmd_explain(args: argparse.Namespace) -> int:
+    state = _load_json_object(Path(args.state).resolve(), "workflow_state.json")
+    print(explain_state(state))
+    return int(ExitCode.READY)
+
+
+def cmd_judge(args: argparse.Namespace) -> int:
+    from node_judge import format_report, load_page, read_dig_resolve, run_jev
+
+    root = Path(args.root).resolve()
+    state = _load_json_object(Path(args.state).resolve(), "workflow_state.json")
+    page = load_page(root, state)
+    screen = run_jev(page) if args.jev else None
+    print(format_report(state, page, screen, read_dig_resolve(root)))
+    return int(ExitCode.READY)
+
+
 def cmd_handover(args: argparse.Namespace) -> int:
     root = Path(args.root).resolve()
     state_path = Path(args.state).resolve()
@@ -1876,6 +2113,8 @@ def cmd_handover(args: argparse.Namespace) -> int:
     )
     derived_track = STATE_TO_TRACK.get(str(effective_state), "(none)")
     derived_tier = evidence_tier(str(effective_state))
+    print(explain_state(state))
+    print()
     print("# 交接报告（iph handover）")
     print(f"成果合同: {state.get('output_type')} / {state.get('contribution_contract')}")
     print(f"active state: {active_state} (track: {derived_track}, evidence tier: {derived_tier})")
@@ -1937,6 +2176,10 @@ def build_parser() -> argparse.ArgumentParser:
     add_root_state(p)
     p.add_argument("--to", required=True, metavar="STATE")
     p.add_argument("--note", required=True)
+    p.add_argument(
+        "--human-decision",
+        help="离开范围、研究卡片、近邻表或新不新时，必须带上用户自己的话",
+    )
     p.add_argument("--set-gate", action="append", metavar="key=true|false")
     p.add_argument("--artifact", action="append", metavar="PATH")
     p.add_argument(
@@ -1994,6 +2237,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_root_state(p)
     p.add_argument("--note", required=True)
+    p.add_argument("--human-decision", help="用户同意再查一轮的原话")
     p.add_argument(
         "--keep-layers",
         action="store_true",
@@ -2009,6 +2253,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_root_state(p)
     p.add_argument("--path", required=True, help="新的 hashed L3 精确句文件")
     p.add_argument("--note", required=True)
+    p.add_argument("--human-decision", help="用户同意只改这一句的原话")
     p.add_argument("--set-artifact", action="append", metavar="KEY=PATH")
     p.add_argument("--next-action")
     p.add_argument("--no-validate", action="store_true")
@@ -2148,6 +2393,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--boundary-lost", action="append")
     p.add_argument("--output", required=True)
     p.set_defaults(func=cmd_register_instance_probe)
+
+    p = sub.add_parser("explain", help="用白话说明现在走到哪、要不要人点头")
+    add_root_state(p)
+    p.set_defaults(func=cmd_explain)
+
+    p = sub.add_parser("judge", help="节点快筛：该停还是继续记账")
+    add_root_state(p)
+    p.add_argument(
+        "--jev",
+        action="store_true",
+        help="用 Jev 看这一页像不像空话；不能放宽停点",
+    )
+    p.set_defaults(func=cmd_judge)
 
     p = sub.add_parser("handover", help="按 SKILL.md §10 生成交接报告")
     p.add_argument("--root", type=Path, required=True)

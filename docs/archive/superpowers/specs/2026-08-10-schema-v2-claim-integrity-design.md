@@ -1,4 +1,4 @@
-> **状态：已归档（2026-08-11）**。本文件是 Schema 2.0 实施前的设计/计划档案，内容可能已过时；现行规范以 SKILL.md、templates.md 与 scripts/ 校验器为准。
+> 这是旧档案，不要当现在的用法。人看 [../../../给人看.md](../../../给人看.md)。程序以仓库根目录的 SKILL.md 为准。
 
 # Innovation Proposition Hunting Schema v2: Claim Integrity Design
 

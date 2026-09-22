@@ -1,9 +1,8 @@
-# 产物模板（`workflow_state.json` 为 Schema 3.0，其余产物仍为 Schema 2.0）
+# 要填的表格
 
-这里集中定义 validator 消费的字段。所有路径均为研究根目录下的 canonical relative
-POSIX path；所有 SHA-256 均为 64 位小写十六进制；`validation_epoch` 必须与 state
-一致。示例中的 `<...>` 必须替换，不能原样提交。研究卡片可自由扩展，但不得改写
-这些机器合同。
+这篇是程序要填的字段。`workflow_state.json` 用 3.0，其余表仍用 2.0。人不用背这些字段。要看自己该不该点头，读 [docs/给人看.md](docs/给人看.md)。
+
+路径都相对课题文件夹，用正斜杠。哈希是 64 位小写。轮次编号必须和状态文件一致。例子里的 `<...>` 要换成真的，不能原样交上去。卡片可以多写你自己的话，不能改这些机器要读的字段。
 
 ## 1. `workflow_state.json`
 
@@ -112,8 +111,11 @@ CLAIM_FREEZE -> VALIDITY_AUDIT:
   --claim-bundle-manifest audit_manifest.json（CLI 派生 V1 并登记当前 epoch bundle）
 VALIDITY_AUDIT -> INDEPENDENT_REVIEW: CLI 派生 V2
 DIRECTION_LOCK -> COMPLETE:
-  --accept-complete --acceptance-note <用户接受本次立题交接的原句>
-  （必须同时含接受动词、锁定/立题/交接对象和本次/this；计算授权不够）
+  --accept-complete --acceptance-note <用户自己说的那句>
+  （要有接受或同意、题目或立题或交接、这次或本次，并带上项目编号。只说继续不算）
+离开 SCOPE_LOCK、L1_FREEZE、LAYER_DECISION、N0_AUDIT，以及从 N0-3 再查一轮或只改句子：
+  --human-decision <用户原话>
+  整句只是「继续」「完成全流程」时 CLI 拒绝，状态不动。
 DIRECTION_LOCK -> COMPUTE：新项目禁止。实验不在 IPH 内。
 COMPUTE -> POSTCOMPUTE_CLAIM_FREEZE:（仅已进入 COMPUTE 的旧项目）
   --compute-evidence compute_evidence.json（必须声明 S4）

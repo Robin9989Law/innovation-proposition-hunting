@@ -9,12 +9,13 @@ description: >-
   and writing are independent work.
 ---
 
-# 创新命题狩猎：Schema 3.0 强制协议
+# 创新命题狩猎
 
-本技能只立题：把文献约束下的研究方向收敛成可证伪、可追溯、可审计的冻结命题。
-它同时审计两个正交问题：命题是否新（N 轴），以及准备声称的精确内容是否
-形式成立（V 轴）。新颖性不能代偿正确性，实验通过不能代偿定理，格式完整
-不能代偿证据。题目锁定后必须脱离本技能；后续实验与论文写作为独立工作。
+这个文件是给程序执行的。人要看懂，读 [docs/给人看.md](docs/给人看.md)。
+
+它只把题目定下来。要查两件事：这句话新不新，以及准备写进论文的那一句在形式上站不站得住。新不能代替对，实验通过不能代替证明，表格填满不能代替证据。题目定了就离开。实验和写论文另外做。
+
+默认工作是五页人能读的东西，见 §3。后面的门是检查合同，不是第二套研究计划。
 
 ## 1. 规范词与资源路由
 
@@ -34,6 +35,8 @@ description: >-
 | 立题期实例探针；S1–S4 不在 IPH | [compute-funnel.md](compute-funnel.md) |
 | 复核硬 FAIL、立题交接、exact 对齐 | [hard-gates.md](hard-gates.md) |
 | 诊断已知反模式 | [case-lessons.md](case-lessons.md) |
+| 对人说明现在走到哪、该不该点头 | [docs/给人看.md](docs/给人看.md) |
+| 这一步该停、继续记账，还是这页是空的 | `iph judge`；`--jev` 才做内容快筛 |
 
 详细字段只在 [templates.md](templates.md) 定义；本文件不复制模板字段。
 
@@ -88,17 +91,20 @@ python3 <skill>/scripts/migrate_v1_to_v2.py \
 
 ## 3. 双轴状态机
 
+新课题只走下面五段。每一段先写一页人能读的东西，到停点就停。表里的状态名是这一段里的记账顺序，不能跳，也不是五段以外的研究任务。删掉以后判断不变的句子不要写。READY 只说明格式过了。别人做过，或能从旧结果推出来，停在 `N0_AUDIT` 就是做完。收下题目后进入 `COMPLETE`，不得进入 `COMPUTE`。走偏了只有撤回、再查一轮、只改一句、复核退回、卡住、旧项目实验这几条，见 [docs/给人看.md](docs/给人看.md)，不要自己另开流程。
+
+| 段 | 停下来等人 | 段内顺序 |
+|---|---|---|
+| 定范围 | `SCOPE_LOCK` | `BOOT` → `SCOPE_LOCK` |
+| 写研究卡片 | `L1_FREEZE` | `PRIOR_CLAIM_DRAIN` → `RECENT_FRONTIER` → `LITERATURE_REGISTER` → `L1_FREEZE` |
+| 写近邻表 | `LAYER_DECISION` | `L2_TRIAGE` → `LAYER_DECISION` |
+| 试着推翻 | `N0_AUDIT` | `K_FULLTEXT` → `K_CLAIM_REGISTER` → `SYNTHESIZE_COLLISION` → `OUTPUT_CLAIM_BIND` → `EVIDENCE_VALIDATE` → `N0_AUDIT` |
+| 定下那一句 | `DIRECTION_LOCK` | `CLAIM_FREEZE` → `VALIDITY_AUDIT` → `INDEPENDENT_REVIEW` → `DIRECTION_LOCK` → `COMPLETE` |
+
+离开前四个停点必须 `--human-decision`。第五段用 `--accept-complete`。
+研究卡片是快判：只看题目和摘要，写成红海、蓝海或看不清。离开 `L1_FREEZE` 的原话里要写这句，以及决心大、中或小。决心越大，慢路线挖缝越深；决心小，红海就停，不许换场景逃避。够不够，不靠整句相似：对象和动作都对上才算碰上，再看摘要里那一句是占住还是能推出来。是不是同一个东西必须用户原话写明；「不是同一个东西」不能离开 `L1_FREEZE`。锚点的一圈用参考文献和被引列表，不再搜词。圈只重画一次。决心只决定这一圈读多深：小停在锚点摘要，中读锚点全文，大读圈上危险的几篇。12、20、100 都是天花板，不是要读满的数量。记账前先跑 `iph judge`。加上 `--jev` 时 Jev 只给大致看法。密钥只放环境变量 `TYPESAFE_API_KEY`。快筛不能放宽停点，也不判断新不新。
+
 ### 3.1 新颖性轴
-
-先冻结成果合同和 scope，再按下列顺序执行（三段式：L1_SCOUT 段只动元数据，
-L2_TRIAGE 段试读并选拔 K 集合，L3_EVIDENCE 段只对 K 集合跑全重机器）：
-
-```text
-BOOT → SCOPE_LOCK → PRIOR_CLAIM_DRAIN → RECENT_FRONTIER
-→ LITERATURE_REGISTER → L1_FREEZE → L2_TRIAGE → LAYER_DECISION
-→ K_FULLTEXT → K_CLAIM_REGISTER → SYNTHESIZE_COLLISION
-→ OUTPUT_CLAIM_BIND → EVIDENCE_VALIDATE → N0_AUDIT
-```
 
 博士合同为 `THREE_ORGANIC_A_B_C`；期刊合同为 `ONE_MAIN_M`。L3 必须来自同一
 连续研究链中的 `K → U → Δ`，并对齐 O/I/A/T/C/R/B。只改 L3 精确句、不改 L1/L2/K
@@ -448,7 +454,10 @@ N level、V level、claim profile、validation epoch、bundle hash、frontier/�
 独立 reviewer provenance、四退出码中的最终值、blocked reasons 和唯一
 `next_required_action`。避免“基本完成”“大致有效”等非状态词。标准动作：
 `iph handover`（从机器状态自动生成交接报告）；本清单是唯一权威版本，其他文档
-引用本节，不复制。
+引用本节，不复制。对人先跑 `iph explain`，按 [docs/给人看.md](docs/给人看.md)
+说话。五个停点必须等用户自己的话。「继续」不算看过。离开 `SCOPE_LOCK`、
+`L1_FREEZE`、`LAYER_DECISION`、`N0_AUDIT` 必须带 `--human-decision`。
+段内状态是记账，不要为过门去写删了也不影响判断的句子。
 
 > 核心纪律：先证明候选达到 N0-4C，再冻结准备声称的 exact claim；用 form-sensitive
 > audit 证明它可被反驳和复现，用不同 agent 审精确 bundle；V3 方向锁定并经用户
@@ -492,6 +501,7 @@ INVALID（§9）。
 | R-AXIS-22 | 停止轴必须是已声明 `inputs` 或 `generated` 的函数；exact 句写了 `p_loc` 却未声明 `p` 即 `AXIS_NOT_IN_INPUT` | §3.1、templates §16 |
 | R-G4-23 | G4 角色含 `RECONSTRUCTION`；走查/非阈值/跨系统推断不得单独支撑 N0-4C | §3.1、templates §12.1 |
 | R-COMP-24 | N0-4C 必须登记并杀死 `POSTHOC_LABEL`/`SCHEMA_EXTENSION`/`RENAME`；`KILLED` 须有 `kill_claim_ids` 且 `whole_mapping_separates=true`；仍活或未尝试则 CLI 拒锁 | §3.1、templates §17 |
+| R-HUMAN-32 | 对人用白话。默认只走五段，段内状态是记账。五个停点必须等用户自己的话；「继续」不算看过。离开范围、研究卡片、近邻表、新不新须 `--human-decision`。离开研究卡片还要写红海、蓝海或看不清，以及决心大、中或小 | docs/给人看.md |
 
 ## 12. 修改技能仓库的自律规则
 
