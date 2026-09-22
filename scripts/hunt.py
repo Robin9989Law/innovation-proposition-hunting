@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""用最近近邻当跳板，走进紧密圈子，再沿最短的路到核心。
+"""用最近近邻当跳板，找到紧密的主题生态，再直指主题核心。
 
-跳板不必在核心里。紧密圈子只留它近三年、并且彼此有引用的直接前作和后续。
-只读核心全文，写下开放命题。
+近三年只限制最多看多少篇。生态里反复去掉只连着一篇的论文，剩下的每篇至少连着两篇，内核才算紧密。
+内核不紧密，或者指不到核心，就换近邻，最多换 10 次。
+全程只看题目和摘要，不必读全文。
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from typing import Any
 STATE_NAME = "neighbor_hunt.json"
 FATES = ("没有价值", "已经被攻克")
 RECENT_SPAN = 2
+SWITCH_LIMIT = 10
 
 
 def normalize(text: str) -> str:
@@ -164,7 +166,7 @@ def parse_fate(text: str) -> str:
     reject_question(text)
     hits = [name for name in FATES if name in text]
     if len(hits) != 1:
-        raise SystemExit("近三年收不成圈子。你写没有价值，或已经被攻克。两个都写，或都不写，都不算。")
+        raise SystemExit("走不到紧密核心。你写没有价值，或已经被攻克。两个都写，或都不写，都不算。")
     return hits[0]
 
 
@@ -197,16 +199,14 @@ def neighbor_links(state: dict[str, Any], paper_ids: list[str]) -> dict[str, set
 
 
 def tight_members(state: dict[str, Any], paper_ids: list[str]) -> list[str]:
-    """彼此至少有一条引用的那些留下。只连着跳板、彼此不连的丢掉。"""
-    if len(paper_ids) <= 1:
-        return list(paper_ids)
+    """反复去掉连着不到两篇的论文。剩下的每篇至少连着两篇，内核才算紧密。"""
     links = neighbor_links(state, paper_ids)
     remaining = set(paper_ids)
     while True:
         loose = [
             paper_id
             for paper_id in remaining
-            if not (links[paper_id] & (remaining - {paper_id}))
+            if len(links[paper_id] & (remaining - {paper_id})) < 2
         ]
         if not loose:
             break
@@ -288,6 +288,7 @@ def _base(
     old: int = 0,
     circle: list[str] | None = None,
     core_id: str | None = None,
+    switch_reason: str = "",
 ) -> dict[str, Any]:
     return {
         "kind": kind,
@@ -301,7 +302,70 @@ def _base(
         "core_id": core_id,
         "path": [],
         "note": note,
+        "switch_reason": switch_reason,
     }
+
+
+def _walk_started(state: dict[str, Any], anchor: dict[str, Any]) -> bool:
+    return any(state["topic"].get(paper_id) is not None for paper_id in ring_ids(anchor))
+
+
+def _fail(anchor_id: str, reason: str, dropped: int, old: int) -> dict[str, Any]:
+    note = "内核不紧密。" if reason == "loose" else "不收敛。"
+    return _base(
+        kind="fate",
+        phase="circle",
+        note=note,
+        anchor_id=anchor_id,
+        dropped=dropped,
+        old=old,
+        switch_reason=reason,
+    )
+
+
+def _switch_sentence(failed: list[tuple[str, str]]) -> str:
+    labels = {"loose": "内核不紧密", "diverge": "不收敛"}
+    return "".join(f"近邻 {paper_id} {labels.get(reason, reason)}。" for paper_id, reason in failed)
+
+
+def _switch_ask_note(failed: list[tuple[str, str]]) -> str:
+    return (
+        _switch_sentence(failed)
+        + f"第 {len(failed)} 次换近邻，最多 {SWITCH_LIMIT} 次。"
+        + "只看题目和摘要。"
+    )
+
+
+def _stop_for_failed(
+    state: dict[str, Any], failed: list[tuple[str, str]], dropped: int, capped: bool
+) -> dict[str, Any]:
+    anchor_id = failed[-1][0]
+    if state.get("fate"):
+        return _base(
+            kind="closed",
+            phase="closed",
+            note=f"你的判断：{state['fate']}。",
+            anchor_id=anchor_id,
+            dropped=dropped,
+        )
+    if capped:
+        note = (
+            _switch_sentence(failed)
+            + f"已经换了 {SWITCH_LIMIT} 次近邻，到上限了。"
+            + "还是没有紧密的主题生态，也指不到主题核心。"
+            + "你写没有价值，或已经被攻克。"
+        )
+    else:
+        switched = max(len(failed) - 1, 0)
+        used = f"已换 {switched} 次，最多 {SWITCH_LIMIT} 次。" if switched else ""
+        note = _switch_sentence(failed) + used + "没有下一个近邻了。你写没有价值，或已经被攻克。"
+    return _base(
+        kind="fate",
+        phase="circle",
+        note=note,
+        anchor_id=anchor_id,
+        dropped=dropped,
+    )
 
 
 def after_anchor(state: dict[str, Any], anchor_id: str) -> dict[str, Any]:
@@ -338,15 +402,9 @@ def after_anchor(state: dict[str, Any], anchor_id: str) -> dict[str, Any]:
         )
     members = tight_members(state, recent_hits)
     if not members:
+        reason = "diverge" if _walk_started(state, anchor) else "loose"
         if not state.get("fate"):
-            return _base(
-                kind="fate",
-                phase="circle",
-                note="跳板旁边的近三年论文彼此不连，或者一篇都没有。收不成紧密圈子。你写没有价值，或已经被攻克。",
-                anchor_id=anchor_id,
-                dropped=dropped,
-                old=old,
-            )
+            return _fail(anchor_id, reason, dropped, old)
         return _base(
             kind="closed",
             phase="closed",
@@ -354,19 +412,22 @@ def after_anchor(state: dict[str, Any], anchor_id: str) -> dict[str, Any]:
             anchor_id=anchor_id,
             dropped=dropped,
             old=old,
+            switch_reason=reason,
         )
     chosen = state.get("core_id")
-    if chosen and chosen not in members:
-        raise SystemExit("核心必须在紧密圈子里。")
+    if chosen not in members:
+        chosen = None
     core_id = chosen or suggest_core(state, members)
     links = neighbor_links(state, members)
     path = shortest_path(links, members[0], core_id, members)
+    if path[-1] != core_id:
+        return _fail(anchor_id, "diverge", dropped, old)
     for paper_id in path:
         if state["topic"].get(paper_id) is None:
             step = path.index(paper_id) + 1
             note = (
-                f"从跳板往核心走，第 {step} 步，共 {len(path)} 步。"
-                + ("这一篇是核心。" if paper_id == core_id else "先确认它在圈子里。")
+                f"从跳板直指主题核心，第 {step} 步，共 {len(path)} 步。只看题目和摘要。"
+                + ("这一篇是主题核心。" if paper_id == core_id else "先确认它在主题生态里。")
             )
             return _base(
                 kind="ask",
@@ -383,7 +444,7 @@ def after_anchor(state: dict[str, Any], anchor_id: str) -> dict[str, Any]:
         return _base(
             kind="open",
             phase="open",
-            note="读这一篇的全文，写下它悬而未决的命题。这一句是创新突破的思路，也是有攻关价值的地方。",
+            note="看这一篇的题目和摘要，写下它悬而未决的命题。不必读全文。这一句直指主题核心，是创新突破的思路，也是有攻关价值的地方。",
             anchor_id=anchor_id,
             dropped=dropped,
             old=old,
@@ -404,39 +465,48 @@ def after_anchor(state: dict[str, Any], anchor_id: str) -> dict[str, Any]:
 
 def present(state: dict[str, Any]) -> dict[str, Any]:
     dropped = 0
-    anchor_id: str | None = None
+    failed: list[tuple[str, str]] = []
     for paper in state["papers"]:
         if not slot_hit(state, paper):
             dropped += 1
             continue
         decision = state["decisions"].get(paper["id"])
         if decision is None:
+            if len(failed) > SWITCH_LIMIT:
+                return _stop_for_failed(state, failed, dropped, capped=True)
+            if failed:
+                note = _switch_ask_note(failed)
+            else:
+                note = "还没有最近近邻。按最近的顺序看题目和摘要。不要拿自己的观点去对。不必读全文。"
             return _base(
                 kind="ask",
                 phase="scan",
-                note="还没有最近近邻。按最近的顺序看题目和摘要。不要拿自己的观点去对。",
+                note=note,
                 paper=paper,
                 dropped=dropped,
             )
-        if is_hotspot(decision):
-            anchor_id = paper["id"]
-            break
-    if anchor_id is None:
-        if not state["papers"]:
-            return _base(
-                kind="empty",
-                phase="scan",
-                note="名单是空的。按最近的顺序加论文，只加题目、摘要和年份。",
-            )
+        if not is_hotspot(decision):
+            continue
+        result = after_anchor(state, paper["id"])
+        if result.get("switch_reason"):
+            failed.append((paper["id"], result["switch_reason"]))
+            continue
+        result["dropped"] += dropped
+        return result
+    if failed:
+        return _stop_for_failed(state, failed, dropped, capped=len(failed) > SWITCH_LIMIT)
+    if not state["papers"]:
         return _base(
-            kind="unclear",
-            phase="unclear",
-            note="看不清。还没有你确认的最近近邻。不要把领域扫一遍。",
-            dropped=dropped,
+            kind="empty",
+            phase="scan",
+            note="名单是空的。按最近的顺序加论文，只加题目、摘要和年份。",
         )
-    result = after_anchor(state, anchor_id)
-    result["dropped"] += dropped
-    return result
+    return _base(
+        kind="unclear",
+        phase="unclear",
+        note="看不清。还没有你确认的最近近邻。不要把领域扫一遍。",
+        dropped=dropped,
+    )
 
 
 def render(state: dict[str, Any], result: dict[str, Any]) -> str:
@@ -444,17 +514,19 @@ def render(state: dict[str, Any], result: dict[str, Any]) -> str:
     if result["dropped"]:
         lines.append(f"对不上的已丢掉 {result['dropped']} 篇。对象和动作要两处都中。")
     if result["old"]:
-        lines.append(f"三年前的直接文献不进圈子：{result['old']} 篇。")
+        lines.append(f"近三年只限制最多看多少篇。更早的这轮先不看：{result['old']} 篇。")
     if result["missing"]:
         lines.append("这些编号还没进名单，补年份、题目和摘要，不要搜词：")
         lines.extend(f"- {paper_id}" for paper_id in result["missing"])
     if result["circle"]:
-        lines.append("最小圈子：" + "、".join(result["circle"]))
+        lines.append("主题生态：" + "、".join(result["circle"]))
     kind = result["kind"]
     if kind == "ask":
         paper = result["paper"]
         if result["anchor_id"]:
-            lines.append(f"跳板：{result['anchor_id']}。近三年是 {window_label(state)}。")
+            lines.append(
+                f"跳板：{result['anchor_id']}。近三年是 {window_label(state)}，只限制最多看多少篇。"
+            )
         lines.append(result["note"])
         lines.append(f"编号：{paper['id']}")
         lines.append(f"年份：{paper['year']}")
@@ -469,20 +541,24 @@ def render(state: dict[str, Any], result: dict[str, Any]) -> str:
         lines.append(f"建议的核心：{result['core_id']}")
         lines.append(result["note"])
     elif kind == "open":
+        core = paper_by_id(state, result["core_id"]) if result.get("core_id") else None
         lines.append(f"跳板：{result['anchor_id']}")
-        lines.append(f"核心：{result['core_id']}")
+        lines.append(f"主题核心：{result['core_id']}")
+        if core is not None:
+            lines.append(f"题目：{core['title']}")
+            lines.append(f"摘要：{core['abstract']}")
         lines.append(result["note"])
     elif kind == "done":
         lines.append(f"跳板：{result['anchor_id']}")
-        lines.append(f"核心：{result['core_id']}")
+        lines.append(f"主题核心：{result['core_id']}")
         lines.append(f"悬而未决：{result['note']}")
-        lines.append("这一句是创新突破的思路，也是有攻关价值的地方。")
+        lines.append("这一句从摘要里来，直指主题核心，是创新突破的思路，也是有攻关价值的地方。不必读全文。")
     elif kind == "closed":
         lines.append(f"跳板：{result['anchor_id']}")
         lines.append(result["note"])
     elif kind == "fate":
         lines.append(f"跳板：{result['anchor_id']}")
-        lines.append(f"近三年是 {window_label(state)}。")
+        lines.append(f"近三年是 {window_label(state)}，只限制最多看多少篇。")
         lines.append(result["note"])
     else:
         if result.get("anchor_id"):
@@ -540,7 +616,7 @@ def mark_open(state: dict[str, Any], text: str) -> None:
     _expect(state, "open")
     cleaned = " ".join(text.split())
     if cleaned in {"继续", "好", "好的", "知道了"} or len(cleaned) < 4:
-        raise SystemExit("把核心里悬而未决的那一句写下来。没有的话，写没有悬而未决。")
+        raise SystemExit("看主题核心的题目和摘要，把悬而未决的那一句写下来。不必读全文。没有的话，写没有悬而未决。")
     state["open_problem"] = cleaned
 
 
@@ -554,7 +630,8 @@ def cmd_init(args: argparse.Namespace) -> None:
     save_state(root, blank_state(args.object, args.action, this_year))
     print(f"对象：{args.object.strip()}")
     print(f"动作：{args.action.strip()}")
-    print(f"近三年是 {this_year - RECENT_SPAN}–{this_year}。")
+    print(f"近三年是 {this_year - RECENT_SPAN}–{this_year}，只限制最多看多少篇。")
+    print(f"换近邻最多 {SWITCH_LIMIT} 次。全程只看题目和摘要，不必读全文。")
     print("对象和动作是热点的叫法，不是你要证明的句子。")
     print("同义词之后用 add-name 加上。没有写明的叫法不能拿来匹配。")
 
@@ -683,7 +760,7 @@ def build_parser() -> argparse.ArgumentParser:
     topic.add_argument("--words", required=True)
     topic.set_defaults(func=cmd_topic)
 
-    fate = sub.add_parser("fate", help="近三年收不成圈子时，写下没有价值或已经被攻克")
+    fate = sub.add_parser("fate", help="近邻都换完仍走不到紧密核心时，写下没有价值或已经被攻克")
     fate.add_argument("--root", type=Path, default=Path("."))
     fate.add_argument("--words", required=True)
     fate.set_defaults(func=cmd_fate)
