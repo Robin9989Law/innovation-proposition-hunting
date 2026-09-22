@@ -561,7 +561,7 @@ class AdvanceTests(unittest.TestCase):
                 "--note",
                 "reopen L2",
                 "--human-decision",
-                "范围卡片我看过了，这片是红海，我的决心中，同意进入下一小块",
+                "范围卡片我看过了，是同一个东西，这片是红海，我的决心中，同意进入下一小块",
                 "--no-validate",
             )
             self.assertEqual(0, completed.returncode, completed.stdout)
@@ -571,6 +571,7 @@ class AdvanceTests(unittest.TestCase):
             resolve = load_json(project / "dig_resolve.json")
             self.assertEqual("红海", resolve["ocean"])
             self.assertEqual("中", resolve["resolve"])
+            self.assertIs(True, resolve["same_thing"])
 
     def test_advance_rejects_skipped_positive_state(self) -> None:
         temporary_directory, project = self.make_boot_project()
@@ -1894,12 +1895,19 @@ class PlainLanguageStopTests(unittest.TestCase):
         self.assertIn("动作", fast)
         self.assertIn("一圈", fast)
         self.assertIn("100 篇", fast)
+        self.assertIn("同一个东西", fast)
         self.assertEqual(
             ("蓝海", "中"),
-            node_judge.parse_fast_decision("这片是蓝海，我的决心中"),
+            node_judge.parse_fast_decision("是同一个东西。这片是蓝海，我的决心中"),
         )
         with self.assertRaises(SystemExit):
             node_judge.parse_fast_decision("同意往下")
+        with self.assertRaises(SystemExit) as caught:
+            node_judge.parse_fast_decision("不是同一个东西。这片是红海，我的决心大")
+        self.assertIn("不能当锚点", str(caught.exception))
+        with self.assertRaises(SystemExit) as question:
+            node_judge.parse_fast_decision("是不是同一个东西。这片是红海，我的决心大")
+        self.assertIn("不要写成问句", str(question.exception))
 
     def test_leaving_the_card_without_resolve_stays_put(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V0")
@@ -1922,7 +1930,7 @@ class PlainLanguageStopTests(unittest.TestCase):
                 "--no-validate",
             )
             self.assertNotEqual(0, refused.returncode)
-            self.assertIn("决心", refused.stderr)
+            self.assertIn("同一个东西", refused.stderr)
             self.assertEqual(before, load_json(project / "workflow_state.json"))
             self.assertFalse((project / "dig_resolve.json").exists())
 

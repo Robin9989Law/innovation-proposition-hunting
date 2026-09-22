@@ -130,7 +130,9 @@ FAST_ENOUGH = (
     "先把你的话拆成对象和动作。两处都对上，才算碰上；只对上一处，丢掉。"
     "对上之后只看摘要里的那一句：占住了你的话，或能从它推出来，才是危险。题目像不算。"
     "同义词只用范围里已经写明的叫法，不临时加词。"
-    "第一篇这样危险的，就是锚点。"
+    "对象是不是同一个东西，要你自己写。"
+    "没写，或者你写不是同一个东西，这篇就不能当锚点。"
+    "第一篇你确认是同一个东西、而且这样危险的，才是锚点。"
     "然后一圈不再搜词：用这篇的参考文献和被引列表，只取直接前作和直接后续。"
     "不搜前作的前作。这一圈看完，判断不变，就够了。"
     "圈外若出现更危险的一篇，它变成新锚点，圈只重画一次。"
@@ -196,7 +198,32 @@ def _score(answers: dict[str, Any] | None, key: str) -> float | None:
 
 
 def parse_fast_decision(text: str) -> tuple[str, str]:
-    """从用户原话里取出红海/蓝海/看不清，以及决心大/中/小。"""
+    """从用户原话里取出红海/蓝海/看不清、决心，以及是不是同一个东西。"""
+    # 「是不是」里嵌着「不是」，要先单独看问句，不能当成已经否定。
+    if "是不是同一个东西" in text:
+        raise SystemExit(
+            "是不是同一个东西，要写死。"
+            "是同一个东西，才能往下。不是同一个东西，就换一篇。"
+            "不要写成问句。"
+        )
+    rejected = "不是同一个东西" in text
+    confirmed = "是同一个东西" in text.replace("不是同一个东西", "")
+    if rejected and confirmed:
+        raise SystemExit(
+            "是不是同一个东西，要写死。"
+            "是同一个东西，才能往下。不是同一个东西，就换一篇。"
+            "不要写成问句。"
+        )
+    if rejected:
+        raise SystemExit(
+            "你说不是同一个东西。这篇不能当锚点。"
+            "换一篇，等你确认是同一个东西，再离开研究卡片。"
+        )
+    if not confirmed:
+        raise SystemExit(
+            "对象是不是同一个东西，要你自己写。"
+            "是同一个东西，才能往下。不是同一个东西，就换一篇。"
+        )
     oceans = [name for name in OCEANS if name in text]
     resolves = [
         level
@@ -210,7 +237,7 @@ def parse_fast_decision(text: str) -> tuple[str, str]:
         raise SystemExit(
             "离开研究卡片之前，你自己的话里要写清两件："
             "这片是红海、蓝海还是看不清，以及决心是大、中还是小。"
-            "例如：这片是红海，我的决心中。"
+            "例如：是同一个东西。这片是红海，我的决心中。"
         )
     return oceans[0], resolves[0]
 
@@ -220,7 +247,12 @@ def dig_instruction(ocean: str, resolve: str) -> str:
 
 
 def write_dig_resolve(root: Path, ocean: str, resolve: str, note: str) -> None:
-    payload = {"ocean": ocean, "resolve": resolve, "human_decision": note}
+    payload = {
+        "ocean": ocean,
+        "resolve": resolve,
+        "same_thing": True,
+        "human_decision": note,
+    }
     path = root / RESOLVE_FILE
     path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
