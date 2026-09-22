@@ -239,6 +239,58 @@ class CircleTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             hunt.mark_open(state, "继续")
 
+    def test_four_checks_are_measured_on_the_triangle(self) -> None:
+        state = base(
+            paper("跳", "负荷时移", "负荷，时移。", cited_by=["前", "后", "丙", "孤"], year=2019),
+            paper("前", "负荷时移前作", "负荷，时移。", references=["跳", "后", "丙"], year=2025),
+            paper("后", "负荷时移后续", "负荷，时移。", references=["跳", "前", "丙"], year=2024),
+            paper("丙", "负荷时移三角", "负荷，时移。", references=["跳", "前", "后"], year=2026),
+            paper("孤", "负荷时移孤单", "负荷，时移。", references=["跳"], year=2026),
+        )
+        hunt.decide(state, "跳", "是最近的")
+        result = hunt.present(state)
+        self.assertEqual(["前", "后"], result["path"])
+        self.assertEqual(2, result["tightness"])
+        self.assertEqual(2, result["core_links"])
+        self.assertEqual(1, result["hops"])
+        self.assertEqual(2, result["step_bound"])
+        self.assertLessEqual(result["hops"], result["step_bound"])
+        self.assertIn("近邻是真的近", result["note"])
+        self.assertIn("找到圈子", result["note"])
+        self.assertIn("至少连着 2 篇", result["note"])
+        self.assertIn("最多 2 步", result["note"])
+        self.assertIn("不往外扩", result["note"])
+        self.assertNotIn("孤", result["circle"])
+
+    def test_tighter_component_beats_the_earlier_triangle(self) -> None:
+        state = base(
+            paper("跳", "负荷时移", "负荷，时移。", cited_by=["前", "后", "丙", "甲", "乙", "丁", "戊"], year=2019),
+            paper("前", "负荷时移前", "负荷，时移。", references=["跳", "后", "丙"], year=2026),
+            paper("后", "负荷时移后", "负荷，时移。", references=["跳", "前", "丙"], year=2026),
+            paper("丙", "负荷时移丙", "负荷，时移。", references=["跳", "前", "后"], year=2026),
+            paper("甲", "负荷时移甲", "负荷，时移。", references=["跳", "乙", "丁", "戊"], year=2024),
+            paper("乙", "负荷时移乙", "负荷，时移。", references=["跳", "甲", "丁", "戊"], year=2025),
+            paper("丁", "负荷时移丁", "负荷，时移。", references=["跳", "甲", "乙", "戊"], year=2026),
+            paper("戊", "负荷时移戊", "负荷，时移。", references=["跳", "甲", "乙", "丁"], year=2026),
+        )
+        hunt.decide(state, "跳", "是最近的")
+        result = hunt.present(state)
+        self.assertEqual(["甲", "乙", "丁", "戊"], result["circle"])
+        self.assertEqual("甲", result["paper"]["id"])
+        self.assertEqual("甲", result["core_id"])
+        self.assertEqual(3, result["tightness"])
+        self.assertEqual(0, result["hops"])
+        self.assertEqual(3, result["step_bound"])
+        self.assertLessEqual(result["hops"], result["step_bound"])
+        self.assertNotIn("前", result["circle"])
+
+    def test_nearness_names_the_hits_before_the_reader_decides(self) -> None:
+        state = base(paper("甲", "负荷时移甲", "只在摘要里写了负荷和时移。"))
+        note = hunt.present(state)["note"]
+        self.assertIn("对象「负荷」", note)
+        self.assertIn("动作「时移」", note)
+        self.assertIn("近不近要你写死", note)
+
     def test_loose_shapes_have_no_kernel(self) -> None:
         chain = base(
             paper("链头", "负荷时移链头", "负荷，时移。", references=["链中"], year=2024),

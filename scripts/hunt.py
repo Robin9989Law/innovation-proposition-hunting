@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """用最近近邻当跳板，找到紧密的主题生态，再直指主题核心。
 
-近三年只限制最多看多少篇。生态里反复去掉只连着一篇的论文，剩下的每篇至少连着两篇，内核才算紧密。
-内核不紧密，或者指不到核心，就换近邻，最多换 10 次。
+四件事要能核对：近邻是不是真的近，能不能通过它找到圈子，紧密程度有没有数对，进核心是不是有限步。
+近三年只限制最多看多少篇。最密的那一团里，每篇至少连着两篇。
+内核不紧密，或者有限步进不到核心，就换近邻，最多换 10 次。
 全程只看题目和摘要，不必读全文。
 """
 
@@ -120,13 +121,26 @@ def window_label(state: dict[str, Any]) -> str:
     return f"{start}–{state['this_year']}"
 
 
-def slot_hit(state: dict[str, Any], paper: dict[str, Any]) -> bool:
+def slot_hits(state: dict[str, Any], paper: dict[str, Any]) -> tuple[list[str], list[str]]:
     text = normalize(f"{paper.get('title', '')}\n{paper.get('abstract', '')}")
     if not text:
-        return False
-    object_hit = any(normalize(name) in text for name in state["object_names"])
-    action_hit = any(normalize(name) in text for name in state["action_names"])
-    return object_hit and action_hit
+        return [], []
+    objects = [name for name in state["object_names"] if normalize(name) in text]
+    actions = [name for name in state["action_names"] if normalize(name) in text]
+    return objects, actions
+
+
+def slot_hit(state: dict[str, Any], paper: dict[str, Any]) -> bool:
+    objects, actions = slot_hits(state, paper)
+    return bool(objects) and bool(actions)
+
+
+def _near_prompt(state: dict[str, Any], paper: dict[str, Any]) -> str:
+    objects, actions = slot_hits(state, paper)
+    return (
+        f"对象「{'、'.join(objects)}」和动作「{'、'.join(actions)}」都在题目或摘要里。"
+        "这只说明方向碰上了。近不近要你写死。"
+    )
 
 
 def reject_question(text: str) -> None:
@@ -198,33 +212,73 @@ def neighbor_links(state: dict[str, Any], paper_ids: list[str]) -> dict[str, set
     return links
 
 
-def tight_members(state: dict[str, Any], paper_ids: list[str]) -> list[str]:
-    """反复去掉连着不到两篇的论文。剩下的每篇至少连着两篇，内核才算紧密。"""
-    links = neighbor_links(state, paper_ids)
-    remaining = set(paper_ids)
+def _min_degree(links: dict[str, set[str]], nodes: set[str]) -> int:
+    if not nodes:
+        return 0
+    return min(len(links[paper_id] & (nodes - {paper_id})) for paper_id in nodes)
+
+
+def _peel(links: dict[str, set[str]], nodes: set[str], minimum: int) -> set[str]:
+    remaining = set(nodes)
     while True:
         loose = [
             paper_id
             for paper_id in remaining
-            if len(links[paper_id] & (remaining - {paper_id})) < 2
+            if len(links[paper_id] & (remaining - {paper_id})) < minimum
         ]
         if not loose:
-            break
+            return remaining
         remaining.difference_update(loose)
-    ordered = [paper_id for paper_id in paper_ids if paper_id in remaining]
-    if not ordered:
-        return []
-    entry = ordered[0]
-    seen: list[str] = []
-    stack = [entry]
-    while stack:
-        current = stack.pop()
-        if current in seen:
+
+
+def _components(
+    links: dict[str, set[str]], nodes: set[str], order: list[str]
+) -> list[list[str]]:
+    seen: set[str] = set()
+    groups: list[list[str]] = []
+    for start in order:
+        if start not in nodes or start in seen:
             continue
-        seen.append(current)
-        stack.extend(links[current] & remaining)
-    seen_set = set(seen)
-    return [paper_id for paper_id in ordered if paper_id in seen_set]
+        stack = [start]
+        found: list[str] = []
+        while stack:
+            current = stack.pop()
+            if current in seen or current not in nodes:
+                continue
+            seen.add(current)
+            found.append(current)
+            stack.extend(links[current] & nodes)
+        found_set = set(found)
+        groups.append([paper_id for paper_id in order if paper_id in found_set])
+    return groups
+
+
+def tight_kernel(state: dict[str, Any], paper_ids: list[str]) -> tuple[list[str], int]:
+    """留下最密的那一团。每篇至少连着两篇才算圈子，密的一团优先于先碰到的松团。"""
+    links = neighbor_links(state, paper_ids)
+    order = list(paper_ids)
+    tightness = 0
+    remaining: set[str] = set()
+    while True:
+        peeled = _peel(links, set(order), tightness + 1)
+        if not peeled:
+            break
+        tightness += 1
+        remaining = peeled
+    if tightness < 2 or not remaining:
+        return [], 0
+    groups = _components(links, remaining, order)
+
+    def rank(group: list[str]) -> tuple[int, int, int]:
+        return (_min_degree(links, set(group)), len(group), -order.index(group[0]))
+
+    best = max(groups, key=rank)
+    return best, _min_degree(links, set(best))
+
+
+def tight_members(state: dict[str, Any], paper_ids: list[str]) -> list[str]:
+    members, _tightness = tight_kernel(state, paper_ids)
+    return members
 
 
 def shortest_path(
@@ -250,7 +304,7 @@ def shortest_path(
     return [start]
 
 
-def suggest_core(state: dict[str, Any], members: list[str]) -> str:
+def in_degrees(state: dict[str, Any], members: list[str]) -> dict[str, int]:
     member_set = set(members)
     counts = {paper_id: 0 for paper_id in members}
     seen_edges: set[tuple[str, str]] = set()
@@ -266,6 +320,11 @@ def suggest_core(state: dict[str, Any], members: list[str]) -> str:
             if citer in member_set and citer != paper_id and (citer, paper_id) not in seen_edges:
                 seen_edges.add((citer, paper_id))
                 counts[paper_id] += 1
+    return counts
+
+
+def suggest_core(state: dict[str, Any], members: list[str]) -> str:
+    counts = in_degrees(state, members)
     return sorted(
         members,
         key=lambda paper_id: (
@@ -289,6 +348,11 @@ def _base(
     circle: list[str] | None = None,
     core_id: str | None = None,
     switch_reason: str = "",
+    path: list[str] | None = None,
+    tightness: int = 0,
+    core_links: int = 0,
+    hops: int = 0,
+    step_bound: int = 0,
 ) -> dict[str, Any]:
     return {
         "kind": kind,
@@ -300,10 +364,36 @@ def _base(
         "old": old,
         "circle": circle or [],
         "core_id": core_id,
-        "path": [],
+        "path": path or [],
         "note": note,
         "switch_reason": switch_reason,
+        "tightness": tightness,
+        "core_links": core_links,
+        "hops": hops,
+        "step_bound": step_bound,
     }
+
+
+def _four_lines(
+    state: dict[str, Any],
+    anchor_id: str,
+    circle: list[str],
+    core_id: str,
+    tightness: int,
+    core_links: int,
+    hops: int,
+    step_bound: int,
+) -> str:
+    anchor = paper_by_id(state, anchor_id)
+    objects, actions = slot_hits(state, anchor) if anchor else ([], [])
+    return "\n".join(
+        [
+            f"近邻是真的近：对象「{'、'.join(objects)}」和动作「{'、'.join(actions)}」都在题目或摘要里，你写了是最近的。",
+            f"通过这篇近邻找到圈子：{'、'.join(circle)}。圈里每篇都直接连着它。",
+            f"紧密程度：每篇至少连着 {tightness} 篇。核心「{core_id}」在圈内被引 {core_links} 次。",
+            f"进入核心：最短 {hops} 步，最多 {step_bound} 步，不往外扩。",
+        ]
+    )
 
 
 def _walk_started(state: dict[str, Any], anchor: dict[str, Any]) -> bool:
@@ -324,7 +414,10 @@ def _fail(anchor_id: str, reason: str, dropped: int, old: int) -> dict[str, Any]
 
 
 def _switch_sentence(failed: list[tuple[str, str]]) -> str:
-    labels = {"loose": "内核不紧密", "diverge": "不收敛"}
+    labels = {
+        "loose": "内核不紧密，通过它找不到圈子",
+        "diverge": "不收敛，有限步进不到核心",
+    }
     return "".join(f"近邻 {paper_id} {labels.get(reason, reason)}。" for paper_id, reason in failed)
 
 
@@ -400,7 +493,7 @@ def after_anchor(state: dict[str, Any], anchor_id: str) -> dict[str, Any]:
             dropped=dropped,
             old=old,
         )
-    members = tight_members(state, recent_hits)
+    members, tightness = tight_kernel(state, recent_hits)
     if not members:
         reason = "diverge" if _walk_started(state, anchor) else "loose"
         if not state.get("fate"):
@@ -417,16 +510,32 @@ def after_anchor(state: dict[str, Any], anchor_id: str) -> dict[str, Any]:
     chosen = state.get("core_id")
     if chosen not in members:
         chosen = None
+    counts = in_degrees(state, members)
     core_id = chosen or suggest_core(state, members)
     links = neighbor_links(state, members)
     path = shortest_path(links, members[0], core_id, members)
-    if path[-1] != core_id:
+    hops = max(len(path) - 1, 0)
+    step_bound = max(len(members) - 1, 0)
+    core_links = counts.get(core_id, 0)
+    if path[-1] != core_id or hops > step_bound:
         return _fail(anchor_id, "diverge", dropped, old)
+    measured = dict(
+        path=path,
+        tightness=tightness,
+        core_links=core_links,
+        hops=hops,
+        step_bound=step_bound,
+    )
+    verdict = _four_lines(
+        state, anchor_id, members, core_id, tightness, core_links, hops, step_bound
+    )
     for paper_id in path:
         if state["topic"].get(paper_id) is None:
             step = path.index(paper_id) + 1
             note = (
-                f"从跳板直指主题核心，第 {step} 步，共 {len(path)} 步。只看题目和摘要。"
+                verdict
+                + "\n"
+                + f"圈内最短路第 {step} 篇，共 {len(path)} 篇。只看题目和摘要。"
                 + ("这一篇是主题核心。" if paper_id == core_id else "先确认它在主题生态里。")
             )
             return _base(
@@ -439,17 +548,19 @@ def after_anchor(state: dict[str, Any], anchor_id: str) -> dict[str, Any]:
                 old=old,
                 circle=members,
                 core_id=core_id,
+                **measured,
             )
     if not state.get("open_problem"):
         return _base(
             kind="open",
             phase="open",
-            note="看这一篇的题目和摘要，写下它悬而未决的命题。不必读全文。这一句直指主题核心，是创新突破的思路，也是有攻关价值的地方。",
+            note=verdict + "\n看主题核心的题目和摘要，写下它悬而未决的命题。不必读全文。这一句直指主题核心，是创新突破的思路，也是有攻关价值的地方。",
             anchor_id=anchor_id,
             dropped=dropped,
             old=old,
             circle=members,
             core_id=core_id,
+            **measured,
         )
     return _base(
         kind="done",
@@ -460,6 +571,7 @@ def after_anchor(state: dict[str, Any], anchor_id: str) -> dict[str, Any]:
         old=old,
         circle=members,
         core_id=core_id,
+        **measured,
     )
 
 
@@ -474,10 +586,11 @@ def present(state: dict[str, Any]) -> dict[str, Any]:
         if decision is None:
             if len(failed) > SWITCH_LIMIT:
                 return _stop_for_failed(state, failed, dropped, capped=True)
+            near = _near_prompt(state, paper)
             if failed:
-                note = _switch_ask_note(failed)
+                note = _switch_ask_note(failed) + near
             else:
-                note = "还没有最近近邻。按最近的顺序看题目和摘要。不要拿自己的观点去对。不必读全文。"
+                note = "还没有最近近邻。按最近的顺序看题目和摘要。不要拿自己的观点去对。不必读全文。" + near
             return _base(
                 kind="ask",
                 phase="scan",
