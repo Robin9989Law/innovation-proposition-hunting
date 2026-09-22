@@ -24,7 +24,7 @@ schema 3.0 起 active_track / active_layer / last_completed_state 不再持久�
   register-instance-probe   登记一条已授权实例探针结果
   handover                按 SKILL.md §10 生成交接报告
   explain                 用白话说明现在走到哪、要不要人点头
-  judge                   节点快筛：该停还是继续记账；--laya 才看这一页空不空
+  judge                   节点快筛：该停还是继续记账；--jev 才看这一页空不空
 """
 
 from __future__ import annotations
@@ -2055,12 +2055,12 @@ def cmd_explain(args: argparse.Namespace) -> int:
 
 
 def cmd_judge(args: argparse.Namespace) -> int:
-    from node_judge import format_report, load_page, run_laya
+    from node_judge import format_report, load_page, run_jev
 
     root = Path(args.root).resolve()
     state = _load_json_object(Path(args.state).resolve(), "workflow_state.json")
     page = load_page(root, state)
-    screen = run_laya(page) if args.laya else None
+    screen = run_jev(page) if args.jev else None
     print(format_report(state, page, screen))
     return int(ExitCode.READY)
 
@@ -2392,9 +2392,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("judge", help="节点快筛：该停还是继续记账")
     add_root_state(p)
     p.add_argument(
-        "--laya",
+        "--jev",
         action="store_true",
-        help="用 laya 多语言看这一页像不像空话；不能放宽停点",
+        help="用 Jev 看这一页像不像空话；不能放宽停点",
     )
     p.set_defaults(func=cmd_judge)
 

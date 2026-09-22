@@ -1844,10 +1844,22 @@ class PlainLanguageStopTests(unittest.TestCase):
             self.assertIn("该停", completed.stdout)
             self.assertNotIn("继续记账", completed.stdout)
 
-    def test_laya_cannot_loosen_a_human_stop(self) -> None:
+    def test_jev_needs_a_key_and_cannot_loosen_a_human_stop(self) -> None:
         sys.path.insert(0, str(REPOSITORY_ROOT / "scripts"))
+        import os
+
         import node_judge
 
+        self.assertEqual("https://api.typesafe.ai/v1/systemone", node_judge.JEV_URL)
+        self.assertEqual("jev-1.13.0", node_judge.jev_payload("页" * 80)["model"])
+        saved = os.environ.pop("TYPESAFE_API_KEY", None)
+        try:
+            missed = node_judge.run_jev("这一页已经写满，用来确认没有钥匙时不会去联网。" * 8)
+        finally:
+            if saved is not None:
+                os.environ["TYPESAFE_API_KEY"] = saved
+        self.assertFalse(missed["ok"])
+        self.assertIn("TYPESAFE_API_KEY", missed["reason"])
         answers = {"hollow": {"noul": 0.1}, "off_node": {"noul": 0.05}}
         self.assertEqual(
             "wait_for_human",

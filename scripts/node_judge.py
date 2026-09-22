@@ -1,11 +1,15 @@
 """节点快筛。
 
-状态先决定该停、等人，还是继续记账。laya 只在 --laya 时看这一页像不像空话，
+状态先决定该停、等人，还是继续记账。加上 --jev 才请求 Jev，只看这一页像不像空话。
 不能放宽停点，也不判断这句话新不新。
 """
 
 from __future__ import annotations
 
+import json
+import os
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -77,18 +81,28 @@ ACTION_TEXT = {
     "already_done": "下一步：题目已经收下。不要再交给这个工具。",
     "blocked": "下一步：卡住了。先补外部条件，别改结论。",
 }
-# 只收紧记账，不放宽停点。基线模型零样本容易说满，门槛要高。
+# 只收紧记账，不放宽停点。中文不是 Jev 最熟的语言，门槛要高。
 HOLLOW_BAR = 0.85
-PAGE_LIMIT = 1600
+PAGE_LIMIT = 6000
 MIN_PAGE_CHARS = 80
+JEV_URL = "https://api.typesafe.ai/v1/systemone"
+JEV_MODEL = "jev-1.13.0"
 PAGE_QUESTIONS = {
     "hollow": {
         "type": "noul",
-        "instructions": "这一页是不是空话：删掉以后判断不变，或者只有套话、没有具体论文和结论？",
+        "instructions": (
+            "The page is hollow: deleting it would not change the judgment, "
+            "or it only uses stock phrases and names no specific paper or result. "
+            "The page may be written in Chinese."
+        ),
     },
     "off_node": {
         "type": "noul",
-        "instructions": "这一页是不是跑偏了：近邻表还没写就在抽全文结论，或者题目还没定就在谈实验？",
+        "instructions": (
+            "The page is off-node: it extracts full-text claims before a neighbor "
+            "table exists, or it discusses running experiments before the topic is locked. "
+            "The page may be written in Chinese."
+        ),
     },
 }
 
@@ -121,7 +135,7 @@ def _score(answers: dict[str, Any] | None, key: str) -> float | None:
 
 
 def apply_screen(action: str, answers: dict[str, Any] | None) -> str:
-    """laya 只能把「继续记账」收紧成「这页是空的」。"""
+    """Jev 只能把「继续记账」收紧成「这页是空的」。"""
     if action != "keep_bookkeeping":
         return action
     hollow = _score(answers, "hollow")
@@ -157,22 +171,41 @@ def load_page(root: Path, state: dict[str, Any]) -> str:
     return "\n\n".join(chunks)[:PAGE_LIMIT]
 
 
-def run_laya(page: str) -> dict[str, Any]:
-    """跑一次多语言模型。没装或失败时返回 reason，不抛给调用方。"""
+def jev_payload(page: str) -> dict[str, Any]:
+    return {"model": JEV_MODEL, "state": page, "questions": PAGE_QUESTIONS}
+
+
+def run_jev(page: str) -> dict[str, Any]:
+    """请求官方 Jev。没钥匙或失败时返回 reason，不抛给调用方。"""
     if len(page.strip()) < MIN_PAGE_CHARS:
         return {"ok": False, "reason": "这一页太短，没送去快筛。"}
+    key = os.environ.get("TYPESAFE_API_KEY", "").strip()
+    if not key:
+        return {
+            "ok": False,
+            "reason": "没有 TYPESAFE_API_KEY。状态判断仍然有效。",
+        }
+    request = urllib.request.Request(
+        JEV_URL,
+        data=json.dumps(jev_payload(page), ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Authorization": "Bearer " + key,
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
     try:
-        from laya import Router
-    except ImportError:
-        return {"ok": False, "reason": "没装 laya。要内容快筛就先 pip install laya。"}
-    try:
-        router = Router(max_loaded=1)
-        result = router.predict({"page": page}, PAGE_QUESTIONS, model="multilingual")
-    except Exception as error:  # 模型下载或推理失败时，状态判断仍然有效
-        return {"ok": False, "reason": f"laya 没跑成：{error}"}
-    answers = result.get("answers") if isinstance(result, dict) else None
+        with urllib.request.urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")[:180].replace(key, "[key]")
+        return {"ok": False, "reason": f"Jev 返回 {error.code}。{detail}"}
+    except Exception as error:
+        reason = str(error).replace(key, "[key]")
+        return {"ok": False, "reason": f"Jev 没连上：{reason}"}
+    answers = payload.get("answers") if isinstance(payload, dict) else None
     if not isinstance(answers, dict):
-        return {"ok": False, "reason": "laya 没有返回答案。"}
+        return {"ok": False, "reason": "Jev 没有返回答案。"}
     return {"ok": True, "answers": answers}
 
 
@@ -191,14 +224,14 @@ def format_report(
         lines.append(f"现在的步骤是 {active}。")
     lines.append(ACTION_TEXT.get(action, "下一步：先停下来问人。"))
     if screen is None:
-        lines.append("还没看这一页写得空不空。要看的话，命令加上 --laya。")
+        lines.append("还没看这一页写得空不空。要看的话，命令加上 --jev。")
     elif not screen.get("ok"):
         lines.append(f"内容快筛没跑成。{screen.get('reason', '')}")
     else:
         hollow = _score(screen.get("answers"), "hollow")
         off_node = _score(screen.get("answers"), "off_node")
         lines.append(
-            "内容快筛用的是 laya 多语言，一次前向。"
+            "内容快筛用的是 Jev，一次请求。"
             "它只看像不像空话，不判断新不新。"
             f"空话 {hollow if hollow is not None else '未知'}，"
             f"跑偏 {off_node if off_node is not None else '未知'}。"
