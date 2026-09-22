@@ -1887,7 +1887,12 @@ class PlainLanguageStopTests(unittest.TestCase):
             node_judge.structural_action({"active_state": "COMPUTE"}),
         )
         self.assertIn("停在这里", node_judge.dig_instruction("红海", "小"))
-        self.assertIn("六问", node_judge.dig_instruction("红海", "大"))
+        self.assertIn("3 到 5", node_judge.dig_instruction("红海", "大"))
+        self.assertIn("1 篇", node_judge.dig_instruction("红海", "中"))
+        fast = node_judge.format_report({"active_state": "L1_FREEZE"}, "", None)
+        self.assertIn("3 篇", fast)
+        self.assertIn("8 篇", fast)
+        self.assertIn("100 篇", fast)
         self.assertEqual(
             ("蓝海", "中"),
             node_judge.parse_fast_decision("这片是蓝海，我的决心中"),
