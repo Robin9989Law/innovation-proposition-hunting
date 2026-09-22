@@ -16,9 +16,11 @@ def paper(
     abstract: str,
     references: list[str] | None = None,
     cited_by: list[str] | None = None,
+    year: int = 2026,
 ) -> dict:
     return {
         "id": paper_id,
+        "year": year,
         "title": title,
         "abstract": abstract,
         "references": references or [],
@@ -30,8 +32,13 @@ def base(*papers: dict) -> dict:
     return {
         "object_names": ["负荷"],
         "action_names": ["时移"],
+        "this_year": 2026,
         "papers": list(papers),
         "decisions": {},
+        "topic": {},
+        "fate": None,
+        "core_id": None,
+        "open_problem": None,
     }
 
 
@@ -132,65 +139,86 @@ class AnchorTests(unittest.TestCase):
             hunt.decide(state, "甲", "不是同一个东西", "占住")
 
 
-class RingTests(unittest.TestCase):
-    def test_ring_uses_references_and_citations_only(self) -> None:
+class CircleTests(unittest.TestCase):
+    def test_circle_keeps_only_direct_recent_papers(self) -> None:
         state = base(
-            paper("锚", "负荷时移", "负荷，时移。", references=["前"], cited_by=["后"]),
-            paper("前", "负荷时移前作", "负荷，时移。"),
-            paper("后", "负荷时移后续", "负荷，时移。"),
-            paper("外", "负荷时移圈外", "负荷，时移。"),
+            paper("锚", "负荷时移", "负荷，时移。", references=["旧"], cited_by=["前", "后"], year=2026),
+            paper("前", "负荷时移前作", "负荷，时移。", references=["锚", "丙"], year=2025),
+            paper("后", "负荷时移后续", "负荷，时移。", year=2024),
+            paper("旧", "负荷时移旧作", "负荷，时移。", year=2018),
+            paper("外", "负荷时移圈外", "负荷，时移。", year=2026),
+            paper("丙", "负荷时移再远", "负荷，时移。", year=2026),
+        )
+        hunt.decide(state, "锚", "是同一个东西", "占住")
+        self.assertEqual("前", hunt.present(state)["paper"]["id"])
+        hunt.mark_topic(state, "前", "算这个主题")
+        self.assertEqual("后", hunt.present(state)["paper"]["id"])
+        hunt.mark_topic(state, "后", "不算这个主题")
+        result = hunt.present(state)
+        self.assertEqual("core", result["kind"])
+        self.assertEqual(["锚", "前"], result["circle"])
+        self.assertEqual("锚", result["core_id"])
+        self.assertNotIn("外", state["topic"])
+        self.assertNotIn("丙", state["topic"])
+        self.assertNotIn("旧", state["topic"])
+        self.assertGreaterEqual(result["old"], 1)
+
+    def test_old_neighbor_without_recent_topic_asks_for_fate(self) -> None:
+        state = base(
+            paper("锚", "负荷时移", "负荷，时移。", references=["旧"], year=2019),
+            paper("旧", "负荷时移旧作", "负荷，时移。", year=2015),
         )
         hunt.decide(state, "锚", "是同一个东西", "占住")
         result = hunt.present(state)
-        self.assertEqual("前", result["paper"]["id"])
-        hunt.decide(state, "前", "是同一个东西", "只是像")
+        self.assertEqual("fate", result["kind"])
+        self.assertIn("没有价值", result["note"])
+        self.assertIn("已经被攻克", result["note"])
+        hunt.mark_fate(state, "已经被攻克")
         result = hunt.present(state)
-        self.assertEqual("后", result["paper"]["id"])
-        hunt.decide(state, "后", "不是同一个东西", None)
+        self.assertEqual("closed", result["kind"])
+        self.assertIn("已经被攻克", result["note"])
+
+    def test_recent_followup_of_an_old_anchor_is_the_circle(self) -> None:
+        state = base(
+            paper("锚", "负荷时移", "负荷，时移。", cited_by=["新"], year=2019),
+            paper("新", "负荷时移新作", "负荷，时移。", references=["锚"], year=2025),
+        )
+        hunt.decide(state, "锚", "是同一个东西", "能推出来")
+        self.assertEqual("新", hunt.present(state)["paper"]["id"])
+        hunt.mark_topic(state, "新", "算这个主题")
+        result = hunt.present(state)
+        self.assertEqual("open", result["kind"])
+        self.assertEqual(["新"], result["circle"])
+        self.assertEqual("新", result["core_id"])
+        hunt.mark_open(state, "边界情形下负荷能不能时移，还没写。")
         result = hunt.present(state)
         self.assertEqual("done", result["kind"])
-        self.assertEqual("锚", result["anchor_id"])
-        self.assertIn("判断没变", result["note"])
-        self.assertNotIn("外", state["decisions"])
+        self.assertIn("边界情形", result["note"])
 
-    def test_missing_ring_id_blocks_finishing(self) -> None:
-        state = base(paper("锚", "负荷时移", "负荷，时移。", references=["缺"]))
+    def test_missing_direct_id_blocks_the_circle(self) -> None:
+        state = base(paper("锚", "负荷时移", "负荷，时移。", references=["缺"], year=2026))
         hunt.decide(state, "锚", "是同一个东西", "能推出来")
         result = hunt.present(state)
         self.assertEqual("missing", result["kind"])
         self.assertEqual(["缺"], result["missing"])
 
-    def test_hotter_paper_redraws_the_ring_once(self) -> None:
+    def test_reader_can_move_the_core_inside_the_circle(self) -> None:
         state = base(
-            paper("甲", "负荷时移甲", "负荷，时移。", references=["乙"]),
-            paper("乙", "负荷时移乙", "负荷，时移。", references=["丙"]),
-            paper("丙", "负荷时移丙", "负荷，时移。", references=["丁"]),
-            paper("丁", "负荷时移丁", "负荷，时移。"),
+            paper("甲", "负荷时移甲", "负荷，时移。", cited_by=["乙", "丙"], year=2024),
+            paper("乙", "负荷时移乙", "负荷，时移。", references=["甲"], year=2025),
+            paper("丙", "负荷时移丙", "负荷，时移。", references=["甲"], year=2026),
         )
-        hunt.decide(state, "甲", "是同一个东西", "能推出来")
-        self.assertEqual("乙", hunt.present(state)["paper"]["id"])
-        hunt.decide(state, "乙", "是同一个东西", "占住")
+        hunt.decide(state, "甲", "是同一个东西", "占住")
+        hunt.mark_topic(state, "乙", "算这个主题")
+        hunt.mark_topic(state, "丙", "算这个主题")
         result = hunt.present(state)
-        self.assertEqual("丙", result["paper"]["id"])
-        self.assertEqual("乙", result["anchor_id"])
-        hunt.decide(state, "丙", "是同一个东西", "占住")
+        self.assertEqual("甲", result["core_id"])
+        hunt.mark_core(state, "", "丙")
         result = hunt.present(state)
-        self.assertEqual("done", result["kind"])
-        self.assertEqual("乙", result["anchor_id"])
-        self.assertNotIn("丁", state["decisions"])
-
-    def test_second_redraw_does_not_open_another_ring(self) -> None:
-        state = base(
-            paper("甲", "负荷时移甲", "负荷，时移。", references=["乙"]),
-            paper("乙", "负荷时移乙", "负荷，时移。", references=["丙"]),
-        )
-        state["decisions"]["甲"] = {"same": "yes", "danger": "能推出来"}
-        state["decisions"]["乙"] = {"same": "yes", "danger": "占住"}
-        result = hunt.walk_ring(state, "甲", 1)
-        self.assertEqual("done", result["kind"])
-        self.assertEqual("乙", result["anchor_id"])
-        self.assertIn("不再往外扩", result["note"])
-        self.assertNotIn("丙", result["missing"])
+        self.assertEqual("open", result["kind"])
+        self.assertEqual("丙", result["core_id"])
+        with self.assertRaises(SystemExit):
+            hunt.mark_open(state, "继续")
 
 
 class CommandTests(unittest.TestCase):
@@ -214,6 +242,8 @@ class CommandTests(unittest.TestCase):
                         str(root),
                         "--id",
                         paper_id,
+                        "--year",
+                        "2026",
                         "--title",
                         title,
                         "--abstract",
@@ -249,7 +279,8 @@ class CommandTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
-            self.assertIn("锚点：甲", decided.stdout)
+            self.assertIn("最危险近邻：甲", decided.stdout)
+            self.assertIn("悬而未决", decided.stdout)
             self.assertNotIn("编号：乙", decided.stdout)
 
 
