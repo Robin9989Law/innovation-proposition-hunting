@@ -164,7 +164,8 @@ class CircleTests(unittest.TestCase):
         self.assertEqual("后", result["core_id"])
         shown = hunt.render(state, result)
         self.assertIn("负荷时移后续", shown)
-        self.assertIn("不必读全文", shown)
+        self.assertIn("摘要里看见的缝", shown)
+        self.assertIn("全文不进这一轮", shown)
         self.assertNotIn("读这一篇的全文", shown)
         self.assertNotIn("外", state["topic"])
         self.assertNotIn("丙", state["topic"])
@@ -255,11 +256,16 @@ class CircleTests(unittest.TestCase):
         self.assertEqual(1, result["hops"])
         self.assertEqual(2, result["step_bound"])
         self.assertLessEqual(result["hops"], result["step_bound"])
-        self.assertIn("近邻是真的近", result["note"])
-        self.assertIn("找到圈子", result["note"])
+        self.assertIn("方向碰上了", result["note"])
+        self.assertIn("直接连着这篇近邻", result["note"])
+        self.assertIn("不是历史上的源头", result["note"])
+        self.assertIn("没写上的边不算", result["note"])
         self.assertIn("至少连着 2 篇", result["note"])
+        self.assertIn("汇合点是「后」", result["note"])
         self.assertIn("最多 2 步", result["note"])
         self.assertIn("不往外扩", result["note"])
+        self.assertIn("- 丙 负荷时移三角", result["note"])
+        self.assertNotEqual("丙", result["paper"]["id"])
         self.assertNotIn("孤", result["circle"])
 
     def test_tighter_component_beats_the_earlier_triangle(self) -> None:
@@ -282,6 +288,9 @@ class CircleTests(unittest.TestCase):
         self.assertEqual(0, result["hops"])
         self.assertEqual(3, result["step_bound"])
         self.assertLessEqual(result["hops"], result["step_bound"])
+        self.assertIn("- 乙 负荷时移乙", result["note"])
+        self.assertIn("- 丁 负荷时移丁", result["note"])
+        self.assertIn("- 戊 负荷时移戊", result["note"])
         self.assertNotIn("前", result["circle"])
 
     def test_nearness_names_the_hits_before_the_reader_decides(self) -> None:
@@ -346,6 +355,35 @@ class CircleTests(unittest.TestCase):
         self.assertEqual("下", result["paper"]["id"])
         self.assertIn("不收敛", result["note"])
         self.assertIn("换近邻", result["note"])
+
+    def test_rejected_circle_paper_is_not_the_next_neighbor(self) -> None:
+        state = base(
+            paper("跳", "负荷时移跳", "负荷，时移。", cited_by=["前", "后", "丙"], year=2019),
+            paper("前", "负荷时移前", "负荷，时移。", references=["跳", "后", "丙"], year=2025),
+            paper("下", "负荷时移下", "负荷，时移。", year=2026),
+            paper("后", "负荷时移后", "负荷，时移。", references=["跳", "前", "丙"], year=2024),
+            paper("丙", "负荷时移丙", "负荷，时移。", references=["跳", "前", "后"], year=2026),
+        )
+        hunt.decide(state, "跳", "是最近的")
+        hunt.mark_topic(state, "前", "不算这个圈子")
+        result = hunt.present(state)
+        self.assertEqual("下", result["paper"]["id"])
+        self.assertEqual("scan", result["phase"])
+        self.assertNotEqual("前", result["paper"]["id"])
+
+    def test_narrow_names_are_named_before_fate(self) -> None:
+        state = base(
+            paper("偏甲", "只谈负荷", "摘要里没有那个动作。"),
+            paper("偏乙", "还是负荷", "仍然没有那个动作。"),
+            paper("甲", "负荷时移甲", "负荷，时移。", year=2026),
+        )
+        hunt.decide(state, "甲", "是最近的")
+        result = hunt.present(state)
+        self.assertEqual("fate", result["kind"])
+        self.assertIn("叫法可能太窄", result["note"])
+        self.assertIn("这张名单里没有紧密圈子", result["note"])
+        self.assertIn("没有价值", result["note"])
+        self.assertIn("对主题下的判断", result["note"])
 
     def test_every_neighbor_fails_then_reader_writes_fate(self) -> None:
         state = base(

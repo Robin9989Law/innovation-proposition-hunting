@@ -388,12 +388,33 @@ def _four_lines(
     objects, actions = slot_hits(state, anchor) if anchor else ([], [])
     return "\n".join(
         [
-            f"近邻是真的近：对象「{'、'.join(objects)}」和动作「{'、'.join(actions)}」都在题目或摘要里，你写了是最近的。",
-            f"通过这篇近邻找到圈子：{'、'.join(circle)}。圈里每篇都直接连着它。",
-            f"紧密程度：每篇至少连着 {tightness} 篇。核心「{core_id}」在圈内被引 {core_links} 次。",
+            (
+                f"方向碰上了：对象「{'、'.join(objects)}」和动作「{'、'.join(actions)}」都在题目或摘要里。"
+                "近不近是你写的是最近的。"
+            ),
+            f"圈里每一篇都直接连着这篇近邻：{'、'.join(circle)}。",
+            "这是近三年篇数里、按已填引用边算出来的最密一团。三年前的直接文献这轮不看，所以这不是历史上的源头。",
+            "这团只按名单里写下的引用边计算。没写上的边不算。",
+            (
+                f"紧密程度：每篇至少连着 {tightness} 篇。"
+                f"被引最多的汇合点是「{core_id}」，在圈内被引 {core_links} 次。"
+                "要攻的那篇可以改成团里另一篇。"
+            ),
             f"进入核心：最短 {hops} 步，最多 {step_bound} 步，不往外扩。",
         ]
     )
+
+
+def _off_path_block(state: dict[str, Any], circle: list[str], path: list[str]) -> str:
+    skipped = [paper_id for paper_id in circle if paper_id not in path]
+    if not skipped:
+        return ""
+    lines = ["最短路没经过这几篇，紧密程度仍按它们一起算："]
+    for paper_id in skipped:
+        paper = paper_by_id(state, paper_id)
+        title = paper["title"] if paper else ""
+        lines.append(f"- {paper_id} {title}")
+    return "\n".join(lines)
 
 
 def _walk_started(state: dict[str, Any], anchor: dict[str, Any]) -> bool:
@@ -441,17 +462,27 @@ def _stop_for_failed(
             anchor_id=anchor_id,
             dropped=dropped,
         )
-    if capped:
-        note = (
-            _switch_sentence(failed)
-            + f"已经换了 {SWITCH_LIMIT} 次近邻，到上限了。"
-            + "还是没有紧密的主题生态，也指不到主题核心。"
-            + "你写没有价值，或已经被攻克。"
+    matched = len(state["papers"]) - dropped
+    bits = [_switch_sentence(failed)]
+    if dropped > 0 and dropped >= matched:
+        bits.append(
+            f"对不上的有 {dropped} 篇，不少于对得上的。"
+            "叫法可能太窄，先用 add-name 补同义词。这一轮不要先写成主题没有价值。"
         )
+    reasons = {reason for _, reason in failed}
+    if "loose" in reasons:
+        bits.append("这张名单里没有紧密圈子。")
+    if "diverge" in reasons:
+        bits.append("有限步进不到核心。")
+    if capped:
+        bits.append(f"已经换了 {SWITCH_LIMIT} 次近邻，到上限了。")
     else:
         switched = max(len(failed) - 1, 0)
-        used = f"已换 {switched} 次，最多 {SWITCH_LIMIT} 次。" if switched else ""
-        note = _switch_sentence(failed) + used + "没有下一个近邻了。你写没有价值，或已经被攻克。"
+        if switched:
+            bits.append(f"已换 {switched} 次，最多 {SWITCH_LIMIT} 次。")
+        bits.append("没有下一个近邻了。")
+    bits.append("按现在的叫法和名单走不通。你若接受这一点，再写没有价值，或已经被攻克。这两句是对主题下的判断。")
+    note = "".join(bits)
     return _base(
         kind="fate",
         phase="circle",
@@ -529,14 +560,19 @@ def after_anchor(state: dict[str, Any], anchor_id: str) -> dict[str, Any]:
     verdict = _four_lines(
         state, anchor_id, members, core_id, tightness, core_links, hops, step_bound
     )
+    aside = _off_path_block(state, members, path)
     for paper_id in path:
         if state["topic"].get(paper_id) is None:
             step = path.index(paper_id) + 1
-            note = (
-                verdict
-                + "\n"
-                + f"圈内最短路第 {step} 篇，共 {len(path)} 篇。只看题目和摘要。"
-                + ("这一篇是主题核心。" if paper_id == core_id else "先确认它在主题生态里。")
+            where = "这一篇是被引最多的汇合点。" if paper_id == core_id else "先确认它算这个圈子。"
+            note = "\n".join(
+                part
+                for part in (
+                    verdict,
+                    aside,
+                    f"圈内最短路第 {step} 篇，共 {len(path)} 篇。只看题目和摘要。{where}",
+                )
+                if part
             )
             return _base(
                 kind="ask",
@@ -554,7 +590,15 @@ def after_anchor(state: dict[str, Any], anchor_id: str) -> dict[str, Any]:
         return _base(
             kind="open",
             phase="open",
-            note=verdict + "\n看主题核心的题目和摘要，写下它悬而未决的命题。不必读全文。这一句直指主题核心，是创新突破的思路，也是有攻关价值的地方。",
+            note="\n".join(
+                part
+                for part in (
+                    verdict,
+                    aside,
+                    "看汇合点的题目和摘要，把看见的缝写下来。这是核心摘要里看见的缝。要拿去攻，再只核对这一篇全文。全文不进这一轮。",
+                )
+                if part
+            ),
             anchor_id=anchor_id,
             dropped=dropped,
             old=old,
@@ -581,6 +625,8 @@ def present(state: dict[str, Any]) -> dict[str, Any]:
     for paper in state["papers"]:
         if not slot_hit(state, paper):
             dropped += 1
+            continue
+        if state["topic"].get(paper["id"]) == "no":
             continue
         decision = state["decisions"].get(paper["id"])
         if decision is None:
@@ -632,7 +678,7 @@ def render(state: dict[str, Any], result: dict[str, Any]) -> str:
         lines.append("这些编号还没进名单，补年份、题目和摘要，不要搜词：")
         lines.extend(f"- {paper_id}" for paper_id in result["missing"])
     if result["circle"]:
-        lines.append("主题生态：" + "、".join(result["circle"]))
+        lines.append("最密的一团：" + "、".join(result["circle"]))
     kind = result["kind"]
     if kind == "ask":
         paper = result["paper"]
@@ -656,16 +702,16 @@ def render(state: dict[str, Any], result: dict[str, Any]) -> str:
     elif kind == "open":
         core = paper_by_id(state, result["core_id"]) if result.get("core_id") else None
         lines.append(f"跳板：{result['anchor_id']}")
-        lines.append(f"主题核心：{result['core_id']}")
+        lines.append(f"汇合点：{result['core_id']}")
         if core is not None:
             lines.append(f"题目：{core['title']}")
             lines.append(f"摘要：{core['abstract']}")
         lines.append(result["note"])
     elif kind == "done":
         lines.append(f"跳板：{result['anchor_id']}")
-        lines.append(f"主题核心：{result['core_id']}")
-        lines.append(f"悬而未决：{result['note']}")
-        lines.append("这一句从摘要里来，直指主题核心，是创新突破的思路，也是有攻关价值的地方。不必读全文。")
+        lines.append(f"汇合点：{result['core_id']}")
+        lines.append(f"摘要里的缝：{result['note']}")
+        lines.append("这是核心摘要里看见的缝。要拿去攻，再只核对这一篇全文。全文不进这一轮。")
     elif kind == "closed":
         lines.append(f"跳板：{result['anchor_id']}")
         lines.append(result["note"])
@@ -729,7 +775,7 @@ def mark_open(state: dict[str, Any], text: str) -> None:
     _expect(state, "open")
     cleaned = " ".join(text.split())
     if cleaned in {"继续", "好", "好的", "知道了"} or len(cleaned) < 4:
-        raise SystemExit("看主题核心的题目和摘要，把悬而未决的那一句写下来。不必读全文。没有的话，写没有悬而未决。")
+        raise SystemExit("把核心摘要里看见的缝写下来。没有的话，写没有悬而未决。")
     state["open_problem"] = cleaned
 
 
