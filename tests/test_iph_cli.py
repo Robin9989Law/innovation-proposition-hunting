@@ -561,13 +561,16 @@ class AdvanceTests(unittest.TestCase):
                 "--note",
                 "reopen L2",
                 "--human-decision",
-                "范围卡片我看过了，同意进入下一小块",
+                "范围卡片我看过了，这片是红海，我的决心中，同意进入下一小块",
                 "--no-validate",
             )
             self.assertEqual(0, completed.returncode, completed.stdout)
             state = load_json(project / "workflow_state.json")
             self.assertEqual("L2_TRIAGE", state["active_state"])
             self.assertEqual("NONE", state["active_contribution"])
+            resolve = load_json(project / "dig_resolve.json")
+            self.assertEqual("红海", resolve["ocean"])
+            self.assertEqual("中", resolve["resolve"])
 
     def test_advance_rejects_skipped_positive_state(self) -> None:
         temporary_directory, project = self.make_boot_project()
@@ -1883,6 +1886,39 @@ class PlainLanguageStopTests(unittest.TestCase):
             "stop_legacy",
             node_judge.structural_action({"active_state": "COMPUTE"}),
         )
+        self.assertIn("停在这里", node_judge.dig_instruction("红海", "小"))
+        self.assertIn("六问", node_judge.dig_instruction("红海", "大"))
+        self.assertEqual(
+            ("蓝海", "中"),
+            node_judge.parse_fast_decision("这片是蓝海，我的决心中"),
+        )
+        with self.assertRaises(SystemExit):
+            node_judge.parse_fast_decision("同意往下")
+
+    def test_leaving_the_card_without_resolve_stays_put(self) -> None:
+        temporary_directory, project = make_valid_project(validity_level="V0")
+        with temporary_directory:
+            state = load_json(project / "workflow_state.json")
+            state["active_state"] = "L1_FREEZE"
+            state["resume_state"] = "L1_FREEZE"
+            state["active_contribution"] = "NONE"
+            write_json(project / "workflow_state.json", state)
+            before = load_json(project / "workflow_state.json")
+            refused = run_iph(
+                project,
+                "advance",
+                "--to",
+                "L2_TRIAGE",
+                "--note",
+                "skip the fast call",
+                "--human-decision",
+                "卡片我看过了，按这个往下",
+                "--no-validate",
+            )
+            self.assertNotEqual(0, refused.returncode)
+            self.assertIn("决心", refused.stderr)
+            self.assertEqual(before, load_json(project / "workflow_state.json"))
+            self.assertFalse((project / "dig_resolve.json").exists())
 
     def test_continue_does_not_leave_the_neighbor_table(self) -> None:
         temporary_directory, project = make_valid_project(validity_level="V0")

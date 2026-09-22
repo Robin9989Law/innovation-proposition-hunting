@@ -87,7 +87,57 @@ PAGE_LIMIT = 6000
 MIN_PAGE_CHARS = 80
 JEV_URL = "https://api.typesafe.ai/v1/systemone"
 JEV_MODEL = "jev-1.13.0"
+OCEANS = ("红海", "蓝海", "看不清")
+RESOLVES = ("大", "中", "小")
+RESOLVE_FILE = "dig_resolve.json"
+FAST_STATES = frozenset(
+    {
+        "PRIOR_CLAIM_DRAIN",
+        "RECENT_FRONTIER",
+        "LITERATURE_REGISTER",
+        "L1_FREEZE",
+    }
+)
+SLOW_STATES = frozenset(
+    {
+        "L2_TRIAGE",
+        "LAYER_DECISION",
+        "K_FULLTEXT",
+        "K_CLAIM_REGISTER",
+        "SYNTHESIZE_COLLISION",
+        "OUTPUT_CLAIM_BIND",
+        "EVIDENCE_VALIDATE",
+        "N0_AUDIT",
+        "CLAIM_FREEZE",
+        "VALIDITY_AUDIT",
+        "INDEPENDENT_REVIEW",
+        "DIRECTION_LOCK",
+    }
+)
+DIG_TEXT = {
+    ("红海", "小"): "红海，决心小：停在这里。不写深的近邻表，也不钻进论文里找缝。",
+    ("蓝海", "小"): "蓝海，决心小：只核对最像的一两篇的题目和摘要。不像就收一个小题目。不钻六问。不许换个场景把它说成新的。",
+    ("看不清", "小"): "还看不清，决心小：只补最像的几篇题目和摘要，然后再判一次。不要读全文。",
+    ("红海", "中"): "红海，决心中：只钻最强的那一篇。回答三问：它靠了什么自己没检查的承诺，它为什么停在这里，边界情形露出了什么。没有缝就停。不许换场景，也不许收成它没做的那一小块。",
+    ("蓝海", "中"): "蓝海，决心中：近邻表三栏写完。最强的一篇答上面三问。其余的不读全文。",
+    ("看不清", "中"): "还看不清，决心中：先点明最强的几篇，判成红海或蓝海，再按中档挖。",
+    ("红海", "大"): "红海，决心大：近邻表要写。最强的那篇六问都要答完：没检查的承诺、它的结果边上还有什么、倒过来说断在哪、边界情形、关键一步还能走多远、它为什么停。缝必须是它自己没回答的问题。六问都闭合还没有这个问题，才允许停。不许换名、换场景、收成补集。",
+    ("蓝海", "大"): "蓝海，决心大：同样把最强近邻的六问答完，确认这片空是真的，不是没看见近邻。",
+    ("看不清", "大"): "还看不清，决心大：先读到能判红海或蓝海，再把六问答完。不要用看不清当作继续挖的理由。",
+}
 PAGE_QUESTIONS = {
+    "ocean": {
+        "type": "choice",
+        "instructions": (
+            "From titles and abstracts only, is this shore crowded or open? "
+            "The text may be Chinese. This is a rough map, not a novelty verdict."
+        ),
+        "criteria": {
+            "红海": "several close published neighbors already did the natural idea",
+            "蓝海": "the natural idea is not visibly occupied by close neighbors",
+            "看不清": "too few papers, or the abstracts do not say",
+        },
+    },
     "hollow": {
         "type": "noul",
         "instructions": (
@@ -132,6 +182,55 @@ def _score(answers: dict[str, Any] | None, key: str) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return float(value)
+
+
+def parse_fast_decision(text: str) -> tuple[str, str]:
+    """从用户原话里取出红海/蓝海/看不清，以及决心大/中/小。"""
+    oceans = [name for name in OCEANS if name in text]
+    resolves = [
+        level
+        for level in RESOLVES
+        if f"决心{level}" in text
+        or f"{level}决心" in text
+        or f"决心：{level}" in text
+        or f"决心:{level}" in text
+    ]
+    if len(oceans) != 1 or len(resolves) != 1:
+        raise SystemExit(
+            "离开研究卡片之前，你自己的话里要写清两件："
+            "这片是红海、蓝海还是看不清，以及决心是大、中还是小。"
+            "例如：这片是红海，我的决心中。"
+        )
+    return oceans[0], resolves[0]
+
+
+def dig_instruction(ocean: str, resolve: str) -> str:
+    return DIG_TEXT[(ocean, resolve)]
+
+
+def write_dig_resolve(root: Path, ocean: str, resolve: str, note: str) -> None:
+    payload = {"ocean": ocean, "resolve": resolve, "human_decision": note}
+    path = root / RESOLVE_FILE
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def read_dig_resolve(root: Path) -> dict[str, str] | None:
+    path = root / RESOLVE_FILE
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    ocean = payload.get("ocean")
+    resolve = payload.get("resolve")
+    if ocean not in OCEANS or resolve not in RESOLVES:
+        return None
+    return {"ocean": ocean, "resolve": resolve}
 
 
 def apply_screen(action: str, answers: dict[str, Any] | None) -> str:
@@ -209,10 +308,20 @@ def run_jev(page: str) -> dict[str, Any]:
     return {"ok": True, "answers": answers}
 
 
+def _choice(answers: dict[str, Any] | None, key: str) -> str | None:
+    if not isinstance(answers, dict):
+        return None
+    item = answers.get(key)
+    if isinstance(item, dict) and isinstance(item.get("choice"), str):
+        return item["choice"]
+    return None
+
+
 def format_report(
     state: dict[str, Any],
     page: str,
     screen: dict[str, Any] | None,
+    resolve: dict[str, str] | None = None,
 ) -> str:
     action = apply_screen(structural_action(state), (screen or {}).get("answers"))
     lines: list[str] = []
@@ -223,6 +332,14 @@ def format_report(
     elif isinstance(active, str) and active:
         lines.append(f"现在的步骤是 {active}。")
     lines.append(ACTION_TEXT.get(action, "下一步：先停下来问人。"))
+    if active in FAST_STATES:
+        lines.append("这一步是快判。只看题目和摘要，写清这片是红海、蓝海，还是看不清。不要读全文，也不要钻缝。")
+        lines.append("然后用你自己的话说决心：大、中或小。决心越大，后面挖缝越深。决心小，红海就停。")
+    elif active in SLOW_STATES:
+        if resolve:
+            lines.append(dig_instruction(resolve["ocean"], resolve["resolve"]))
+        else:
+            lines.append("慢路线还没记下你的决心。新课题要先回到研究卡片，写红海或蓝海，再说大、中、小。")
     if screen is None:
         lines.append("还没看这一页写得空不空。要看的话，命令加上 --jev。")
     elif not screen.get("ok"):
@@ -232,10 +349,13 @@ def format_report(
         off_node = _score(screen.get("answers"), "off_node")
         lines.append(
             "内容快筛用的是 Jev，一次请求。"
-            "它只看像不像空话，不判断新不新。"
+            "它看像不像空话，也给一个红海或蓝海的大致看法，不判断新不新。"
             f"空话 {hollow if hollow is not None else '未知'}，"
             f"跑偏 {off_node if off_node is not None else '未知'}。"
         )
+        ocean_guess = _choice(screen.get("answers"), "ocean")
+        if ocean_guess:
+            lines.append(f"Jev 的大致看法是{ocean_guess}。这不算数，要你自己说了才算。")
         if (
             structural_action(state) == "wait_for_human"
             and action == "wait_for_human"

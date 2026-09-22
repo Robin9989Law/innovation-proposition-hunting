@@ -102,7 +102,7 @@ python3 <skill>/scripts/migrate_v1_to_v2.py \
 | 定下那一句 | `DIRECTION_LOCK` | `CLAIM_FREEZE` → `VALIDITY_AUDIT` → `INDEPENDENT_REVIEW` → `DIRECTION_LOCK` → `COMPLETE` |
 
 离开前四个停点必须 `--human-decision`。第五段用 `--accept-complete`。
-记账前先跑 `iph judge`。加上 `--jev` 时用 Jev 的官方接口看这一页像不像空话。密钥只放环境变量 `TYPESAFE_API_KEY`。快筛不能放宽停点，也不判断新不新。
+研究卡片是快判：只看题目和摘要，写成红海、蓝海或看不清。离开 `L1_FREEZE` 的原话里要写这句，以及决心大、中或小。决心越大，慢路线挖缝越深；决心小，红海就停，不许换场景逃避。记账前先跑 `iph judge`。加上 `--jev` 时 Jev 只给大致看法。密钥只放环境变量 `TYPESAFE_API_KEY`。快筛不能放宽停点，也不判断新不新。
 
 ### 3.1 新颖性轴
 
@@ -501,7 +501,7 @@ INVALID（§9）。
 | R-AXIS-22 | 停止轴必须是已声明 `inputs` 或 `generated` 的函数；exact 句写了 `p_loc` 却未声明 `p` 即 `AXIS_NOT_IN_INPUT` | §3.1、templates §16 |
 | R-G4-23 | G4 角色含 `RECONSTRUCTION`；走查/非阈值/跨系统推断不得单独支撑 N0-4C | §3.1、templates §12.1 |
 | R-COMP-24 | N0-4C 必须登记并杀死 `POSTHOC_LABEL`/`SCHEMA_EXTENSION`/`RENAME`；`KILLED` 须有 `kill_claim_ids` 且 `whole_mapping_separates=true`；仍活或未尝试则 CLI 拒锁 | §3.1、templates §17 |
-| R-HUMAN-32 | 对人用白话。默认只走五段，段内状态是记账。五个停点必须等用户自己的话；「继续」不算看过。离开范围、研究卡片、近邻表、新不新须 `--human-decision` | docs/给人看.md |
+| R-HUMAN-32 | 对人用白话。默认只走五段，段内状态是记账。五个停点必须等用户自己的话；「继续」不算看过。离开范围、研究卡片、近邻表、新不新须 `--human-decision`。离开研究卡片还要写红海、蓝海或看不清，以及决心大、中或小 | docs/给人看.md |
 
 ## 12. 修改技能仓库的自律规则
 

@@ -606,6 +606,11 @@ def cmd_advance(args: argparse.Namespace) -> int:
     human_reply = None
     if previous_state in HUMAN_STOP_STATES and target != "BLOCKED":
         human_reply = require_human_reply(getattr(args, "human_decision", None))
+    fast_decision = None
+    if previous_state == "L1_FREEZE" and target != "BLOCKED":
+        from node_judge import parse_fast_decision
+
+        fast_decision = parse_fast_decision(human_reply or "")
     apply_transition_semantics(state, target, args, root, gate_updates)
 
     # schema 3.0 起证据层级由 active_state 派生：LAYER_DECISION -> K_FULLTEXT
@@ -678,6 +683,10 @@ def cmd_advance(args: argparse.Namespace) -> int:
         entry["artifacts"] = artifacts
     state.setdefault("decision_log", []).append(entry)
 
+    if fast_decision is not None:
+        from node_judge import write_dig_resolve
+
+        write_dig_resolve(root, fast_decision[0], fast_decision[1], human_reply or "")
     atomic_write_state(state_path, state)
     append_validation_log(
         root,
@@ -1958,7 +1967,7 @@ _EXPLAIN_STOPS = {
 _EXPLAIN_YOU = {
     "BOOT": "用自己的话写清三件事：博士还是期刊，新东西从哪来，最后交什么。",
     "SCOPE_LOCK": "看 scope_lock.md。范围对，就说按这个范围往下。不对，就指出哪一块不该算进来。",
-    "L1_FREEZE": "打开 l1-card.md。看研究对象、要对付的矛盾、现在谁在做。",
+    "L1_FREEZE": "打开 l1-card.md。看研究对象、要对付的矛盾、现在谁在做。再说这片是红海还是蓝海，以及决心大、中、小。",
     "LAYER_DECISION": "打开 l2-card.md。每篇要紧邻居都要有三栏：做了什么、堵死了哪个想法、还剩什么问题。",
     "N0_AUDIT": "打开 novelty-audit.md。看它为什么说该停，或者为什么说还活着。",
     "DIRECTION_LOCK": "用自己的话写一句，说明你收的是这次定题。带上项目编号。不要只回「继续」。",
@@ -2055,13 +2064,13 @@ def cmd_explain(args: argparse.Namespace) -> int:
 
 
 def cmd_judge(args: argparse.Namespace) -> int:
-    from node_judge import format_report, load_page, run_jev
+    from node_judge import format_report, load_page, read_dig_resolve, run_jev
 
     root = Path(args.root).resolve()
     state = _load_json_object(Path(args.state).resolve(), "workflow_state.json")
     page = load_page(root, state)
     screen = run_jev(page) if args.jev else None
-    print(format_report(state, page, screen))
+    print(format_report(state, page, screen, read_dig_resolve(root)))
     return int(ExitCode.READY)
 
 
