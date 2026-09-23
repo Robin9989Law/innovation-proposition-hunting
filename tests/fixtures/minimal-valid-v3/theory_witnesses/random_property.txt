@@ -1,1 +1,0 @@
-PASS: exhaustive integer sample x in [0, 10].
