@@ -4,7 +4,7 @@
 
 候选近邻和圈内邻居分开加。圈里的判断记在跳板下面，换了跳板不带过来。读者只写那几句原话。
 
-人先看 [docs/给人看.md](docs/给人看.md)。程序看 [SKILL.md](SKILL.md)。装到 Grok Bot 的一个 bot 上，看 [grok-bot/装到一个bot.md](grok-bot/装到一个bot.md)。
+人先看 [docs/给人看.md](docs/给人看.md)。程序看 [SKILL.md](SKILL.md)。Grok 读 [.grok/skills/proposition-hunt/SKILL.md](.grok/skills/proposition-hunt/SKILL.md)。装到一个 bot 上，看 [grok-bot/装到一个bot.md](grok-bot/装到一个bot.md)。
 
 ```bash
 python3 scripts/hunt.py init --root <课题目录> --object "方向里的对象" --action "方向里的动作"
